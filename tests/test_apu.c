@@ -59,7 +59,24 @@ int main(void) {
   expect_u8("echo entry", smx_bus_read(&bus, 0x002140), 0x05);
   expect_u16("entry", apu.entry, 0x0200);
   expect_true("program waiting", apu.program_ready);
-  expect_true("spc stopped", !smx_apu_core_running(&apu));
+  expect_u16("spc pc", apu.pc, 0x0200);
+  expect_true("spc running", smx_apu_core_running(&apu));
+
+  apu.ram[0x0300] = 0xE8;
+  apu.ram[0x0301] = 0xAA;
+  apu.ram[0x0302] = 0xC4;
+  apu.ram[0x0303] = 0xF4;
+  apu.ram[0x0304] = 0xE8;
+  apu.ram[0x0305] = 0xBB;
+  apu.ram[0x0306] = 0xC4;
+  apu.ram[0x0307] = 0xF5;
+  apu.pc = 0x0300;
+  smx_apu_step(&apu);
+  smx_apu_step(&apu);
+  smx_apu_step(&apu);
+  smx_apu_step(&apu);
+  expect_u8("spc port 0", smx_bus_read(&bus, 0x002140), 0xAA);
+  expect_u8("spc port 1", smx_bus_read(&bus, 0x002141), 0xBB);
 
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
