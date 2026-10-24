@@ -58,6 +58,25 @@ int main(void) {
   expect_u8("hdma idle", (Uint8)dma.log_count, 0);
   expect_u8("hdma latch", smx_bus_mmio(&bus, 0x420C), 0xFF);
 
+  smx_bus_write(&bus, 0x7E0000, 0x82);
+  smx_bus_write(&bus, 0x7E0001, 0x11);
+  smx_bus_write(&bus, 0x7E0002, 0x22);
+  smx_bus_write(&bus, 0x7E0003, 0x00);
+  write_reg(&bus, 0x4300, 0x00);
+  write_reg(&bus, 0x4301, 0x00);
+  write_reg(&bus, 0x4302, 0x00);
+  write_reg(&bus, 0x4303, 0x00);
+  write_reg(&bus, 0x4304, 0x7E);
+  write_reg(&bus, 0x420C, 0x01);
+  dma.log_count = 0;
+  smx_dma_hdma_init(&dma);
+  smx_dma_hdma_line(&dma);
+  expect_u8("hdma first", smx_bus_mmio(&bus, 0x2100), 0x11);
+  smx_dma_hdma_line(&dma);
+  expect_u8("hdma repeat", smx_bus_mmio(&bus, 0x2100), 0x22);
+  smx_dma_hdma_line(&dma);
+  expect_u8("hdma stop", smx_bus_mmio(&bus, 0x2100), 0x22);
+
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
 }

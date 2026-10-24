@@ -18,11 +18,16 @@ static Uint32 smx_clock_line(Uint32 dots) {
 }
 
 static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
+  Uint32 line_before = smx_clock_line(clock->dots);
   Uint32 line_after = 0;
   bool vblank = false;
 
   clock->dots += dots;
   line_after = smx_clock_line(clock->dots);
+  if (clock->dma != NULL && line_before != line_after && line_after > 0 &&
+      line_after < SMX_CLOCK_VBLANK_LINE) {
+    smx_dma_hdma_line(clock->dma);
+  }
   vblank = line_after >= SMX_CLOCK_VBLANK_LINE;
   if (vblank) {
     clock->bus->mmio[0x4212] = (Uint8)(clock->bus->mmio[0x4212] | 0x80);
@@ -39,7 +44,13 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
 }
 
 bool smx_clock_step(SmxClock *clock) {
-  bool ran = smx_cpu_step(clock->cpu);
+  bool ran = false;
+
+  if (clock->dma != NULL && (clock->dots % SMX_CLOCK_DOTS_PER_FRAME) == 0) {
+    smx_dma_hdma_init(clock->dma);
+    smx_dma_hdma_line(clock->dma);
+  }
+  ran = smx_cpu_step(clock->cpu);
 
   if (clock->bus->dma_requested) {
     smx_dma_run(clock->dma, clock->bus->dma_channels);
