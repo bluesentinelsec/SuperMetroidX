@@ -240,6 +240,19 @@ int main(void) {
   smx_ppu_render(&ppu);
   expect_u8("mosaic off r", ppu.pixels[4 + 2], 0);
 
+  /* Subscreen green added to the red backdrop. */
+  smx_ppu_write_cgram(&ppu, 0, 0x001F);
+  smx_ppu_write_cgram(&ppu, 1, 0x03E0);
+  smx_bus_write(&bus, 0x00212C, 0x00);
+  smx_bus_write(&bus, 0x00212D, 0x01);
+  smx_bus_write(&bus, 0x002132, 0xE0);
+  smx_bus_write(&bus, 0x002130, 0x02);
+  smx_bus_write(&bus, 0x002131, 0x20);
+  smx_ppu_render(&ppu);
+  expect_u8("sub r", ppu.pixels[2], 255);
+  expect_u8("sub g", ppu.pixels[1], 255);
+  expect_u8("sub gap g", ppu.pixels[4 + 1], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
