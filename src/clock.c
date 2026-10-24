@@ -34,10 +34,18 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
     smx_dma_hdma_line(clock->dma);
   }
   vblank = line_after >= SMX_CLOCK_VBLANK_LINE;
-  if (vblank) {
-    clock->bus->mmio[0x4212] = (Uint8)(clock->bus->mmio[0x4212] | 0x80);
-  } else {
-    clock->bus->mmio[0x4212] = (Uint8)(clock->bus->mmio[0x4212] & 0x7F);
+  {
+    Uint32 frame_dot = clock->dots % SMX_CLOCK_DOTS_PER_FRAME;
+    Uint32 vblank_at = SMX_CLOCK_VBLANK_LINE * SMX_CLOCK_DOTS_PER_LINE;
+    Uint8 status = (Uint8)(clock->bus->mmio[0x4212] & (Uint8)~0x81u);
+    /* Auto-joypad read holds bit 0 for 4224 master clocks from vblank. */
+    if (vblank) {
+      status = (Uint8)(status | 0x80);
+    }
+    if (frame_dot >= vblank_at && frame_dot < vblank_at + 4224u) {
+      status = (Uint8)(status | 0x01);
+    }
+    clock->bus->mmio[0x4212] = status;
   }
   if (!clock->prev_vblank && vblank) {
     clock->bus->mmio[0x4210] = (Uint8)(clock->bus->mmio[0x4210] | 0x80);

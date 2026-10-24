@@ -47,6 +47,38 @@ static void test_vblank_poll(void) {
   smx_bus_quit(&bus);
 }
 
+static void test_joy_busy(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxClock clock;
+  Uint32 guard = 0;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  cpu.e = false;
+  cpu.p = 0x30;
+  cpu.s = 0x01FF;
+  cpu.pc = 0x1000;
+  smx_bus_write(&bus, 0x1000, 0x80);
+  smx_bus_write(&bus, 0x1001, 0xFE);
+  while ((smx_bus_mmio(&bus, 0x4212) & 0x80) == 0 && guard < 40000u) {
+    smx_clock_step(&clock);
+    guard += 1;
+  }
+  expect_u8("joy busy", (Uint8)(smx_bus_mmio(&bus, 0x4212) & 0x01), 0x01);
+  guard = 0;
+  while (guard < 600u) {
+    smx_clock_step(&clock);
+    guard += 1;
+  }
+  expect_u8("joy done", (Uint8)(smx_bus_mmio(&bus, 0x4212) & 0x01), 0x00);
+  expect_u8("still vblank", (Uint8)(smx_bus_mmio(&bus, 0x4212) & 0x80), 0x80);
+  smx_bus_quit(&bus);
+}
+
 static void test_nmi(void) {
   Uint8 image[0x8000];
   SmxBus bus;
@@ -178,6 +210,7 @@ static void test_h_irq(void) {
 
 int main(void) {
   test_vblank_poll();
+  test_joy_busy();
   test_nmi();
   test_irq_and_joy();
   test_h_irq();
