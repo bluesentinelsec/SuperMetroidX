@@ -102,6 +102,27 @@ int main(void) {
       smx_bus_write(&bus, 0x002104, (Uint8)(i == 512 ? 0xA5 : 0x00));
     }
   }
+  /* Mode 1 BG3 is 2bpp and shares the main screen with the playing field. */
+  smx_bus_write(&bus, 0x002105, 0x01);
+  smx_bus_write(&bus, 0x002109, 0x04);
+  smx_bus_write(&bus, 0x00210C, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x04);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x80);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_ppu_write_cgram(&ppu, 1, 0x001F);
+  smx_ppu_render(&ppu);
+  expect_u8("bg3 plane", ppu.vram[0], 0x80);
+  expect_u8("bg3 map", ppu.vram[0x800], 0x00);
+  expect_u8("bg3 r", ppu.pixels[2], 255);
+  expect_u8("bg3 gap", ppu.pixels[4 + 2], 0);
+
   /* Mode 7 identity: map (0, 0) names tile 1, whose first pixel is color 2. */
   smx_bus_write(&bus, 0x002105, 0x07);
   smx_bus_write(&bus, 0x00212C, 0x01);

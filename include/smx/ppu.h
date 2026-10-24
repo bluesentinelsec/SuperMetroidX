@@ -12,7 +12,8 @@
  * NTSC picture RAM.
  * The framebuffer is XRGB8888, 256 by 224. Forced blank is black.
  * Mode 0, mode 1, and mode 7 backgrounds are sampled, then sprites on the
- * main screen. Mode 7 uses the latched matrix. Modes 0 and 1 scroll.
+ * main screen, including mode 1 BG3. Mode 7 uses the latched
+ * matrix. Modes 0 and 1 scroll.
  * HDMA can rewrite those registers per line. picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
