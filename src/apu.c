@@ -193,6 +193,16 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
         apu->voice_on[voice] = true;
       }
     }
+    if ((apu->dsp_addr & 0x7F) == 0x5C) {
+      Uint8 voice = 0;
+      for (; voice < 8; voice += 1) {
+        if ((value & (Uint8)(1u << voice)) == 0) {
+          continue;
+        }
+        apu->voice_on[voice] = false;
+        apu->voice_i[voice] = 16;
+      }
+    }
     return;
   }
   if (addr >= 0x00FA && addr <= 0x00FC) {

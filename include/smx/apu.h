@@ -12,7 +12,7 @@
  * one BRR block. Voice 0 renders those samples when `$4C` bit 0 is set.
  * `$02`/`$03` set its pitch, where `$1000` consumes one sample per output.
  * All eight voices mix into the left and right outputs, then `$0C` and
- * `$1C` scale those outputs. Envelopes are not applied.
+ * `$1C` scale those outputs. `$5C` keys a voice off. Envelopes are not applied.
  * One `smx_apu_step` is one SPC700 instruction, not a cycle-accurate slice.
  */
 typedef struct SmxApu {
