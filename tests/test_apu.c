@@ -269,6 +269,23 @@ int main(void) {
     }
     smx_apu_render(&apu, left, NULL, 1);
     expect_s16("mvol", left[0], 1016);
+    apu.ram[0x0900] = 0xE8;
+    apu.ram[0x0901] = 0x5C;
+    apu.ram[0x0902] = 0xC4;
+    apu.ram[0x0903] = 0xF2;
+    apu.ram[0x0904] = 0xE8;
+    apu.ram[0x0905] = 0x01;
+    apu.ram[0x0906] = 0xC4;
+    apu.ram[0x0907] = 0xF3;
+    apu.pc = 0x0900;
+    apu.psw = 0;
+    apu.running = true;
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_render(&apu, left, NULL, 1);
+    expect_s16("koff", left[0], 0);
   }
 
   smx_bus_quit(&bus);
