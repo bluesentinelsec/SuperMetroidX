@@ -151,6 +151,9 @@ int main(void) {
     expect_s16("brr filter", out[0], 15);
   }
 
+  apu.dsp[0x0C] = 0x7F;
+  apu.dsp[0x1C] = 0x7F;
+
   {
     static const Uint8 program[] = {0xE8, 0x5D, 0xC4, 0xF2, 0xE8, 0x01, 0xC4, 0xF3,
                                     0xE8, 0x04, 0xC4, 0xF2, 0xE8, 0x00, 0xC4, 0xF3,
@@ -172,7 +175,7 @@ int main(void) {
       smx_apu_step(&apu);
     }
     smx_apu_render(&apu, left, NULL, 1);
-    expect_s16("voice", left[0], 2032);
+    expect_s16("voice", left[0], 2016);
   }
 
   {
@@ -194,8 +197,8 @@ int main(void) {
       smx_apu_step(&apu);
     }
     smx_apu_render(&apu, left, NULL, 3);
-    expect_s16("pitch 0", left[0], 2032);
-    expect_s16("pitch 1", left[1], 2032);
+    expect_s16("pitch 0", left[0], 2016);
+    expect_s16("pitch 1", left[1], 2016);
     expect_s16("pitch 2", left[2], 0);
   }
 
@@ -218,7 +221,7 @@ int main(void) {
       smx_apu_step(&apu);
     }
     smx_apu_render(&apu, left, NULL, 1);
-    expect_s16("voice 1", left[0], 2032);
+    expect_s16("voice 1", left[0], 2016);
   }
 
   {
@@ -242,7 +245,30 @@ int main(void) {
     }
     smx_apu_render(&apu, left, right, 1);
     expect_s16("right l", left[0], 0);
-    expect_s16("right r", right[0], 2032);
+    expect_s16("right r", right[0], 2016);
+  }
+
+  {
+    static const Uint8 program[] = {0xE8, 0x0C, 0xC4, 0xF2, 0xE8, 0x40, 0xC4, 0xF3, 0xE8, 0x00,
+                                    0xC4, 0xF2, 0xE8, 0x7F, 0xC4, 0xF3, 0xE8, 0x02, 0xC4, 0xF2,
+                                    0xE8, 0x00, 0xC4, 0xF3, 0xE8, 0x03, 0xC4, 0xF2, 0xE8, 0x10,
+                                    0xC4, 0xF3, 0xE8, 0x4C, 0xC4, 0xF2, 0xE8, 0x01, 0xC4, 0xF3};
+    Sint16 left[1];
+    Uint8 step = 0;
+    Uint8 voice = 0;
+    for (; voice < 8; voice += 1) {
+      apu.voice_on[voice] = false;
+      apu.voice_i[voice] = 16;
+    }
+    SDL_memcpy(apu.ram + 0x0800, program, sizeof(program));
+    apu.pc = 0x0800;
+    apu.psw = 0;
+    apu.running = true;
+    for (; step < sizeof(program) / 2u; step += 1) {
+      smx_apu_step(&apu);
+    }
+    smx_apu_render(&apu, left, NULL, 1);
+    expect_s16("mvol", left[0], 1016);
   }
 
   smx_bus_quit(&bus);
