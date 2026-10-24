@@ -607,7 +607,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return true;
   }
 
-  if ((op & 0x1F) == 0x10) {
+  if ((op & 0x1F) == 0x10 || op == 0x80) {
     bool take = false;
     switch (op) {
     case 0x10:
@@ -913,8 +913,10 @@ bool smx_cpu_step(SmxCpu *cpu) {
   } else if (op == 0x1C || op == 0x0C || op == 0x14 || op == 0x04) {
     addr = address_for(cpu, op);
     value = m8(cpu) ? read8(cpu, addr) : read16_24(cpu, addr);
-  } else if ((op & 0x1F) == 0x06 || (op & 0x1F) == 0x0E || (op & 0x1F) == 0x16 ||
-             (op & 0x1F) == 0x1E) {
+  } else if (op == 0x06 || op == 0x0E || op == 0x16 || op == 0x1E || op == 0x26 || op == 0x2E ||
+             op == 0x36 || op == 0x3E || op == 0x46 || op == 0x4E || op == 0x56 || op == 0x5E ||
+             op == 0x66 || op == 0x6E || op == 0x76 || op == 0x7E || op == 0xC6 || op == 0xCE ||
+             op == 0xD6 || op == 0xDE || op == 0xE6 || op == 0xEE || op == 0xF6 || op == 0xFE) {
     addr = address_for(cpu, op);
     shift_mem(cpu, op, addr);
     return true;

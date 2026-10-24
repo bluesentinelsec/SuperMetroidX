@@ -77,6 +77,19 @@ int main(void) {
   expect_true("tile hash", smx_ppu_frame_hash(&ppu) != color_hash);
   expect_true("still no oracle", !ppu.picture_matches_oracle);
 
+  /* One 8x8 sprite. OAM Y is one line above the picture line. */
+  ppu.oam[0] = 0;
+  ppu.oam[1] = 255;
+  ppu.oam[2] = 1;
+  ppu.oam[3] = 0;
+  ppu.vram[32] = 0x80;
+  ppu.cgram[129] = 0x001F;
+  smx_bus_write(&bus, 0x002101, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x10);
+  smx_ppu_render(&ppu);
+  expect_u8("sprite r", ppu.pixels[2], 255);
+  expect_u8("sprite gap", ppu.pixels[4 + 2], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;

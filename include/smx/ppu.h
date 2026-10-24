@@ -11,8 +11,8 @@
 /**
  * NTSC picture RAM.
  * The framebuffer is XRGB8888, 256 by 224. Forced blank is black.
- * Mode 0 and mode 1 backgrounds are sampled. Sprites, scroll, and the
- * other modes are not drawn. picture_matches_oracle stays false.
+ * Mode 0 and mode 1 backgrounds are sampled, then sprites on the main
+ * screen. Scroll and modes 2-7 are not drawn. picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
