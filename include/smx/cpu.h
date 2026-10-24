@@ -36,4 +36,7 @@ bool smx_cpu_step(SmxCpu *cpu);
 /** Edge-triggered non-maskable interrupt. `I` does not block it. */
 void smx_cpu_nmi(SmxCpu *cpu);
 
+/** Maskable interrupt. `I` blocks it. */
+void smx_cpu_irq(SmxCpu *cpu);
+
 #endif /* SMX_CPU_H_ */

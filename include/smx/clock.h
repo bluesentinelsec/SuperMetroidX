@@ -25,7 +25,9 @@ typedef struct SmxClock {
   SmxDma *dma;
   Uint32 dots;
   Uint32 dma_count;
+  Uint16 joy;
   bool prev_vblank;
+  bool irq_line;
 } SmxClock;
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);
