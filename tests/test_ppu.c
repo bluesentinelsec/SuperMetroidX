@@ -293,6 +293,31 @@ int main(void) {
   expect_u8("large gap r", ppu.pixels[2], 0);
   expect_u8("large r", ppu.pixels[8 * 4 + 2], 255);
 
+  /* $212F hides the subscreen pixel. $212E does not. */
+  smx_bus_write(&bus, 0x002105, 0x01);
+  smx_bus_write(&bus, 0x00212C, 0x00);
+  smx_bus_write(&bus, 0x00212D, 0x01);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x80);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_ppu_write_cgram(&ppu, 0, 0x001F);
+  smx_ppu_write_cgram(&ppu, 1, 0x03E0);
+  smx_bus_write(&bus, 0x002132, 0xE0);
+  smx_bus_write(&bus, 0x002130, 0x02);
+  smx_bus_write(&bus, 0x002131, 0x20);
+  smx_bus_write(&bus, 0x002123, 0x02);
+  smx_bus_write(&bus, 0x002126, 0x00);
+  smx_bus_write(&bus, 0x002127, 0x00);
+  smx_bus_write(&bus, 0x00212E, 0x00);
+  smx_bus_write(&bus, 0x00212F, 0x01);
+  smx_ppu_render(&ppu);
+  expect_u8("sub window g", ppu.pixels[1], 0);
+  smx_bus_write(&bus, 0x00212F, 0x00);
+  smx_ppu_render(&ppu);
+  expect_u8("sub window off g", ppu.pixels[1], 255);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
