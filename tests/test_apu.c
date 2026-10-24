@@ -175,7 +175,7 @@ int main(void) {
       smx_apu_step(&apu);
     }
     smx_apu_render(&apu, left, NULL, 1);
-    expect_s16("voice", left[0], 2016);
+    expect_s16("voice", left[0], 2015);
   }
 
   {
@@ -197,8 +197,8 @@ int main(void) {
       smx_apu_step(&apu);
     }
     smx_apu_render(&apu, left, NULL, 3);
-    expect_s16("pitch 0", left[0], 2016);
-    expect_s16("pitch 1", left[1], 2016);
+    expect_s16("pitch 0", left[0], 2015);
+    expect_s16("pitch 1", left[1], 2015);
     expect_s16("pitch 2", left[2], 0);
   }
 
@@ -221,7 +221,7 @@ int main(void) {
       smx_apu_step(&apu);
     }
     smx_apu_render(&apu, left, NULL, 1);
-    expect_s16("voice 1", left[0], 2016);
+    expect_s16("voice 1", left[0], 2015);
   }
 
   {
@@ -245,7 +245,7 @@ int main(void) {
     }
     smx_apu_render(&apu, left, right, 1);
     expect_s16("right l", left[0], 0);
-    expect_s16("right r", right[0], 2016);
+    expect_s16("right r", right[0], 2015);
   }
 
   {
@@ -268,7 +268,36 @@ int main(void) {
       smx_apu_step(&apu);
     }
     smx_apu_render(&apu, left, NULL, 1);
-    expect_s16("mvol", left[0], 1016);
+    expect_s16("mvol", left[0], 1015);
+    apu.ram[0x0880] = 0xE8;
+    apu.ram[0x0881] = 0x4C;
+    apu.ram[0x0882] = 0xC4;
+    apu.ram[0x0883] = 0xF2;
+    apu.ram[0x0884] = 0xE8;
+    apu.ram[0x0885] = 0x01;
+    apu.ram[0x0886] = 0xC4;
+    apu.ram[0x0887] = 0xF3;
+    apu.ram[0x0888] = 0xE8;
+    apu.ram[0x0889] = 0x07;
+    apu.ram[0x088A] = 0xC4;
+    apu.ram[0x088B] = 0xF2;
+    apu.ram[0x088C] = 0xE8;
+    apu.ram[0x088D] = 0x40;
+    apu.ram[0x088E] = 0xC4;
+    apu.ram[0x088F] = 0xF3;
+    apu.pc = 0x0880;
+    apu.psw = 0;
+    apu.running = true;
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_render(&apu, left, NULL, 1);
+    expect_s16("gain", left[0], 508);
     apu.ram[0x0900] = 0xE8;
     apu.ram[0x0901] = 0x5C;
     apu.ram[0x0902] = 0xC4;
