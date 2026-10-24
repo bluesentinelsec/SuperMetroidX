@@ -16,7 +16,8 @@
  * matrix. Modes 0 and 1 scroll.
  * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
  * main-screen layers. $2131 adds or subtracts the fixed color from $2132.
- * Mode 1 $2105 bit 3 draws priority BG3 above sprites. $2106 mosaics
+ * Mode 0 and mode 1 use the hardware layer order. Mode 1 $2105 bit 3
+ * draws priority BG3 above sprites. $2106 mosaics
  * the background layers it enables. `$2130` bit 1 blends the main
  * pixel with the subscreen from `$212D` instead of the fixed color.
  * Bits 4-7 of $2130 black out the main pixel or skip color math in the

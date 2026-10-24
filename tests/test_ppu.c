@@ -203,7 +203,7 @@ int main(void) {
   ppu.oam[0] = 0;
   ppu.oam[1] = 255;
   ppu.oam[2] = 1;
-  ppu.oam[3] = 0;
+  ppu.oam[3] = 0x30;
   ppu.oam[512] = 0;
   ppu.vram[32] = 0x80;
   ppu.cgram[129] = 0x7C00;
