@@ -17,7 +17,10 @@
  * Instruction-timed NTSC clock.
  * Each instruction spends 8 master clocks. `$4212` bit 7 follows vblank,
  * and `$4200` bit 7 arms an NMI on the rising edge. A write to `$420B`
- * runs general-purpose DMA before the next instruction.
+ * runs general-purpose DMA before the next instruction. `$4200` bit 4
+ * fires an IRQ when the dot in the line matches `$4207`/`$4208`. Bit 5
+ * still fires at the start of the line in `$4209`/`$420A`. Both bits wait
+ * for that dot on that line.
  */
 typedef struct SmxClock {
   SmxBus *bus;
