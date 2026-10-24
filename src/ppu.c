@@ -267,6 +267,15 @@ static Uint8 smx_ppu_plane(const SmxPpu *ppu, Uint16 base_word, Uint16 tile, Uin
   return index;
 }
 
+static Uint32 smx_ppu_mosaic(const SmxPpu *ppu, Uint8 bg, Uint32 value) {
+  Uint8 reg = smx_bus_mmio(ppu->bus, 0x2106);
+  Uint8 size = (Uint8)((reg & 0x0F) + 1u);
+  if (size == 1 || (reg & (Uint8)(0x10u << bg)) == 0) {
+    return value;
+  }
+  return value - (value % size);
+}
+
 static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibble, bool four,
                               Uint32 x, Uint32 y, Uint16 hscroll, Uint16 vscroll, bool *opaque,
                               bool *priority, Uint16 *color) {
@@ -463,7 +472,8 @@ void smx_ppu_render(SmxPpu *ppu) {
             }
             char_reg = smx_bus_mmio(ppu->bus, bg < 2 ? 0x210B : 0x210C);
             nibble = (bg & 1) == 0 ? (Uint8)(char_reg & 0x0F) : (Uint8)(char_reg >> 4);
-            smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, four, x, y,
+            smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, four,
+                              smx_ppu_mosaic(ppu, (Uint8)bg, x), smx_ppu_mosaic(ppu, (Uint8)bg, y),
                               ppu->bg_h[bg], ppu->bg_v[bg], &opaque, &priority, &sample);
             if (opaque && priority == (pass == 1) && !smx_ppu_window_masks(ppu, (Uint8)bg, x)) {
               color = sample;
@@ -474,7 +484,9 @@ void smx_ppu_render(SmxPpu *ppu) {
       }
       if (!blank && brightness != 0 && mode == 7 && (main_screen & 0x01) != 0) {
         Uint16 mode7 = 0;
-        if (smx_ppu_sample_mode7(ppu, x, y, &mode7) && !smx_ppu_window_masks(ppu, 0, x)) {
+        if (smx_ppu_sample_mode7(ppu, smx_ppu_mosaic(ppu, 0, x), smx_ppu_mosaic(ppu, 0, y),
+                                 &mode7) &&
+            !smx_ppu_window_masks(ppu, 0, x)) {
           color = mode7;
           source = 1;
         }
@@ -492,8 +504,9 @@ void smx_ppu_render(SmxPpu *ppu) {
         bool priority = false;
         Uint16 sample = 0;
         Uint8 char_reg = smx_bus_mmio(ppu->bus, 0x210C);
-        smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, 0x2109), (Uint8)(char_reg >> 4), false, x, y,
-                          ppu->bg_h[2], ppu->bg_v[2], &opaque, &priority, &sample);
+        smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, 0x2109), (Uint8)(char_reg >> 4), false,
+                          smx_ppu_mosaic(ppu, 2, x), smx_ppu_mosaic(ppu, 2, y), ppu->bg_h[2],
+                          ppu->bg_v[2], &opaque, &priority, &sample);
         if (opaque && priority && !smx_ppu_window_masks(ppu, 2, x)) {
           color = sample;
           source = 3;
