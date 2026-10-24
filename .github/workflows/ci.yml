@@ -17,7 +17,11 @@ jobs:
 
       - name: Install tools (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxrender-dev libxss-dev libgl1-mesa-dev
 
       - name: Install tools (macOS)
         if: runner.os == 'macOS'
