@@ -174,16 +174,24 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
   }
   if (addr == 0x00F3) {
     apu->dsp[apu->dsp_addr & 0x7F] = value;
-    if ((apu->dsp_addr & 0x7F) == 0x4C && (value & 0x01) != 0) {
+    if ((apu->dsp_addr & 0x7F) == 0x4C) {
+      Uint8 voice = 0;
       Uint16 dir = (Uint16)((Uint16)apu->dsp[0x5D] << 8);
-      Uint16 entry = (Uint16)(dir + (Uint16)apu->dsp[0x04] * 4u);
-      apu->voice_addr = (Uint16)(apu->ram[entry] | ((Uint16)apu->ram[entry + 1u] << 8));
-      apu->voice_loop = (Uint16)(apu->ram[entry + 2u] | ((Uint16)apu->ram[entry + 3u] << 8));
-      apu->voice_p1 = 0;
-      apu->voice_p2 = 0;
-      apu->voice_phase = 0;
-      apu->voice_i = 16;
-      apu->voice_on = true;
+      for (; voice < 8; voice += 1) {
+        Uint16 entry = 0;
+        if ((value & (Uint8)(1u << voice)) == 0) {
+          continue;
+        }
+        entry = (Uint16)(dir + (Uint16)apu->dsp[(Uint8)(voice * 0x10u + 0x04u)] * 4u);
+        apu->voice_addr[voice] = (Uint16)(apu->ram[entry] | ((Uint16)apu->ram[entry + 1u] << 8));
+        apu->voice_loop[voice] =
+            (Uint16)(apu->ram[entry + 2u] | ((Uint16)apu->ram[entry + 3u] << 8));
+        apu->voice_p1[voice] = 0;
+        apu->voice_p2[voice] = 0;
+        apu->voice_phase[voice] = 0;
+        apu->voice_i[voice] = 16;
+        apu->voice_on[voice] = true;
+      }
     }
     return;
   }
@@ -974,38 +982,50 @@ static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *pre
 
 void smx_apu_render(SmxApu *apu, Sint16 *left, Uint32 count) {
   Uint32 i = 0;
-  Sint8 volume = (Sint8)apu->dsp[0x00];
 
   for (; i < count; i += 1) {
-    Sint32 sample = 0;
-    if (apu->voice_on && apu->voice_i >= 16) {
-      Uint8 header = apu->ram[apu->voice_addr];
-      smx_apu_brr_decode_impl(&apu->ram[apu->voice_addr], apu->voice_buf, &apu->voice_p1,
-                              &apu->voice_p2);
-      apu->voice_i = 0;
-      if ((header & 0x01) != 0) {
-        if ((header & 0x02) != 0) {
-          apu->voice_addr = apu->voice_loop;
+    Sint32 mixed = 0;
+    Uint8 voice = 0;
+    for (; voice < 8; voice += 1) {
+      Uint8 base = (Uint8)(voice * 0x10u);
+      Sint32 sample = 0;
+      Sint8 volume = (Sint8)apu->dsp[base];
+      if (apu->voice_on[voice] && apu->voice_i[voice] >= 16) {
+        Uint8 header = apu->ram[apu->voice_addr[voice]];
+        smx_apu_brr_decode_impl(&apu->ram[apu->voice_addr[voice]], apu->voice_buf[voice],
+                                &apu->voice_p1[voice], &apu->voice_p2[voice]);
+        apu->voice_i[voice] = 0;
+        if ((header & 0x01) != 0) {
+          if ((header & 0x02) != 0) {
+            apu->voice_addr[voice] = apu->voice_loop[voice];
+          } else {
+            apu->voice_on[voice] = false;
+          }
         } else {
-          apu->voice_on = false;
-        }
-      } else {
-        apu->voice_addr = (Uint16)(apu->voice_addr + 9u);
-      }
-    }
-    if (apu->voice_i < 16) {
-      Uint16 pitch = (Uint16)(apu->dsp[0x02] | ((Uint16)apu->dsp[0x03] << 8));
-      sample = apu->voice_buf[apu->voice_i];
-      apu->voice_phase = (Uint16)(apu->voice_phase + pitch);
-      while (apu->voice_phase >= 0x1000) {
-        apu->voice_phase = (Uint16)(apu->voice_phase - 0x1000);
-        apu->voice_i = (Uint8)(apu->voice_i + 1u);
-        if (apu->voice_i >= 16) {
-          break;
+          apu->voice_addr[voice] = (Uint16)(apu->voice_addr[voice] + 9u);
         }
       }
+      if (apu->voice_i[voice] < 16) {
+        Uint16 pitch = (Uint16)(apu->dsp[base + 2u] | ((Uint16)apu->dsp[base + 3u] << 8));
+        sample = apu->voice_buf[voice][apu->voice_i[voice]];
+        apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] + pitch);
+        while (apu->voice_phase[voice] >= 0x1000) {
+          apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] - 0x1000);
+          apu->voice_i[voice] = (Uint8)(apu->voice_i[voice] + 1u);
+          if (apu->voice_i[voice] >= 16) {
+            break;
+          }
+        }
+      }
+      mixed += (sample * volume) >> 7;
     }
-    left[i] = (Sint16)((sample * volume) >> 7);
+    if (mixed > 32767) {
+      mixed = 32767;
+    }
+    if (mixed < -32768) {
+      mixed = -32768;
+    }
+    left[i] = (Sint16)mixed;
   }
 }
 

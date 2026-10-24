@@ -11,7 +11,7 @@
  * to the entry address. DSP writes are stored. `smx_apu_brr_decode` expands
  * one BRR block. Voice 0 renders those samples when `$4C` bit 0 is set.
  * `$02`/`$03` set its pitch, where `$1000` consumes one sample per output.
- * Envelopes and the other voices are not applied.
+ * All eight voices mix into the left output. Envelopes are not applied.
  * One `smx_apu_step` is one SPC700 instruction, not a cycle-accurate slice.
  */
 typedef struct SmxApu {
@@ -40,14 +40,14 @@ typedef struct SmxApu {
   bool wait_zero;
   bool program_ready;
   bool running;
-  bool voice_on;
-  Uint8 voice_i;
-  Uint16 voice_addr;
-  Uint16 voice_loop;
-  Sint16 voice_p1;
-  Sint16 voice_p2;
-  Uint16 voice_phase;
-  Sint16 voice_buf[16];
+  bool voice_on[8];
+  Uint8 voice_i[8];
+  Uint16 voice_addr[8];
+  Uint16 voice_loop[8];
+  Sint16 voice_p1[8];
+  Sint16 voice_p2[8];
+  Uint16 voice_phase[8];
+  Sint16 voice_buf[8][16];
 } SmxApu;
 
 void smx_apu_init(SmxApu *apu, SmxBus *bus);
