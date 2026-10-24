@@ -266,6 +266,33 @@ int main(void) {
   expect_u8("black window r", ppu.pixels[2], 0);
   expect_u8("outside window r", ppu.pixels[4 + 2], 255);
 
+  /* A 16x16 BG1 tile reads its second 8x8 character at x = 8. */
+  smx_bus_write(&bus, 0x002130, 0x00);
+  smx_bus_write(&bus, 0x002105, 0x11);
+  smx_bus_write(&bus, 0x002107, 0x04);
+  smx_bus_write(&bus, 0x00210B, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x01);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002116, 16);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x80);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_ppu_write_cgram(&ppu, 0, 0x0000);
+  smx_ppu_write_cgram(&ppu, 1, 0x001F);
+  smx_ppu_render(&ppu);
+  expect_u8("large gap r", ppu.pixels[2], 0);
+  expect_u8("large r", ppu.pixels[8 * 4 + 2], 255);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
