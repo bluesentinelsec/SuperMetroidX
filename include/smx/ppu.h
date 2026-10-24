@@ -19,7 +19,8 @@
  * Mode 1 $2105 bit 3 draws priority BG3 above sprites. $2106 mosaics
  * the background layers it enables. `$2130` bit 1 blends the main
  * pixel with the subscreen from `$212D` instead of the fixed color.
- * picture_matches_oracle stays false.
+ * Bits 4-7 of $2130 black out the main pixel or skip color math in the
+ * color window. picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
