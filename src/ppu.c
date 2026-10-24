@@ -486,6 +486,19 @@ void smx_ppu_render(SmxPpu *ppu) {
           source = 5;
         }
       }
+      if (!blank && brightness != 0 && mode == 1 && (smx_bus_mmio(ppu->bus, 0x2105) & 0x08) != 0 &&
+          (main_screen & 0x04) != 0) {
+        bool opaque = false;
+        bool priority = false;
+        Uint16 sample = 0;
+        Uint8 char_reg = smx_bus_mmio(ppu->bus, 0x210C);
+        smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, 0x2109), (Uint8)(char_reg >> 4), false, x, y,
+                          ppu->bg_h[2], ppu->bg_v[2], &opaque, &priority, &sample);
+        if (opaque && priority && !smx_ppu_window_masks(ppu, 2, x)) {
+          color = sample;
+          source = 3;
+        }
+      }
       if (blank || brightness == 0) {
         blue = 0;
         green = 0;

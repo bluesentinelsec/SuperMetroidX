@@ -184,6 +184,36 @@ int main(void) {
   expect_u8("math g", ppu.pixels[1], 255);
   expect_u8("math b", ppu.pixels[0], 0);
 
+  /* Mode 1 BG3 priority sits above a sprite when $2105 bit 3 is set. */
+  smx_bus_write(&bus, 0x002131, 0x00);
+  smx_bus_write(&bus, 0x002105, 0x01);
+  smx_bus_write(&bus, 0x002109, 0x04);
+  smx_bus_write(&bus, 0x00210C, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x14);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x20);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x80);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_ppu_write_cgram(&ppu, 1, 0x001F);
+  ppu.oam[0] = 0;
+  ppu.oam[1] = 255;
+  ppu.oam[2] = 1;
+  ppu.oam[3] = 0;
+  ppu.oam[512] = 0;
+  ppu.vram[32] = 0x80;
+  ppu.cgram[129] = 0x7C00;
+  smx_ppu_render(&ppu);
+  expect_u8("sprite over bg3 b", ppu.pixels[0], 255);
+  smx_bus_write(&bus, 0x002105, 0x09);
+  smx_ppu_render(&ppu);
+  expect_u8("bg3 over sprite r", ppu.pixels[2], 255);
+  expect_u8("bg3 over sprite b", ppu.pixels[0], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
