@@ -370,6 +370,17 @@ bool smx_apu_step(SmxApu *apu) {
     return false;
   }
   op = smx_spc_fetch(apu);
+  if ((op & 0x1F) == 0x18 && op < 0xC0) {
+    right = smx_spc_fetch(apu);
+    addr = (Uint16)(smx_spc_page(apu) | smx_spc_fetch(apu));
+    left = smx_spc_read(apu, addr);
+    left = smx_spc_logic(apu, op, left, right);
+    if ((op & 0xE0) != 0x60) {
+      smx_spc_write(apu, addr, left);
+    }
+    smx_spc_timers(apu);
+    return true;
+  }
   if (smx_spc_move_a(apu, op)) {
     smx_spc_timers(apu);
     return true;
@@ -486,7 +497,9 @@ bool smx_apu_step(SmxApu *apu) {
     break;
   case 0x1F:
     addr = (Uint16)(smx_spc_fetch(apu) | ((Uint16)smx_spc_fetch(apu) << 8));
-    apu->pc = (Uint16)(addr + apu->x);
+    addr = (Uint16)(addr + apu->x);
+    apu->pc =
+        (Uint16)(smx_spc_read(apu, addr) | ((Uint16)smx_spc_read(apu, (Uint16)(addr + 1)) << 8));
     break;
   case 0x8F:
     right = smx_spc_fetch(apu);
@@ -540,9 +553,6 @@ bool smx_apu_step(SmxApu *apu) {
   case 0xCC:
     if (op == 0xC9 || op == 0xCC) {
       addr = (Uint16)(smx_spc_fetch(apu) | ((Uint16)smx_spc_fetch(apu) << 8));
-      if (op == 0xC9) {
-        addr = (Uint16)(addr + apu->x);
-      }
     } else if (op == 0xD9) {
       addr = (Uint16)(smx_spc_page(apu) | (Uint8)(smx_spc_fetch(apu) + apu->y));
     } else if (op == 0xDB) {
@@ -607,12 +617,6 @@ bool smx_apu_step(SmxApu *apu) {
     }
     left = (op == 0xAD || op == 0x7E || op == 0x5E) ? apu->y : apu->x;
     smx_spc_logic(apu, 0x60, left, right);
-    break;
-  case 0x78:
-    left = smx_spc_fetch(apu);
-    right = smx_spc_fetch(apu);
-    addr = (Uint16)(smx_spc_page(apu) | right);
-    smx_spc_logic(apu, 0x60, smx_spc_read(apu, addr), left);
     break;
   case 0xAB:
   case 0xBB:

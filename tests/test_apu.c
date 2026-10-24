@@ -89,6 +89,38 @@ int main(void) {
   expect_u8("abs store", smx_apu_ram(&apu, 0x0240), 0x12);
   expect_u16("abs pc", apu.pc, 0x0315);
 
+  apu.ram[0x0320] = 0x1F;
+  apu.ram[0x0321] = 0x10;
+  apu.ram[0x0322] = 0x02;
+  apu.ram[0x0210] = 0x34;
+  apu.ram[0x0211] = 0x12;
+  apu.x = 0;
+  apu.pc = 0x0320;
+  apu.running = true;
+  smx_apu_step(&apu);
+  expect_u16("jmp ind", apu.pc, 0x1234);
+
+  apu.x = 0x12;
+  apu.ram[0x0330] = 0xC9;
+  apu.ram[0x0331] = 0x40;
+  apu.ram[0x0332] = 0x02;
+  apu.pc = 0x0330;
+  apu.running = true;
+  smx_apu_step(&apu);
+  expect_u8("mov abs,x", smx_apu_ram(&apu, 0x0240), 0x12);
+  expect_u8("mov abs,x skip", smx_apu_ram(&apu, 0x0252), 0x00);
+  expect_u16("mov abs,x pc", apu.pc, 0x0333);
+
+  apu.ram[0x0010] = 0x01;
+  apu.ram[0x0340] = 0x98;
+  apu.ram[0x0341] = 0x02;
+  apu.ram[0x0342] = 0x10;
+  apu.psw = 0;
+  apu.pc = 0x0340;
+  apu.running = true;
+  smx_apu_step(&apu);
+  expect_u8("adc dp imm", smx_apu_ram(&apu, 0x0010), 0x03);
+
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
 }
