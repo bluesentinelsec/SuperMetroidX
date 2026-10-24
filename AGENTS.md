@@ -31,7 +31,7 @@ SDL3 is the platform layer: window, input, audio, threads, and filesystem. CMake
 
 OpenGL, when the shader presenter arrives, is the system OpenGL library reached through SDL's GL context. Shader sources live in the binary as `Uint8` arrays in headers. Do not ship loose `.glsl` files.
 
-Do not add another third-party library without a written reason in the pull request. The unit-test runner is a C `main` that returns 0 or 1. Do not bring in a test framework.
+Do not add any third party libraries by default.
 
 ## Layout
 
