@@ -181,6 +181,7 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
       apu->voice_loop = (Uint16)(apu->ram[entry + 2u] | ((Uint16)apu->ram[entry + 3u] << 8));
       apu->voice_p1 = 0;
       apu->voice_p2 = 0;
+      apu->voice_phase = 0;
       apu->voice_i = 16;
       apu->voice_on = true;
     }
@@ -993,8 +994,16 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Uint32 count) {
       }
     }
     if (apu->voice_i < 16) {
+      Uint16 pitch = (Uint16)(apu->dsp[0x02] | ((Uint16)apu->dsp[0x03] << 8));
       sample = apu->voice_buf[apu->voice_i];
-      apu->voice_i = (Uint8)(apu->voice_i + 1u);
+      apu->voice_phase = (Uint16)(apu->voice_phase + pitch);
+      while (apu->voice_phase >= 0x1000) {
+        apu->voice_phase = (Uint16)(apu->voice_phase - 0x1000);
+        apu->voice_i = (Uint8)(apu->voice_i + 1u);
+        if (apu->voice_i >= 16) {
+          break;
+        }
+      }
     }
     left[i] = (Sint16)((sample * volume) >> 7);
   }

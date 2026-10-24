@@ -10,7 +10,8 @@
  * Reset serves the IPL handshake on `$2140-$2143`. A zero-length block jumps
  * to the entry address. DSP writes are stored. `smx_apu_brr_decode` expands
  * one BRR block. Voice 0 renders those samples when `$4C` bit 0 is set.
- * Pitch, envelopes, and the other voices are not applied.
+ * `$02`/`$03` set its pitch, where `$1000` consumes one sample per output.
+ * Envelopes and the other voices are not applied.
  * One `smx_apu_step` is one SPC700 instruction, not a cycle-accurate slice.
  */
 typedef struct SmxApu {
@@ -45,6 +46,7 @@ typedef struct SmxApu {
   Uint16 voice_loop;
   Sint16 voice_p1;
   Sint16 voice_p2;
+  Uint16 voice_phase;
   Sint16 voice_buf[16];
 } SmxApu;
 
