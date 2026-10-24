@@ -107,6 +107,17 @@ static void test_alu_and_flow(void) {
   step_n(&cpu, 2);
   expect_u16("bra", cpu.a, 0x0011);
 
+  {
+    /* 8-bit CMP must clear Z when the bytes differ, or a following BNE is skipped. */
+    static const Uint8 cmp[] = {0xE2, 0x20, 0xA9, 0x00, 0xC9, 0xFF,
+                                0xD0, 0x02, 0xA9, 0x22, 0xA9, 0x33};
+    native(&cpu, cmp, sizeof(cmp));
+    step_n(&cpu, 4);
+    expect_u16("cmp bne pc", cpu.pc, 0x100A);
+    step_n(&cpu, 1);
+    expect_u16("cmp bne", cpu.a, 0x0033);
+  }
+
   native(&cpu, call, sizeof(call));
   step_n(&cpu, 4);
   expect_u16("jsr", cpu.a, 0x0011);

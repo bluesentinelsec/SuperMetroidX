@@ -1062,7 +1062,9 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return true;
   }
   if ((op & 0xE0) == 0x00 || (op & 0xE0) == 0x20 || (op & 0xE0) == 0x40 || (op & 0xE0) == 0xC0) {
-    if ((op & 0xE0) != 0xC0) {
+    if ((op & 0xE0) == 0xC0) {
+      logic(cpu, op, value);
+    } else {
       set_a(cpu, logic(cpu, op, value));
     }
     return true;
