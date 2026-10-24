@@ -17,7 +17,8 @@
  * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
  * main-screen layers. $2131 adds or subtracts the fixed color from $2132.
  * Mode 1 $2105 bit 3 draws priority BG3 above sprites. $2106 mosaics
- * the background layers it enables.
+ * the background layers it enables. `$2130` bit 1 blends the main
+ * pixel with the subscreen from `$212D` instead of the fixed color.
  * picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
