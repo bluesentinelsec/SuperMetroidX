@@ -11,12 +11,22 @@
 /**
  * NTSC picture RAM.
  * The framebuffer is XRGB8888, 256 by 224. Forced blank is black.
- * This is not a mode 0-7 renderer. A frame hash can be compared with an
- * external NTSC log later; nothing here claims that match yet.
+ * Mode 0 and mode 1 backgrounds are sampled. Sprites, scroll, and the
+ * other modes are not drawn. picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
+  Uint8 vram[0x10000];
   Uint16 cgram[256];
+  Uint8 oam[544];
+  Uint16 vram_addr;
+  Uint8 vram_inc;
+  Uint8 vram_map;
+  bool vram_inc_high;
+  Uint8 cgram_addr;
+  Uint8 cgram_latch;
+  bool cgram_high;
+  Uint16 oam_addr;
   Uint8 *pixels;
   bool picture_matches_oracle;
 } SmxPpu;
