@@ -47,6 +47,36 @@ int main(void) {
   expect_true("no oracle match", !ppu.picture_matches_oracle);
   expect_true("translator blocked", !smx_translate_ready(&ppu));
 
+  /* Mode 1 BG1: one 4bpp pixel at (0, 0), map at word $0400, tiles at word 0. */
+  smx_bus_write(&bus, 0x002105, 0x01);
+  smx_bus_write(&bus, 0x002107, 0x04);
+  smx_bus_write(&bus, 0x00210B, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x01);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x80);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x01);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002121, 0x00);
+  smx_bus_write(&bus, 0x002122, 0x00);
+  smx_bus_write(&bus, 0x002122, 0x00);
+  smx_bus_write(&bus, 0x002122, 0x1F);
+  smx_bus_write(&bus, 0x002122, 0x00);
+  smx_ppu_render(&ppu);
+  expect_u8("tile r", ppu.pixels[2], 255);
+  expect_u8("tile g", ppu.pixels[1], 0);
+  expect_u8("tile b", ppu.pixels[0], 0);
+  expect_u8("gap r", ppu.pixels[4 + 2], 0);
+  expect_u8("next tile r", ppu.pixels[8 * 4 + 2], 0);
+  expect_true("tile hash", smx_ppu_frame_hash(&ppu) != color_hash);
+  expect_true("still no oracle", !ppu.picture_matches_oracle);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;

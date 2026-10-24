@@ -107,5 +107,8 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
       bus->dma_requested = true;
       bus->dma_channels = value;
     }
+    if (off <= 0x21FF && bus->mmio_write != NULL) {
+      bus->mmio_write(bus->mmio_user, off, value);
+    }
   }
 }
