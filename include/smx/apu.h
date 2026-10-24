@@ -8,7 +8,8 @@
 /**
  * APU as seen from the 65816, plus the SPC700 that runs an uploaded program.
  * Reset serves the IPL handshake on `$2140-$2143`. A zero-length block jumps
- * to the entry address. DSP writes are stored and do not produce sound.
+ * to the entry address. DSP writes are stored. `smx_apu_brr_decode` expands
+ * one BRR block. It does not produce sound.
  * One `smx_apu_step` is one SPC700 instruction, not a cycle-accurate slice.
  */
 typedef struct SmxApu {
@@ -47,5 +48,8 @@ bool smx_apu_core_running(const SmxApu *apu);
 
 /** Execute one SPC700 instruction. False when the core is stopped. */
 bool smx_apu_step(SmxApu *apu);
+
+/** Expand one 9-byte BRR block into 16 samples. Updates the two history samples. */
+void smx_apu_brr_decode(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2);
 
 #endif /* SMX_APU_H_ */

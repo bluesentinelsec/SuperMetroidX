@@ -958,3 +958,36 @@ bool smx_apu_step(SmxApu *apu) {
   smx_spc_timers(apu);
   return true;
 }
+
+void smx_apu_brr_decode(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2) {
+  Uint8 header = block[0];
+  Uint8 shift = (Uint8)(header >> 4);
+  Uint8 filter = (Uint8)((header >> 2) & 0x03);
+  Sint16 older = *prev2;
+  Sint16 newer = *prev1;
+  Uint8 i = 0;
+
+  for (; i < 16; i += 1) {
+    Uint8 packed = block[1u + (i >> 1)];
+    Sint8 nibble = (Sint8)((Sint8)(((i & 1u) == 0 ? (packed >> 4) : (packed & 0x0F)) << 4) >> 4);
+    Sint32 sample = ((Sint32)nibble << shift) >> 1;
+    if (filter == 1) {
+      sample += (Sint32)newer - ((Sint32)newer >> 4);
+    } else if (filter == 2) {
+      sample += ((Sint32)newer * 61 >> 5) - ((Sint32)older * 15 >> 4);
+    } else if (filter == 3) {
+      sample += ((Sint32)newer * 115 >> 6) - ((Sint32)older * 13 >> 4);
+    }
+    if (sample > 32767) {
+      sample = 32767;
+    }
+    if (sample < -32768) {
+      sample = -32768;
+    }
+    out[i] = (Sint16)sample;
+    older = newer;
+    newer = (Sint16)sample;
+  }
+  *prev1 = newer;
+  *prev2 = older;
+}
