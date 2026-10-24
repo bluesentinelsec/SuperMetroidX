@@ -12,6 +12,13 @@ static void expect_u8(const char *name, Uint8 got, Uint8 want) {
   }
 }
 
+static void expect_u16(const char *name, Uint16 got, Uint16 want) {
+  if (got != want) {
+    SDL_Log("apu: %s got %u want %u", name, (unsigned)got, (unsigned)want);
+    g_failed = true;
+  }
+}
+
 static void expect_true(const char *name, bool value) {
   if (!value) {
     SDL_Log("apu: %s", name);
@@ -25,12 +32,35 @@ int main(void) {
 
   smx_bus_init(&bus, NULL, 0, 0);
   smx_apu_init(&apu, &bus);
-  smx_apu_write_port(&apu, 0, 0xAA);
-  smx_apu_write_port(&apu, 1, 0xBB);
-  expect_u8("port 0", smx_apu_read_port(&apu, 0), 0xAA);
-  expect_u8("port 1", smx_apu_read_port(&apu, 1), 0xBB);
-  expect_u8("mmio", smx_bus_mmio(&bus, 0x2140), 0xAA);
+  expect_u8("ready 0", smx_bus_read(&bus, 0x002140), 0xAA);
+  expect_u8("ready 1", smx_bus_read(&bus, 0x002141), 0xBB);
+  smx_bus_write(&bus, 0x002140, 0xFF);
+  expect_u8("ignore request", smx_bus_read(&bus, 0x002140), 0xAA);
+  expect_true("still waiting", !apu.program_ready);
+
+  smx_bus_write(&bus, 0x002142, 0x00);
+  smx_bus_write(&bus, 0x002143, 0x02);
+  smx_bus_write(&bus, 0x002141, 0x01);
+  smx_bus_write(&bus, 0x002140, 0xCC);
+  expect_u8("echo kick", smx_bus_read(&bus, 0x002140), 0xCC);
+
+  smx_bus_write(&bus, 0x002140, 0x00);
+  smx_bus_write(&bus, 0x002141, 0x12);
+  smx_bus_write(&bus, 0x002140, 0x01);
+  smx_bus_write(&bus, 0x002141, 0x34);
+  expect_u8("byte 0", smx_apu_ram(&apu, 0x0200), 0x12);
+  expect_u8("byte 1", smx_apu_ram(&apu, 0x0201), 0x34);
+  expect_u8("echo index", smx_bus_read(&bus, 0x002140), 0x01);
+
+  smx_bus_write(&bus, 0x002142, 0x00);
+  smx_bus_write(&bus, 0x002143, 0x02);
+  smx_bus_write(&bus, 0x002141, 0x00);
+  smx_bus_write(&bus, 0x002140, 0x05);
+  expect_u8("echo entry", smx_bus_read(&bus, 0x002140), 0x05);
+  expect_u16("entry", apu.entry, 0x0200);
+  expect_true("program waiting", apu.program_ready);
   expect_true("spc stopped", !smx_apu_core_running(&apu));
+
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
 }
