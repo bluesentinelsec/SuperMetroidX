@@ -133,6 +133,61 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
   }
 }
 
+/* Main-screen window: true when this layer is hidden at x. */
+static bool smx_ppu_window_masks(const SmxPpu *ppu, Uint8 layer, Uint32 x) {
+  Uint8 enable = smx_bus_mmio(ppu->bus, 0x212E);
+  Uint8 sel = 0;
+  Uint8 logic = 0;
+  Uint8 shift = 0;
+  bool ena1 = false;
+  bool ena2 = false;
+  bool in1 = false;
+  bool in2 = false;
+  bool inside = false;
+  Uint8 left1 = smx_bus_mmio(ppu->bus, 0x2126);
+  Uint8 right1 = smx_bus_mmio(ppu->bus, 0x2127);
+  Uint8 left2 = smx_bus_mmio(ppu->bus, 0x2128);
+  Uint8 right2 = smx_bus_mmio(ppu->bus, 0x2129);
+
+  if ((enable & (Uint8)(1u << layer)) == 0) {
+    return false;
+  }
+  if (layer < 2) {
+    sel = smx_bus_mmio(ppu->bus, 0x2123);
+    logic = (Uint8)(smx_bus_mmio(ppu->bus, 0x212A) >> (layer * 2u));
+    shift = (Uint8)(layer * 4u);
+  } else if (layer < 4) {
+    sel = smx_bus_mmio(ppu->bus, 0x2124);
+    logic = (Uint8)(smx_bus_mmio(ppu->bus, 0x212A) >> (layer * 2u));
+    shift = (Uint8)((layer - 2u) * 4u);
+  } else {
+    sel = smx_bus_mmio(ppu->bus, 0x2125);
+    logic = smx_bus_mmio(ppu->bus, 0x212B);
+    shift = 0;
+  }
+  ena1 = (sel & (Uint8)(0x02u << shift)) != 0;
+  ena2 = (sel & (Uint8)(0x08u << shift)) != 0;
+  in1 = ((x >= left1 && x <= right1) != ((sel & (Uint8)(0x01u << shift)) != 0));
+  in2 = ((x >= left2 && x <= right2) != ((sel & (Uint8)(0x04u << shift)) != 0));
+  if (ena1 && ena2) {
+    logic = (Uint8)(logic & 0x03);
+    if (logic == 0) {
+      inside = in1 || in2;
+    } else if (logic == 1) {
+      inside = in1 && in2;
+    } else if (logic == 2) {
+      inside = in1 != in2;
+    } else {
+      inside = in1 == in2;
+    }
+  } else if (ena1) {
+    inside = in1;
+  } else if (ena2) {
+    inside = in2;
+  }
+  return inside;
+}
+
 static void smx_ppu_rgb(Uint16 bgr, Uint8 brightness, Uint8 *blue, Uint8 *green, Uint8 *red) {
   Uint8 b = (Uint8)(((bgr & 0x7C00) >> 10) * 255 / 31);
   Uint8 g = (Uint8)(((bgr & 0x03E0) >> 5) * 255 / 31);
@@ -364,7 +419,7 @@ void smx_ppu_render(SmxPpu *ppu) {
             nibble = (bg & 1) == 0 ? (Uint8)(char_reg & 0x0F) : (Uint8)(char_reg >> 4);
             smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, four, x, y,
                               ppu->bg_h[bg], ppu->bg_v[bg], &opaque, &priority, &sample);
-            if (opaque && priority == (pass == 1)) {
+            if (opaque && priority == (pass == 1) && !smx_ppu_window_masks(ppu, (Uint8)bg, x)) {
               color = sample;
             }
           }
@@ -372,13 +427,13 @@ void smx_ppu_render(SmxPpu *ppu) {
       }
       if (!blank && brightness != 0 && mode == 7 && (main_screen & 0x01) != 0) {
         Uint16 mode7 = 0;
-        if (smx_ppu_sample_mode7(ppu, x, y, &mode7)) {
+        if (smx_ppu_sample_mode7(ppu, x, y, &mode7) && !smx_ppu_window_masks(ppu, 0, x)) {
           color = mode7;
         }
       }
       if (!blank && brightness != 0 && (main_screen & 0x10) != 0) {
         Uint16 sprite_color = 0;
-        if (smx_ppu_sample_sprite(ppu, x, y, &sprite_color)) {
+        if (smx_ppu_sample_sprite(ppu, x, y, &sprite_color) && !smx_ppu_window_masks(ppu, 4, x)) {
           color = sprite_color;
         }
       }

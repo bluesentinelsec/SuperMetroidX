@@ -14,7 +14,8 @@
  * Mode 0, mode 1, and mode 7 backgrounds are sampled, then sprites on the
  * main screen, including mode 1 BG3. Mode 7 uses the latched
  * matrix. Modes 0 and 1 scroll.
- * HDMA can rewrite those registers per line. picture_matches_oracle stays false.
+ * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
+ * main-screen layers. picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
