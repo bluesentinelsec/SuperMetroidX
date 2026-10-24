@@ -98,6 +98,39 @@ int main(void) {
       smx_bus_write(&bus, 0x002104, (Uint8)(i == 512 ? 0xA5 : 0x00));
     }
   }
+  /* Mode 7 identity: map (0, 0) names tile 1, whose first pixel is color 2. */
+  smx_bus_write(&bus, 0x002105, 0x07);
+  smx_bus_write(&bus, 0x00212C, 0x01);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x01);
+  smx_bus_write(&bus, 0x002116, 64);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x02);
+  smx_bus_write(&bus, 0x00211B, 0x00);
+  smx_bus_write(&bus, 0x00211B, 0x01);
+  smx_bus_write(&bus, 0x00211C, 0x00);
+  smx_bus_write(&bus, 0x00211C, 0x00);
+  smx_bus_write(&bus, 0x00211D, 0x00);
+  smx_bus_write(&bus, 0x00211D, 0x00);
+  smx_bus_write(&bus, 0x00211E, 0x00);
+  smx_bus_write(&bus, 0x00211E, 0x01);
+  smx_bus_write(&bus, 0x00211F, 0x00);
+  smx_bus_write(&bus, 0x00211F, 0x00);
+  smx_bus_write(&bus, 0x002120, 0x00);
+  smx_bus_write(&bus, 0x002120, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_ppu_write_cgram(&ppu, 2, 0x001F);
+  smx_ppu_render(&ppu);
+  expect_u8("mode7 r", ppu.pixels[2], 255);
+  expect_u8("mode7 g", ppu.pixels[1], 0);
+  expect_u8("mode7 clear", ppu.pixels[8 * 4 + 2], 0);
+  expect_true("mode7 no oracle", !ppu.picture_matches_oracle);
+
   expect_u8("oam high", ppu.oam[512], 0xA5);
   expect_u8("oam low kept", ppu.oam[0], 0x00);
 
