@@ -1,4 +1,5 @@
 #include "smx/clock.h"
+#include "smx/apu.h"
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   SDL_memset(clock, 0, sizeof(*clock));
@@ -47,6 +48,11 @@ bool smx_clock_step(SmxClock *clock) {
     clock->dma_count += 1;
   }
   smx_clock_advance(clock, 8);
+  /* The SPC700 is polled, so one instruction per 65816 step is enough for the
+   * boot handshakes. This is not the 1.024 MHz ratio. */
+  if (clock->bus->apu_user != NULL) {
+    smx_apu_step((SmxApu *)clock->bus->apu_user);
+  }
   return ran;
 }
 
