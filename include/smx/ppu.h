@@ -15,7 +15,8 @@
  * main screen, including mode 1 BG3. Mode 7 uses the latched
  * matrix. Modes 0 and 1 scroll.
  * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
- * main-screen layers. $2131 adds or subtracts the fixed color from $2132.
+ * main-screen layers. $212F clips the subscreen the same way.
+ * $2131 adds or subtracts the fixed color from $2132.
  * Mode 0 and mode 1 use the hardware layer order. $2105 bits 4-7 select
  * 16x16 characters. Mode 1 $2105 bit 3
  * draws priority BG3 above sprites. $2106 mosaics
