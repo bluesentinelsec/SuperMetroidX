@@ -1,0 +1,39 @@
+#ifndef SMX_CLOCK_H_
+#define SMX_CLOCK_H_
+
+#include "smx/cpu.h"
+#include "smx/dma.h"
+
+#include <SDL3/SDL.h>
+
+/** Master clocks in one NTSC scanline, including the short-line average. */
+#define SMX_CLOCK_DOTS_PER_LINE 1364u
+/** NTSC frames are 262 lines, with vblank starting on line 225. */
+#define SMX_CLOCK_LINES 262u
+#define SMX_CLOCK_VBLANK_LINE 225u
+#define SMX_CLOCK_DOTS_PER_FRAME (SMX_CLOCK_DOTS_PER_LINE * SMX_CLOCK_LINES)
+
+/**
+ * Instruction-timed NTSC clock.
+ * Each instruction spends 8 master clocks. `$4212` bit 7 follows vblank,
+ * and `$4200` bit 7 arms an NMI on the rising edge. A write to `$420B`
+ * runs general-purpose DMA before the next instruction.
+ */
+typedef struct SmxClock {
+  SmxBus *bus;
+  SmxCpu *cpu;
+  SmxDma *dma;
+  Uint32 dots;
+  Uint32 dma_count;
+  bool prev_vblank;
+} SmxClock;
+
+void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);
+
+/** Run one instruction and the dots it consumes. */
+bool smx_clock_step(SmxClock *clock);
+
+/** Run one NTSC frame of master clocks. */
+bool smx_clock_frame(SmxClock *clock);
+
+#endif /* SMX_CLOCK_H_ */
