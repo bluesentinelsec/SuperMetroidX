@@ -490,6 +490,13 @@ static void interrupt(SmxCpu *cpu, Uint16 native_vector, Uint16 emu_vector, bool
   cpu->waiting = false;
 }
 
+void smx_cpu_nmi(SmxCpu *cpu) {
+  if (cpu->stopped) {
+    return;
+  }
+  interrupt(cpu, 0xFFEA, 0xFFFA, false);
+}
+
 void smx_cpu_init(SmxCpu *cpu, SmxBus *bus) {
   SDL_memset(cpu, 0, sizeof(*cpu));
   cpu->bus = bus;

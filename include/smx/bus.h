@@ -18,6 +18,8 @@ typedef struct SmxBus {
   Uint32 sram_size;
   Uint8 mmio[0x4500];
   Uint8 open_bus;
+  bool dma_requested;
+  Uint8 dma_channels;
 } SmxBus;
 
 void smx_bus_init(SmxBus *bus, const Uint8 *rom, Uint32 rom_size, Uint32 sram_size);
