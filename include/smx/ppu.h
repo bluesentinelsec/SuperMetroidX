@@ -15,7 +15,8 @@
  * main screen, including mode 1 BG3. Mode 7 uses the latched
  * matrix. Modes 0 and 1 scroll.
  * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
- * main-screen layers. picture_matches_oracle stays false.
+ * main-screen layers. $2131 adds or subtracts the fixed color from $2132.
+ * picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
@@ -42,6 +43,9 @@ typedef struct SmxPpu {
   Uint16 m7v;
   Uint16 bg_h[4];
   Uint16 bg_v[4];
+  Uint8 fixed_r;
+  Uint8 fixed_g;
+  Uint8 fixed_b;
   Uint8 *pixels;
   bool picture_matches_oracle;
 } SmxPpu;

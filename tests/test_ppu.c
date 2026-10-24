@@ -172,6 +172,18 @@ int main(void) {
   smx_ppu_render(&ppu);
   expect_u8("window off r", ppu.pixels[2], 255);
 
+  /* Backdrop red plus fixed green. */
+  smx_bus_write(&bus, 0x00212C, 0x00);
+  smx_bus_write(&bus, 0x002121, 0x00);
+  smx_bus_write(&bus, 0x002122, 0x1F);
+  smx_bus_write(&bus, 0x002122, 0x00);
+  smx_bus_write(&bus, 0x002132, 0x5F);
+  smx_bus_write(&bus, 0x002131, 0x20);
+  smx_ppu_render(&ppu);
+  expect_u8("math r", ppu.pixels[2], 255);
+  expect_u8("math g", ppu.pixels[1], 255);
+  expect_u8("math b", ppu.pixels[0], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;

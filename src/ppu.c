@@ -124,6 +124,16 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
         }
       }
     }
+  } else if (addr == 0x2132) {
+    if ((value & 0x20) != 0) {
+      ppu->fixed_r = (Uint8)(value & 0x1F);
+    }
+    if ((value & 0x40) != 0) {
+      ppu->fixed_g = (Uint8)(value & 0x1F);
+    }
+    if ((value & 0x80) != 0) {
+      ppu->fixed_b = (Uint8)(value & 0x1F);
+    }
   } else if (addr == 0x2104) {
     if (ppu->oam_addr < sizeof(ppu->oam)) {
       ppu->oam[ppu->oam_addr] = value;
@@ -186,6 +196,41 @@ static bool smx_ppu_window_masks(const SmxPpu *ppu, Uint8 layer, Uint32 x) {
     inside = in2;
   }
   return inside;
+}
+
+static Uint16 smx_ppu_math(const SmxPpu *ppu, Uint16 color, Uint8 source) {
+  Uint8 addsub = smx_bus_mmio(ppu->bus, 0x2131);
+  Uint8 mask = source == 0 ? 0x20 : source < 5 ? (Uint8)(1u << (source - 1u)) : 0x10;
+  Sint16 channels[3];
+  Sint16 fixed[3];
+  Uint8 i = 0;
+
+  if ((addsub & mask) == 0) {
+    return color;
+  }
+  channels[0] = (Sint16)(color & 0x1F);
+  channels[1] = (Sint16)((color >> 5) & 0x1F);
+  channels[2] = (Sint16)((color >> 10) & 0x1F);
+  fixed[0] = ppu->fixed_r;
+  fixed[1] = ppu->fixed_g;
+  fixed[2] = ppu->fixed_b;
+  for (; i < 3; i += 1) {
+    if ((addsub & 0x80) != 0) {
+      channels[i] = (Sint16)(channels[i] - fixed[i]);
+    } else {
+      channels[i] = (Sint16)(channels[i] + fixed[i]);
+    }
+    if ((addsub & 0x40) != 0) {
+      channels[i] = (Sint16)(channels[i] / 2);
+    }
+    if (channels[i] < 0) {
+      channels[i] = 0;
+    }
+    if (channels[i] > 31) {
+      channels[i] = 31;
+    }
+  }
+  return (Uint16)(channels[0] | (channels[1] << 5) | (channels[2] << 10));
 }
 
 static void smx_ppu_rgb(Uint16 bgr, Uint8 brightness, Uint8 *blue, Uint8 *green, Uint8 *red) {
@@ -393,6 +438,7 @@ void smx_ppu_render(SmxPpu *ppu) {
     Uint32 x = 0;
     for (; x < SMX_PPU_WIDTH; x += 1) {
       Uint16 color = ppu->cgram[0];
+      Uint8 source = 0;
       Uint8 blue = 0;
       Uint8 green = 0;
       Uint8 red = 0;
@@ -421,6 +467,7 @@ void smx_ppu_render(SmxPpu *ppu) {
                               ppu->bg_h[bg], ppu->bg_v[bg], &opaque, &priority, &sample);
             if (opaque && priority == (pass == 1) && !smx_ppu_window_masks(ppu, (Uint8)bg, x)) {
               color = sample;
+              source = (Uint8)(bg + 1);
             }
           }
         }
@@ -429,12 +476,14 @@ void smx_ppu_render(SmxPpu *ppu) {
         Uint16 mode7 = 0;
         if (smx_ppu_sample_mode7(ppu, x, y, &mode7) && !smx_ppu_window_masks(ppu, 0, x)) {
           color = mode7;
+          source = 1;
         }
       }
       if (!blank && brightness != 0 && (main_screen & 0x10) != 0) {
         Uint16 sprite_color = 0;
         if (smx_ppu_sample_sprite(ppu, x, y, &sprite_color) && !smx_ppu_window_masks(ppu, 4, x)) {
           color = sprite_color;
+          source = 5;
         }
       }
       if (blank || brightness == 0) {
@@ -442,7 +491,7 @@ void smx_ppu_render(SmxPpu *ppu) {
         green = 0;
         red = 0;
       } else {
-        smx_ppu_rgb(color, brightness, &blue, &green, &red);
+        smx_ppu_rgb(smx_ppu_math(ppu, color, source), brightness, &blue, &green, &red);
       }
       ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u] = blue;
       ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 1u] = green;
