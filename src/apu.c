@@ -174,6 +174,16 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
   }
   if (addr == 0x00F3) {
     apu->dsp[apu->dsp_addr & 0x7F] = value;
+    if ((apu->dsp_addr & 0x7F) == 0x4C && (value & 0x01) != 0) {
+      Uint16 dir = (Uint16)((Uint16)apu->dsp[0x5D] << 8);
+      Uint16 entry = (Uint16)(dir + (Uint16)apu->dsp[0x04] * 4u);
+      apu->voice_addr = (Uint16)(apu->ram[entry] | ((Uint16)apu->ram[entry + 1u] << 8));
+      apu->voice_loop = (Uint16)(apu->ram[entry + 2u] | ((Uint16)apu->ram[entry + 3u] << 8));
+      apu->voice_p1 = 0;
+      apu->voice_p2 = 0;
+      apu->voice_i = 16;
+      apu->voice_on = true;
+    }
     return;
   }
   if (addr >= 0x00FA && addr <= 0x00FC) {
@@ -959,7 +969,38 @@ bool smx_apu_step(SmxApu *apu) {
   return true;
 }
 
-void smx_apu_brr_decode(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2) {
+static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2);
+
+void smx_apu_render(SmxApu *apu, Sint16 *left, Uint32 count) {
+  Uint32 i = 0;
+  Sint8 volume = (Sint8)apu->dsp[0x00];
+
+  for (; i < count; i += 1) {
+    Sint32 sample = 0;
+    if (apu->voice_on && apu->voice_i >= 16) {
+      Uint8 header = apu->ram[apu->voice_addr];
+      smx_apu_brr_decode_impl(&apu->ram[apu->voice_addr], apu->voice_buf, &apu->voice_p1,
+                              &apu->voice_p2);
+      apu->voice_i = 0;
+      if ((header & 0x01) != 0) {
+        if ((header & 0x02) != 0) {
+          apu->voice_addr = apu->voice_loop;
+        } else {
+          apu->voice_on = false;
+        }
+      } else {
+        apu->voice_addr = (Uint16)(apu->voice_addr + 9u);
+      }
+    }
+    if (apu->voice_i < 16) {
+      sample = apu->voice_buf[apu->voice_i];
+      apu->voice_i = (Uint8)(apu->voice_i + 1u);
+    }
+    left[i] = (Sint16)((sample * volume) >> 7);
+  }
+}
+
+static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2) {
   Uint8 header = block[0];
   Uint8 shift = (Uint8)(header >> 4);
   Uint8 filter = (Uint8)((header >> 2) & 0x03);
@@ -990,4 +1031,8 @@ void smx_apu_brr_decode(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *
   }
   *prev1 = newer;
   *prev2 = older;
+}
+
+void smx_apu_brr_decode(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2) {
+  smx_apu_brr_decode_impl(block, out, prev1, prev2);
 }
