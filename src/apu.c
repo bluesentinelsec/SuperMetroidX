@@ -980,16 +980,18 @@ bool smx_apu_step(SmxApu *apu) {
 
 static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2);
 
-void smx_apu_render(SmxApu *apu, Sint16 *left, Uint32 count) {
+void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
   Uint32 i = 0;
 
   for (; i < count; i += 1) {
-    Sint32 mixed = 0;
+    Sint32 mixed_l = 0;
+    Sint32 mixed_r = 0;
     Uint8 voice = 0;
     for (; voice < 8; voice += 1) {
       Uint8 base = (Uint8)(voice * 0x10u);
       Sint32 sample = 0;
-      Sint8 volume = (Sint8)apu->dsp[base];
+      Sint8 volume_l = (Sint8)apu->dsp[base];
+      Sint8 volume_r = (Sint8)apu->dsp[base + 1u];
       if (apu->voice_on[voice] && apu->voice_i[voice] >= 16) {
         Uint8 header = apu->ram[apu->voice_addr[voice]];
         smx_apu_brr_decode_impl(&apu->ram[apu->voice_addr[voice]], apu->voice_buf[voice],
@@ -1017,15 +1019,25 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Uint32 count) {
           }
         }
       }
-      mixed += (sample * volume) >> 7;
+      mixed_l += (sample * volume_l) >> 7;
+      mixed_r += (sample * volume_r) >> 7;
     }
-    if (mixed > 32767) {
-      mixed = 32767;
+    if (mixed_l > 32767) {
+      mixed_l = 32767;
     }
-    if (mixed < -32768) {
-      mixed = -32768;
+    if (mixed_l < -32768) {
+      mixed_l = -32768;
     }
-    left[i] = (Sint16)mixed;
+    if (mixed_r > 32767) {
+      mixed_r = 32767;
+    }
+    if (mixed_r < -32768) {
+      mixed_r = -32768;
+    }
+    left[i] = (Sint16)mixed_l;
+    if (right != NULL) {
+      right[i] = (Sint16)mixed_r;
+    }
   }
 }
 
