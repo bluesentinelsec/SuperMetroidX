@@ -319,7 +319,9 @@ static bool smx_spc_move_a(SmxApu *apu, Uint8 op) {
   }
   if (op >= 0xE4 && op <= 0xE7) {
     kind = (Uint8)(op - 0xE4);
-    if (kind == 2) {
+    if (kind == 1) {
+      kind = 2;
+    } else if (kind == 2) {
       kind = 5;
     } else if (kind == 3) {
       kind = 6;
@@ -339,7 +341,9 @@ static bool smx_spc_move_a(SmxApu *apu, Uint8 op) {
   if ((op >= 0xC4 && op <= 0xC7) || (op >= 0xD4 && op <= 0xD7)) {
     if (op <= 0xC7) {
       kind = (Uint8)(op - 0xC4);
-      if (kind == 2) {
+      if (kind == 1) {
+        kind = 2;
+      } else if (kind == 2) {
         kind = 5;
       } else if (kind == 3) {
         kind = 6;
@@ -398,6 +402,8 @@ bool smx_apu_step(SmxApu *apu) {
     kind = (Uint8)(col - 4);
     if ((op & 0x10) != 0) {
       kind = (Uint8)(kind == 0 ? 1 : kind == 1 ? 3 : kind == 2 ? 4 : 7);
+    } else if (kind == 1) {
+      kind = 2;
     } else if (kind == 2) {
       kind = 5;
     } else if (kind == 3) {

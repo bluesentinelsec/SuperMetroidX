@@ -78,6 +78,17 @@ int main(void) {
   expect_u8("spc port 0", smx_bus_read(&bus, 0x002140), 0xAA);
   expect_u8("spc port 1", smx_bus_read(&bus, 0x002141), 0xBB);
 
+  apu.ram[0x0310] = 0xE8;
+  apu.ram[0x0311] = 0x12;
+  apu.ram[0x0312] = 0xC5;
+  apu.ram[0x0313] = 0x40;
+  apu.ram[0x0314] = 0x02;
+  apu.pc = 0x0310;
+  smx_apu_step(&apu);
+  smx_apu_step(&apu);
+  expect_u8("abs store", smx_apu_ram(&apu, 0x0240), 0x12);
+  expect_u16("abs pc", apu.pc, 0x0315);
+
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
 }
