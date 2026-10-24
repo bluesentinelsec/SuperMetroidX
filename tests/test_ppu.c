@@ -253,6 +253,19 @@ int main(void) {
   expect_u8("sub g", ppu.pixels[1], 255);
   expect_u8("sub gap g", ppu.pixels[4 + 1], 0);
 
+  /* Color window covers x = 0 and forces that main pixel black. */
+  smx_bus_write(&bus, 0x00212C, 0x00);
+  smx_bus_write(&bus, 0x00212D, 0x00);
+  smx_bus_write(&bus, 0x002131, 0x00);
+  smx_bus_write(&bus, 0x002125, 0x20);
+  smx_bus_write(&bus, 0x002126, 0x00);
+  smx_bus_write(&bus, 0x002127, 0x00);
+  smx_ppu_write_cgram(&ppu, 0, 0x7FFF);
+  smx_bus_write(&bus, 0x002130, 0x80);
+  smx_ppu_render(&ppu);
+  expect_u8("black window r", ppu.pixels[2], 0);
+  expect_u8("outside window r", ppu.pixels[4 + 2], 255);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;

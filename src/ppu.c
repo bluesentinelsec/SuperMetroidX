@@ -198,6 +198,48 @@ static bool smx_ppu_window_masks(const SmxPpu *ppu, Uint8 layer, Uint32 x) {
   return inside;
 }
 
+static bool smx_ppu_color_window(const SmxPpu *ppu, Uint32 x) {
+  Uint8 sel = smx_bus_mmio(ppu->bus, 0x2125);
+  Uint8 logic = (Uint8)((smx_bus_mmio(ppu->bus, 0x212B) >> 2) & 0x03);
+  bool ena1 = (sel & 0x20) != 0;
+  bool ena2 = (sel & 0x80) != 0;
+  bool in1 = ((x >= smx_bus_mmio(ppu->bus, 0x2126) && x <= smx_bus_mmio(ppu->bus, 0x2127)) !=
+              ((sel & 0x10) != 0));
+  bool in2 = ((x >= smx_bus_mmio(ppu->bus, 0x2128) && x <= smx_bus_mmio(ppu->bus, 0x2129)) !=
+              ((sel & 0x40) != 0));
+  bool inside = false;
+
+  if (ena1 && ena2) {
+    if (logic == 0) {
+      inside = in1 || in2;
+    } else if (logic == 1) {
+      inside = in1 && in2;
+    } else if (logic == 2) {
+      inside = in1 != in2;
+    } else {
+      inside = in1 == in2;
+    }
+  } else if (ena1) {
+    inside = in1;
+  } else if (ena2) {
+    inside = in2;
+  }
+  return inside;
+}
+
+static bool smx_ppu_region(Uint8 code, bool inside) {
+  if (code == 0) {
+    return false;
+  }
+  if (code == 3) {
+    return true;
+  }
+  if (code == 2) {
+    return inside;
+  }
+  return !inside;
+}
+
 static Uint16 smx_ppu_math(const SmxPpu *ppu, Uint16 color, Uint8 source, Uint16 sub,
                            bool use_sub) {
   Uint8 addsub = smx_bus_mmio(ppu->bus, 0x2131);
@@ -527,18 +569,29 @@ void smx_ppu_render(SmxPpu *ppu) {
       Uint8 source = 0;
       Uint8 unused_source = 0;
       bool sub_hit = false;
+      bool clip_math = false;
       Uint8 blue = 0;
       Uint8 green = 0;
       Uint8 red = 0;
 
       if (!blank && brightness != 0) {
+        Uint8 select = smx_bus_mmio(ppu->bus, 0x2130);
+        bool in_window = smx_ppu_color_window(ppu, x);
         smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212C), &color, &source);
         sub_hit = smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212D), &sub, &unused_source);
+        if (smx_ppu_region((Uint8)(select >> 6), in_window)) {
+          color = 0;
+        }
+        if (smx_ppu_region((Uint8)((select >> 4) & 0x03), in_window)) {
+          clip_math = true;
+        }
       }
       if (blank || brightness == 0) {
         blue = 0;
         green = 0;
         red = 0;
+      } else if (clip_math) {
+        smx_ppu_rgb(color, brightness, &blue, &green, &red);
       } else {
         smx_ppu_rgb(smx_ppu_math(ppu, color, source, sub, sub_hit), brightness, &blue, &green,
                     &red);
