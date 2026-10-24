@@ -94,7 +94,8 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
     if (ppu->oam_addr < sizeof(ppu->oam)) {
       ppu->oam[ppu->oam_addr] = value;
     }
-    ppu->oam_addr = (Uint16)((ppu->oam_addr + 1) & 0x01FF);
+    /* 544 bytes: 512 sprite words, then the 32-byte high table. */
+    ppu->oam_addr = (Uint16)((ppu->oam_addr + 1) & 0x03FF);
   }
 }
 

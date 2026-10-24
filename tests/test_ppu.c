@@ -90,6 +90,17 @@ int main(void) {
   expect_u8("sprite r", ppu.pixels[2], 255);
   expect_u8("sprite gap", ppu.pixels[4 + 2], 0);
 
+  smx_bus_write(&bus, 0x002102, 0x00);
+  smx_bus_write(&bus, 0x002103, 0x00);
+  {
+    Uint32 i = 0;
+    for (; i < 544; i += 1) {
+      smx_bus_write(&bus, 0x002104, (Uint8)(i == 512 ? 0xA5 : 0x00));
+    }
+  }
+  expect_u8("oam high", ppu.oam[512], 0xA5);
+  expect_u8("oam low kept", ppu.oam[0], 0x00);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
