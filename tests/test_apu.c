@@ -12,6 +12,13 @@ static void expect_u8(const char *name, Uint8 got, Uint8 want) {
   }
 }
 
+static void expect_s16(const char *name, Sint16 got, Sint16 want) {
+  if (got != want) {
+    SDL_Log("apu: %s got %d want %d", name, (int)got, (int)want);
+    g_failed = true;
+  }
+}
+
 static void expect_u16(const char *name, Uint16 got, Uint16 want) {
   if (got != want) {
     SDL_Log("apu: %s got %u want %u", name, (unsigned)got, (unsigned)want);
@@ -120,6 +127,29 @@ int main(void) {
   apu.running = true;
   smx_apu_step(&apu);
   expect_u8("adc dp imm", smx_apu_ram(&apu, 0x0010), 0x03);
+
+  {
+    Uint8 block[9];
+    Sint16 out[16];
+    Sint16 prev1 = 0;
+    Sint16 prev2 = 0;
+    Uint8 i = 0;
+    SDL_memset(block, 0, sizeof(block));
+    block[0] = 0xC0;
+    block[1] = 0x10;
+    smx_apu_brr_decode(block, out, &prev1, &prev2);
+    expect_s16("brr 0", out[0], 2048);
+    expect_s16("brr 1", out[1], 0);
+    prev1 = 16;
+    prev2 = 0;
+    block[0] = 0x04;
+    block[1] = 0x00;
+    for (; i < 16; i += 1) {
+      out[i] = 0;
+    }
+    smx_apu_brr_decode(block, out, &prev1, &prev2);
+    expect_s16("brr filter", out[0], 15);
+  }
 
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
