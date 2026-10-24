@@ -11,8 +11,9 @@
 /**
  * NTSC picture RAM.
  * The framebuffer is XRGB8888, 256 by 224. Forced blank is black.
- * Mode 0 and mode 1 backgrounds are sampled, then sprites on the main
- * screen. Scroll and modes 2-7 are not drawn. picture_matches_oracle stays false.
+ * Mode 0, mode 1, and mode 7 backgrounds are sampled, then sprites on the
+ * main screen. Mode 7 uses the latched matrix and does not run HDMA.
+ * picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
@@ -27,6 +28,16 @@ typedef struct SmxPpu {
   Uint8 cgram_latch;
   bool cgram_high;
   Uint16 oam_addr;
+  Uint8 m7_low;
+  bool m7_have_low;
+  Uint16 m7a;
+  Uint16 m7b;
+  Uint16 m7c;
+  Uint16 m7d;
+  Uint16 m7x;
+  Uint16 m7y;
+  Uint16 m7h;
+  Uint16 m7v;
   Uint8 *pixels;
   bool picture_matches_oracle;
 } SmxPpu;

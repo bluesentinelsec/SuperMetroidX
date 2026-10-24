@@ -90,6 +90,31 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
     ppu->oam_addr = (Uint16)((ppu->oam_addr & 0xFF00) | value);
   } else if (addr == 0x2103) {
     ppu->oam_addr = (Uint16)((ppu->oam_addr & 0x00FF) | ((Uint16)(value & 0x01) << 8));
+  } else if (addr == 0x210D || addr == 0x210E || (addr >= 0x211B && addr <= 0x2120)) {
+    if (!ppu->m7_have_low) {
+      ppu->m7_low = value;
+      ppu->m7_have_low = true;
+    } else {
+      Uint16 word = (Uint16)(ppu->m7_low | ((Uint16)value << 8));
+      ppu->m7_have_low = false;
+      if (addr == 0x211B) {
+        ppu->m7a = word;
+      } else if (addr == 0x211C) {
+        ppu->m7b = word;
+      } else if (addr == 0x211D) {
+        ppu->m7c = word;
+      } else if (addr == 0x211E) {
+        ppu->m7d = word;
+      } else if (addr == 0x211F) {
+        ppu->m7x = word;
+      } else if (addr == 0x2120) {
+        ppu->m7y = word;
+      } else if (addr == 0x210D) {
+        ppu->m7h = word;
+      } else {
+        ppu->m7v = word;
+      }
+    }
   } else if (addr == 0x2104) {
     if (ppu->oam_addr < sizeof(ppu->oam)) {
       ppu->oam[ppu->oam_addr] = value;
@@ -231,6 +256,53 @@ static bool smx_ppu_sample_sprite(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 
   return false;
 }
 
+static Sint32 smx_ppu_sex13(Uint16 value) {
+  value = (Uint16)(value & 0x1FFF);
+  if ((value & 0x1000) != 0) {
+    return (Sint32)value - 0x2000;
+  }
+  return (Sint32)value;
+}
+
+static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *color) {
+  Uint8 select = smx_bus_mmio(ppu->bus, 0x211A);
+  Sint16 a = (Sint16)ppu->m7a;
+  Sint16 b = (Sint16)ppu->m7b;
+  Sint16 c = (Sint16)ppu->m7c;
+  Sint16 d = (Sint16)ppu->m7d;
+  Sint32 cx = smx_ppu_sex13(ppu->m7x);
+  Sint32 cy = smx_ppu_sex13(ppu->m7y);
+  Sint32 sx = smx_ppu_sex13((Uint16)(ppu->m7h - ppu->m7x));
+  Sint32 sy = smx_ppu_sex13((Uint16)((ppu->m7v + (Uint16)y) - ppu->m7y));
+  Sint32 ox = (Sint32)a * sx + (Sint32)b * sy + (cx << 8) + (Sint32)a * (Sint32)x;
+  Sint32 oy = (Sint32)c * sx + (Sint32)d * sy + (cy << 8) + (Sint32)c * (Sint32)x;
+  Sint32 px = ox >> 8;
+  Sint32 py = oy >> 8;
+  bool outside = px < 0 || py < 0 || px > 1023 || py > 1023;
+  Uint16 tile = 0;
+  Uint16 word = 0;
+  Uint8 index = 0;
+
+  if (outside && (select & 0x40) != 0 && (select & 0x80) == 0) {
+    return false;
+  }
+  if (outside && (select & 0xC0) == 0xC0) {
+    tile = 0;
+  } else {
+    px &= 1023;
+    py &= 1023;
+    word = (Uint16)(((Uint32)(py >> 3) << 7) | (Uint32)(px >> 3));
+    tile = (Uint16)(ppu->vram[(Uint32)word * 2u]);
+  }
+  word = (Uint16)(((Uint32)tile << 6) | ((Uint32)(py & 7) << 3) | (Uint32)(px & 7));
+  index = ppu->vram[(Uint32)word * 2u + 1u];
+  if (index == 0) {
+    return false;
+  }
+  *color = ppu->cgram[index];
+  return true;
+}
+
 void smx_ppu_render(SmxPpu *ppu) {
   Uint8 inidisp = smx_bus_mmio(ppu->bus, 0x2100);
   bool blank = (inidisp & 0x80) != 0;
@@ -274,6 +346,12 @@ void smx_ppu_render(SmxPpu *ppu) {
               color = sample;
             }
           }
+        }
+      }
+      if (!blank && brightness != 0 && mode == 7 && (main_screen & 0x01) != 0) {
+        Uint16 mode7 = 0;
+        if (smx_ppu_sample_mode7(ppu, x, y, &mode7)) {
+          color = mode7;
         }
       }
       if (!blank && brightness != 0 && (main_screen & 0x10) != 0) {
