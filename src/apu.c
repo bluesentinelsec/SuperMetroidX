@@ -189,6 +189,7 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
         apu->voice_p1[voice] = 0;
         apu->voice_p2[voice] = 0;
         apu->voice_phase[voice] = 0;
+        apu->voice_env[voice] = 0x07FF;
         apu->voice_i[voice] = 16;
         apu->voice_on[voice] = true;
       }
@@ -202,6 +203,9 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
         apu->voice_on[voice] = false;
         apu->voice_i[voice] = 16;
       }
+    }
+    if ((apu->dsp_addr & 0x0F) == 0x07 && (apu->dsp_addr & 0x70) < 0x80 && (value & 0x80) == 0) {
+      apu->voice_env[apu->dsp_addr >> 4] = (Uint16)((value & 0x7F) << 4);
     }
     return;
   }
@@ -1019,7 +1023,7 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
       }
       if (apu->voice_i[voice] < 16) {
         Uint16 pitch = (Uint16)(apu->dsp[base + 2u] | ((Uint16)apu->dsp[base + 3u] << 8));
-        sample = apu->voice_buf[voice][apu->voice_i[voice]];
+        sample = (apu->voice_buf[voice][apu->voice_i[voice]] * (Sint32)apu->voice_env[voice]) >> 11;
         apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] + pitch);
         while (apu->voice_phase[voice] >= 0x1000) {
           apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] - 0x1000);
