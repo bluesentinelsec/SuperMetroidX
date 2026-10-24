@@ -66,6 +66,7 @@ static void test_alu_and_flow(void) {
   static const Uint8 decimal[] = {0xF8, 0x18, 0xA9, 0x09, 0x69, 0x01};
   static const Uint8 subtract[] = {0x38, 0xA9, 0x10, 0xE9, 0x01};
   static const Uint8 branch[] = {0xA9, 0x00, 0xF0, 0x02, 0xA9, 0xFF};
+  static const Uint8 bra[] = {0x80, 0x02, 0xA9, 0xFF, 0xA9, 0x11};
   static const Uint8 call[] = {0x20, 0x06, 0x10, 0xA9, 0x11, 0x60, 0xA9, 0x22, 0x60};
   static const Uint8 block[] = {0xC2, 0x30, 0xA9, 0x01, 0x00, 0xA2, 0x00,
                                 0x02, 0xA0, 0x00, 0x03, 0x54, 0x00, 0x00};
@@ -101,6 +102,10 @@ static void test_alu_and_flow(void) {
   native(&cpu, branch, sizeof(branch));
   step_n(&cpu, 2);
   expect_u16("beq", cpu.a, 0x0000);
+
+  native(&cpu, bra, sizeof(bra));
+  step_n(&cpu, 2);
+  expect_u16("bra", cpu.a, 0x0011);
 
   native(&cpu, call, sizeof(call));
   step_n(&cpu, 4);
@@ -179,8 +184,31 @@ static void test_boot(void) {
   smx_cart_free(&cart);
 }
 
+static void test_stz_abs_x(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  static const Uint8 code[] = {0xC2, 0x30, 0xA2, 0x00, 0x12, 0x9E, 0x00,
+                               0x00, 0xA0, 0x00, 0x00, 0xBE, 0x00, 0x13};
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_bus_write(&bus, 0x001200, 0x34);
+  smx_bus_write(&bus, 0x001201, 0x12);
+  smx_bus_write(&bus, 0x001202, 0x56);
+  smx_bus_write(&bus, 0x001300, 0xAB);
+  smx_bus_write(&bus, 0x001301, 0x00);
+  native(&cpu, code, sizeof(code));
+  step_n(&cpu, 5);
+  expect_u8("stz lo", smx_bus_wram(&bus, 0x1200), 0);
+  expect_u8("stz hi", smx_bus_wram(&bus, 0x1201), 0);
+  expect_u8("neighbor", smx_bus_wram(&bus, 0x1202), 0x56);
+  expect_u16("ldx abs,y", cpu.x, 0x00AB);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   test_alu_and_flow();
+  test_stz_abs_x();
   test_boot();
   return g_failed ? 1 : 0;
 }

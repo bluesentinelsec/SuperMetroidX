@@ -161,6 +161,75 @@ static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibbl
   }
 }
 
+static bool smx_ppu_sample_sprite(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *color) {
+  Uint8 obsel = smx_bus_mmio(ppu->bus, 0x2101);
+  Uint8 size = (Uint8)((obsel >> 5) & 0x07);
+  Uint16 name_base = (Uint16)((obsel & 0x07) << 13);
+  Uint16 name_gap = (Uint16)((1u + ((obsel >> 3) & 0x03)) << 12);
+  static const Uint8 small_w[8] = {8, 8, 8, 16, 16, 32, 16, 16};
+  static const Uint8 small_h[8] = {8, 8, 8, 16, 16, 32, 32, 32};
+  static const Uint8 large_w[8] = {16, 32, 64, 32, 64, 64, 32, 32};
+  static const Uint8 large_h[8] = {16, 32, 64, 32, 64, 64, 64, 32};
+  Sint8 priority = 3;
+
+  for (; priority >= 0; priority -= 1) {
+    Uint16 sprite = 0;
+    for (; sprite < 128; sprite += 1) {
+      Uint8 attr = ppu->oam[sprite * 4u + 3u];
+      Uint8 pair = 0;
+      Sint16 sx = 0;
+      Uint8 width = 0;
+      Uint8 height = 0;
+      Uint16 top = 0;
+      Uint16 dy = 0;
+      Sint16 dx = 0;
+      Uint16 tile = 0;
+      Uint16 base = 0;
+      Uint8 index = 0;
+      if (((attr >> 4) & 0x03) != (Uint8)priority) {
+        continue;
+      }
+      pair = (Uint8)((ppu->oam[512u + (sprite >> 2)] >> ((sprite & 3u) * 2u)) & 0x03);
+      sx = ppu->oam[sprite * 4u];
+      if ((pair & 0x01) != 0) {
+        sx = (Sint16)(sx - 256);
+      }
+      width = (pair & 0x02) != 0 ? large_w[size] : small_w[size];
+      height = (pair & 0x02) != 0 ? large_h[size] : small_h[size];
+      top = (Uint16)((ppu->oam[sprite * 4u + 1u] + 1u) & 0xFF);
+      dy = (Uint16)((y - top) & 0xFF);
+      if (dy >= height) {
+        continue;
+      }
+      dx = (Sint16)((Sint16)x - sx);
+      if (dx < 0 || dx >= width) {
+        continue;
+      }
+      if ((attr & 0x40) != 0) {
+        dx = (Sint16)(width - 1 - dx);
+      }
+      if ((attr & 0x80) != 0) {
+        dy = (Uint16)(height - 1u - dy);
+      }
+      tile = (Uint16)((ppu->oam[sprite * 4u + 2u] | ((Uint16)(attr & 0x01) << 8)) +
+                      (Uint16)(dx / 8) + (Uint16)(dy / 8) * 16u);
+      tile = (Uint16)(tile & 0x01FF);
+      base = name_base;
+      if ((tile & 0x0100) != 0) {
+        base = (Uint16)(base + name_gap);
+        tile = (Uint16)(tile & 0x00FF);
+      }
+      index = smx_ppu_plane(ppu, base, tile, (Uint8)(dy & 7u), (Uint8)(dx & 7u), true);
+      if (index == 0) {
+        continue;
+      }
+      *color = ppu->cgram[128u + ((Uint32)((attr >> 1) & 0x07) * 16u) + index];
+      return true;
+    }
+  }
+  return false;
+}
+
 void smx_ppu_render(SmxPpu *ppu) {
   Uint8 inidisp = smx_bus_mmio(ppu->bus, 0x2100);
   bool blank = (inidisp & 0x80) != 0;
@@ -204,6 +273,12 @@ void smx_ppu_render(SmxPpu *ppu) {
               color = sample;
             }
           }
+        }
+      }
+      if (!blank && brightness != 0 && (main_screen & 0x10) != 0) {
+        Uint16 sprite_color = 0;
+        if (smx_ppu_sample_sprite(ppu, x, y, &sprite_color)) {
+          color = sprite_color;
         }
       }
       if (blank || brightness == 0) {
