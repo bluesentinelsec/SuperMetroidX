@@ -97,6 +97,45 @@ int main(int argc, char **argv) {
     }
 
     if (playing) {
+      const bool *keys = SDL_GetKeyboardState(NULL);
+      Uint16 joy = 0;
+      if (keys[SDL_SCANCODE_RIGHT]) {
+        joy = (Uint16)(joy | 0x0001);
+      }
+      if (keys[SDL_SCANCODE_LEFT]) {
+        joy = (Uint16)(joy | 0x0002);
+      }
+      if (keys[SDL_SCANCODE_DOWN]) {
+        joy = (Uint16)(joy | 0x0004);
+      }
+      if (keys[SDL_SCANCODE_UP]) {
+        joy = (Uint16)(joy | 0x0008);
+      }
+      if (keys[SDL_SCANCODE_RETURN]) {
+        joy = (Uint16)(joy | 0x0010);
+      }
+      if (keys[SDL_SCANCODE_RSHIFT]) {
+        joy = (Uint16)(joy | 0x0020);
+      }
+      if (keys[SDL_SCANCODE_X]) {
+        joy = (Uint16)(joy | 0x0040);
+      }
+      if (keys[SDL_SCANCODE_Z]) {
+        joy = (Uint16)(joy | 0x0080);
+      }
+      if (keys[SDL_SCANCODE_S]) {
+        joy = (Uint16)(joy | 0x4000);
+      }
+      if (keys[SDL_SCANCODE_A]) {
+        joy = (Uint16)(joy | 0x8000);
+      }
+      if (keys[SDL_SCANCODE_Q]) {
+        joy = (Uint16)(joy | 0x2000);
+      }
+      if (keys[SDL_SCANCODE_W]) {
+        joy = (Uint16)(joy | 0x1000);
+      }
+      clock.joy = joy;
       if (!smx_clock_frame(&clock)) {
         SDL_Log("cpu stopped at %u:%u", (unsigned)cpu.pb, (unsigned)cpu.pc);
         playing = false;
