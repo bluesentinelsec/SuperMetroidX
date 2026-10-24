@@ -159,6 +159,19 @@ int main(void) {
   expect_u8("oam high", ppu.oam[512], 0xA5);
   expect_u8("oam low kept", ppu.oam[0], 0x00);
 
+  /* Window 1 covers x = 0 only and hides BG1 there. */
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x002123, 0x02);
+  smx_bus_write(&bus, 0x002126, 0x00);
+  smx_bus_write(&bus, 0x002127, 0x00);
+  smx_bus_write(&bus, 0x00212E, 0x01);
+  smx_ppu_render(&ppu);
+  expect_u8("window r", ppu.pixels[2], 0);
+  smx_bus_write(&bus, 0x00212E, 0x00);
+  smx_ppu_render(&ppu);
+  expect_u8("window off r", ppu.pixels[2], 255);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
