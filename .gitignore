@@ -1,0 +1,10 @@
+build/
+docs/html/
+compile_commands.json
+.DS_Store
+*.sfc
+*.smc
+*.srm
+*.sav
+*.zst
+cmake-build-*/

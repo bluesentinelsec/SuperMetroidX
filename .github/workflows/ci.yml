@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake
+
+      - name: Install tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja cmake
+
+      - name: Install tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install -y ninja make
+
+      - name: Cache SDL
+        uses: actions/cache@v4
+        with:
+          path: build/debug/_deps
+          key: sdl3-3.4.18-${{ runner.os }}
+
+      - name: Build and test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH="/c/ProgramData/chocolatey/bin:/c/Program Files/Git/usr/bin:$PATH"
+          fi
+          make test
+          if [ -d build/debug/SuperMetroidX.app ]; then
+            bin=build/debug/SuperMetroidX.app/Contents/MacOS/SuperMetroidX
+          elif [ -f build/debug/SuperMetroidX.exe ]; then
+            bin=build/debug/SuperMetroidX.exe
+          else
+            bin=build/debug/SuperMetroidX
+          fi
+          SDL_VIDEODRIVER=dummy "$bin" --smoke

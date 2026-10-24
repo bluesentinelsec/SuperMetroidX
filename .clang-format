@@ -1,0 +1,10 @@
+BasedOnStyle: LLVM
+Language: C
+ColumnLimit: 100
+IndentWidth: 2
+PointerAlignment: Right
+SortIncludes: true
+InsertBraces: true
+AllowShortFunctionsOnASingleLine: None
+AlignTrailingComments: true
+ReflowComments: true
