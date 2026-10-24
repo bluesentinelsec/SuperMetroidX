@@ -40,7 +40,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(SDL3)
 
-add_library(smx STATIC src/present.c src/cart.c src/bus.c src/cpu.c src/dma.c src/ppu.c src/translate.c)
+add_library(smx STATIC src/present.c src/cart.c src/bus.c src/cpu.c src/dma.c src/ppu.c src/apu.c src/translate.c)
 target_include_directories(
   smx PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
@@ -87,6 +87,10 @@ add_test(NAME dma COMMAND smx_test_dma)
 add_executable(smx_test_ppu tests/test_ppu.c)
 target_link_libraries(smx_test_ppu PRIVATE smx)
 add_test(NAME ppu COMMAND smx_test_ppu)
+
+add_executable(smx_test_apu tests/test_apu.c)
+target_link_libraries(smx_test_apu PRIVATE smx)
+add_test(NAME apu COMMAND smx_test_apu)
 
 install(
   TARGETS SuperMetroidX
