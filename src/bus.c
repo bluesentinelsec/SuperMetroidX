@@ -107,6 +107,24 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
       bus->dma_requested = true;
       bus->dma_channels = value;
     }
+    if (off == 0x4203) {
+      Uint16 product = (Uint16)((Uint16)bus->mmio[0x4202] * value);
+      bus->mmio[0x4216] = (Uint8)product;
+      bus->mmio[0x4217] = (Uint8)(product >> 8);
+    }
+    if (off == 0x4206) {
+      Uint16 dividend = (Uint16)(bus->mmio[0x4204] | ((Uint16)bus->mmio[0x4205] << 8));
+      Uint16 quotient = 0xFFFF;
+      Uint16 remainder = dividend;
+      if (value != 0) {
+        quotient = (Uint16)(dividend / value);
+        remainder = (Uint16)(dividend % value);
+      }
+      bus->mmio[0x4214] = (Uint8)quotient;
+      bus->mmio[0x4215] = (Uint8)(quotient >> 8);
+      bus->mmio[0x4216] = (Uint8)remainder;
+      bus->mmio[0x4217] = (Uint8)(remainder >> 8);
+    }
     if (off <= 0x21FF && bus->mmio_write != NULL) {
       bus->mmio_write(bus->mmio_user, off, value);
     }

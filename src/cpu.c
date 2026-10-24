@@ -497,6 +497,13 @@ void smx_cpu_nmi(SmxCpu *cpu) {
   interrupt(cpu, 0xFFEA, 0xFFFA, false);
 }
 
+void smx_cpu_irq(SmxCpu *cpu) {
+  if (cpu->stopped || (cpu->p & SMX_I) != 0) {
+    return;
+  }
+  interrupt(cpu, 0xFFEE, 0xFFFE, false);
+}
+
 void smx_cpu_init(SmxCpu *cpu, SmxBus *bus) {
   SDL_memset(cpu, 0, sizeof(*cpu));
   cpu->bus = bus;

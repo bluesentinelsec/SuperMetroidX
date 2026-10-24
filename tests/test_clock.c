@@ -114,9 +114,40 @@ static void test_rom_reaches_dma(void) {
   smx_cart_free(&cart);
 }
 
+static void test_irq_and_joy(void) {
+  Uint8 image[0x8000];
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxClock clock;
+  static const Uint8 reset[] = {0xA9, 0x21, 0x8D, 0x00, 0x42, 0xA9, 0x01,
+                                0x8D, 0x09, 0x42, 0x58, 0x80, 0xFE};
+  static const Uint8 handler[] = {0xA9, 0x77, 0x8D, 0x10, 0x00, 0x40};
+
+  SDL_memset(image, 0, sizeof(image));
+  SDL_memcpy(image, reset, sizeof(reset));
+  SDL_memcpy(image + 0x100, handler, sizeof(handler));
+  image[0x7FFE] = 0x00;
+  image[0x7FFF] = 0x81;
+  image[0x7FFC] = 0x00;
+  image[0x7FFD] = 0x80;
+
+  smx_bus_init(&bus, image, sizeof(image), 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  clock.joy = 0x0010;
+  smx_cpu_reset(&cpu);
+  expect_true("irq frame", smx_clock_frame(&clock));
+  expect_u8("irq wrote", smx_bus_wram(&bus, 0x0010), 0x77);
+  expect_u8("joy start", smx_bus_read(&bus, 0x004218), 0x10);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   test_vblank_poll();
   test_nmi();
+  test_irq_and_joy();
   test_rom_reaches_dma();
   return g_failed ? 1 : 0;
 }

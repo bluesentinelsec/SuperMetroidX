@@ -36,6 +36,15 @@ static void test_wram_sram_mmio(void) {
   expect_u8("inidisp reads open bus", smx_bus_read(&bus, 0x002100), 0x8F);
   smx_bus_read(&bus, 0x7E0000);
   expect_u8("inidisp still open bus", smx_bus_read(&bus, 0x002100), 0x11);
+  smx_bus_write(&bus, 0x004202, 0x03);
+  smx_bus_write(&bus, 0x004203, 0x04);
+  expect_u8("product low", smx_bus_read(&bus, 0x004216), 12);
+  expect_u8("product high", smx_bus_read(&bus, 0x004217), 0);
+  smx_bus_write(&bus, 0x004204, 0x0A);
+  smx_bus_write(&bus, 0x004205, 0x00);
+  smx_bus_write(&bus, 0x004206, 0x03);
+  expect_u8("quotient", smx_bus_read(&bus, 0x004214), 3);
+  expect_u8("remainder", smx_bus_read(&bus, 0x004216), 1);
 
   smx_bus_quit(&bus);
 }

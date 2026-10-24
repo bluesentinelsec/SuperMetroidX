@@ -36,8 +36,20 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
   }
   if (!clock->prev_vblank && vblank) {
     clock->bus->mmio[0x4210] = (Uint8)(clock->bus->mmio[0x4210] | 0x80);
+    if ((clock->bus->mmio[0x4200] & 0x01) != 0) {
+      clock->bus->mmio[0x4218] = (Uint8)clock->joy;
+      clock->bus->mmio[0x4219] = (Uint8)(clock->joy >> 8);
+    }
     if ((clock->bus->mmio[0x4200] & 0x80) != 0) {
       smx_cpu_nmi(clock->cpu);
+    }
+  }
+  if (line_before != line_after) {
+    Uint16 vtime = (Uint16)(clock->bus->mmio[0x4209] | ((Uint16)clock->bus->mmio[0x420A] << 8));
+    bool enable = (clock->bus->mmio[0x4200] & 0x20) != 0;
+    if (enable && line_after == (vtime & 0x01FFu)) {
+      clock->bus->mmio[0x4211] = 0x80;
+      smx_cpu_irq(clock->cpu);
     }
   }
   clock->prev_vblank = vblank;
