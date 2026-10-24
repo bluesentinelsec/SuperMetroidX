@@ -74,6 +74,10 @@ int main(void) {
   expect_u8("tile b", ppu.pixels[0], 0);
   expect_u8("gap r", ppu.pixels[4 + 2], 0);
   expect_u8("next tile r", ppu.pixels[8 * 4 + 2], 0);
+  smx_bus_write(&bus, 0x00210D, 0x08);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_ppu_render(&ppu);
+  expect_u8("scrolled r", ppu.pixels[2], 0);
   expect_true("tile hash", smx_ppu_frame_hash(&ppu) != color_hash);
   expect_true("still no oracle", !ppu.picture_matches_oracle);
 

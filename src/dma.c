@@ -16,6 +16,42 @@ static void put_log(SmxDma *dma, Uint8 value) {
   }
 }
 
+static Uint8 pattern_len(Uint8 pattern) {
+  static const Uint8 len[8] = {1, 2, 2, 4, 4, 4, 2, 4};
+  return len[pattern & 7];
+}
+
+static Uint8 pattern_off(Uint8 pattern, Uint8 step) {
+  static const Uint8 off[8][4] = {
+      {0, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 0, 0}, {0, 0, 1, 1},
+      {0, 1, 2, 3}, {0, 1, 0, 1}, {0, 0, 0, 0}, {0, 0, 1, 1},
+  };
+  return off[pattern & 7][step & 3];
+}
+
+static void transfer_unit(SmxDma *dma, Uint8 pattern, Uint8 b_addr, Uint32 *a_addr, bool to_a,
+                          bool fixed, Sint32 a_step) {
+  Uint8 step = 0;
+  Uint8 len = pattern_len(pattern);
+
+  for (; step < len; step += 1) {
+    Uint32 b_bus = 0x002100u + b_addr + pattern_off(pattern, step);
+    Uint8 value = 0;
+
+    if (to_a) {
+      value = smx_bus_read(dma->bus, b_bus);
+      smx_bus_write(dma->bus, *a_addr, value);
+    } else {
+      value = smx_bus_read(dma->bus, *a_addr);
+      smx_bus_write(dma->bus, b_bus, value);
+    }
+    put_log(dma, value);
+    if (!fixed) {
+      *a_addr = (*a_addr + (Uint32)a_step) & 0x00FFFFFFu;
+    }
+  }
+}
+
 void smx_dma_run(SmxDma *dma, Uint8 channels) {
   Uint8 channel = 0;
 
@@ -26,11 +62,10 @@ void smx_dma_run(SmxDma *dma, Uint8 channels) {
     Uint8 b_addr = 0;
     Uint32 a_addr = 0;
     Uint16 count = 0;
-    Uint8 pattern = 0;
     bool to_a = false;
     bool fixed = false;
     Sint32 a_step = 0;
-    Uint16 step = 0;
+    Uint32 remaining = 0;
 
     if ((channels & (Uint8)(1u << channel)) == 0) {
       continue;
@@ -42,42 +77,93 @@ void smx_dma_run(SmxDma *dma, Uint8 channels) {
     a_addr |= (Uint32)channel_reg(dma, channel, 4) << 16;
     count = (Uint16)channel_reg(dma, channel, 5);
     count = (Uint16)(count | ((Uint16)channel_reg(dma, channel, 6) << 8));
-    pattern = (Uint8)(control & 0x07);
     to_a = (control & 0x80) != 0;
     fixed = (control & 0x08) != 0;
     a_step = (control & 0x10) != 0 ? -1 : 1;
-    /* A count of 0 asks for 65536 bytes. */
-    {
-      Uint32 remaining = count == 0 ? 65536u : count;
-
-      while (remaining != 0) {
-        Uint8 b_off = 0;
-        Uint32 b_bus = 0;
-        Uint8 value = 0;
-
-        if (pattern == 1 || pattern == 2) {
-          b_off = (Uint8)(step & 1);
-        } else if (pattern == 3 || pattern == 4) {
-          b_off = (Uint8)(step & 3);
-          if (b_off == 3) {
-            b_off = 1;
-          }
-        }
-        b_bus = 0x002100u + b_addr + b_off;
-        if (to_a) {
-          value = smx_bus_read(dma->bus, b_bus);
-          smx_bus_write(dma->bus, a_addr, value);
-        } else {
-          value = smx_bus_read(dma->bus, a_addr);
-          smx_bus_write(dma->bus, b_bus, value);
-        }
-        put_log(dma, value);
-        if (!fixed) {
-          a_addr = (a_addr + (Uint32)a_step) & 0x00FFFFFFu;
-        }
-        step = (Uint16)(step + 1);
-        remaining -= 1;
+    remaining = count == 0 ? 65536u : count;
+    while (remaining != 0) {
+      transfer_unit(dma, (Uint8)(control & 0x07), b_addr, &a_addr, to_a, fixed, a_step);
+      remaining -= pattern_len((Uint8)(control & 0x07));
+      if (remaining > 65536u) {
+        break;
       }
+    }
+  }
+}
+
+static void hdma_load(SmxDma *dma, Uint8 channel) {
+  Uint8 control = channel_reg(dma, channel, 0);
+  Uint8 count = smx_bus_read(dma->bus, dma->hdma_addr[channel]);
+
+  dma->hdma_addr[channel] = (dma->hdma_addr[channel] + 1u) & 0x00FFFFFFu;
+  if (count == 0) {
+    dma->hdma_done[channel] = true;
+    dma->hdma_do[channel] = false;
+    return;
+  }
+  dma->hdma_lines[channel] = (Uint8)(count & 0x7F);
+  dma->hdma_repeat[channel] = (count & 0x80) != 0;
+  dma->hdma_do[channel] = true;
+  if ((control & 0x40) != 0) {
+    Uint8 low = smx_bus_read(dma->bus, dma->hdma_addr[channel]);
+    dma->hdma_addr[channel] = (dma->hdma_addr[channel] + 1u) & 0x00FFFFFFu;
+    dma->hdma_indirect[channel] =
+        (Uint16)(low | ((Uint16)smx_bus_read(dma->bus, dma->hdma_addr[channel]) << 8));
+    dma->hdma_addr[channel] = (dma->hdma_addr[channel] + 1u) & 0x00FFFFFFu;
+  }
+}
+
+void smx_dma_hdma_init(SmxDma *dma) {
+  Uint8 enable = smx_bus_mmio(dma->bus, 0x420C);
+  Uint8 channel = 0;
+
+  for (; channel < 8; channel += 1) {
+    dma->hdma_done[channel] = true;
+    dma->hdma_do[channel] = false;
+    if ((enable & (Uint8)(1u << channel)) == 0) {
+      continue;
+    }
+    dma->hdma_addr[channel] = (Uint32)channel_reg(dma, channel, 2);
+    dma->hdma_addr[channel] |= (Uint32)channel_reg(dma, channel, 3) << 8;
+    dma->hdma_addr[channel] |= (Uint32)channel_reg(dma, channel, 4) << 16;
+    dma->hdma_done[channel] = false;
+    hdma_load(dma, channel);
+  }
+}
+
+void smx_dma_hdma_line(SmxDma *dma) {
+  Uint8 enable = smx_bus_mmio(dma->bus, 0x420C);
+  Uint8 channel = 0;
+
+  for (; channel < 8; channel += 1) {
+    Uint8 control = 0;
+    Uint32 source = 0;
+    bool indirect = false;
+
+    if ((enable & (Uint8)(1u << channel)) == 0 || dma->hdma_done[channel]) {
+      continue;
+    }
+    control = channel_reg(dma, channel, 0);
+    indirect = (control & 0x40) != 0;
+    if (dma->hdma_do[channel]) {
+      if (indirect) {
+        source = ((Uint32)channel_reg(dma, channel, 7) << 16) | dma->hdma_indirect[channel];
+      } else {
+        source = dma->hdma_addr[channel];
+      }
+      transfer_unit(dma, (Uint8)(control & 0x07), channel_reg(dma, channel, 1), &source,
+                    (control & 0x80) != 0, false, 1);
+      if (indirect) {
+        dma->hdma_indirect[channel] = (Uint16)source;
+      } else {
+        dma->hdma_addr[channel] = source;
+      }
+    }
+    if (dma->hdma_lines[channel] > 1) {
+      dma->hdma_lines[channel] = (Uint8)(dma->hdma_lines[channel] - 1);
+      dma->hdma_do[channel] = dma->hdma_repeat[channel];
+    } else {
+      hdma_load(dma, channel);
     }
   }
 }

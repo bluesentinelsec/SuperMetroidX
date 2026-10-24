@@ -111,8 +111,17 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
         ppu->m7y = word;
       } else if (addr == 0x210D) {
         ppu->m7h = word;
-      } else {
+        ppu->bg_h[0] = word;
+      } else if (addr == 0x210E) {
         ppu->m7v = word;
+        ppu->bg_v[0] = word;
+      } else if (addr >= 0x210F && addr <= 0x2114) {
+        Uint8 index = (Uint8)((addr - 0x210F) >> 1);
+        if ((addr & 1u) == 1) {
+          ppu->bg_h[index + 1] = word;
+        } else {
+          ppu->bg_v[index + 1] = word;
+        }
       }
     }
   } else if (addr == 0x2104) {
@@ -159,16 +168,29 @@ static Uint8 smx_ppu_plane(const SmxPpu *ppu, Uint16 base_word, Uint16 tile, Uin
 }
 
 static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibble, bool four,
-                              Uint32 x, Uint32 y, bool *opaque, bool *priority, Uint16 *color) {
+                              Uint32 x, Uint32 y, Uint16 hscroll, Uint16 vscroll, bool *opaque,
+                              bool *priority, Uint16 *color) {
   Uint16 map = (Uint16)((map_reg & 0xFC) << 8);
   Uint16 chars = (Uint16)((char_nibble & 0x0F) << 12);
-  Uint32 tx = (x >> 3) & 31u;
-  Uint32 ty = (y >> 3) & 31u;
-  Uint16 entry = smx_ppu_word(ppu, (Uint16)(map + ty * 32u + tx));
+  Uint32 px = (x + (hscroll & 0x03FFu)) & 0x03FFu;
+  Uint32 py = (y + (vscroll & 0x03FFu)) & 0x03FFu;
+  Uint32 tx = (px >> 3) & 31u;
+  Uint32 ty = (py >> 3) & 31u;
+  Uint16 entry = 0;
+  bool wide = (map_reg & 0x01) != 0;
+  bool tall = (map_reg & 0x02) != 0;
+
+  if (wide && (px & 0x100u) != 0) {
+    map = (Uint16)(map + 0x400u);
+  }
+  if (tall && (py & 0x100u) != 0) {
+    map = (Uint16)(map + (wide ? 0x800u : 0x400u));
+  }
+  entry = smx_ppu_word(ppu, (Uint16)(map + ty * 32u + tx));
   Uint16 tile = (Uint16)(entry & 0x03FF);
   Uint8 palette = (Uint8)((entry >> 10) & 0x07);
-  Uint8 row = (Uint8)(y & 7u);
-  Uint8 col = (Uint8)(x & 7u);
+  Uint8 row = (Uint8)(py & 7u);
+  Uint8 col = (Uint8)(px & 7u);
   Uint8 index = 0;
 
   if ((entry & 0x8000) != 0) {
@@ -341,7 +363,7 @@ void smx_ppu_render(SmxPpu *ppu) {
             char_reg = smx_bus_mmio(ppu->bus, bg < 2 ? 0x210B : 0x210C);
             nibble = (bg & 1) == 0 ? (Uint8)(char_reg & 0x0F) : (Uint8)(char_reg >> 4);
             smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, four, x, y,
-                              &opaque, &priority, &sample);
+                              ppu->bg_h[bg], ppu->bg_v[bg], &opaque, &priority, &sample);
             if (opaque && priority == (pass == 1)) {
               color = sample;
             }
