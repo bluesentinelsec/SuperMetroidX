@@ -1,3 +1,4 @@
+#include "smx/apu.h"
 #include "smx/cart.h"
 #include "smx/clock.h"
 #include "smx/ppu.h"
@@ -50,6 +51,7 @@ int main(int argc, char **argv) {
   SmxCpu cpu;
   SmxDma dma;
   SmxPpu ppu;
+  SmxApu apu;
   SmxClock clock;
   bool playing = false;
   bool machine = false;
@@ -59,6 +61,7 @@ int main(int argc, char **argv) {
     smx_cpu_init(&cpu, &bus);
     smx_dma_init(&dma, &bus);
     smx_ppu_init(&ppu, &bus);
+    smx_apu_init(&apu, &bus);
     smx_clock_init(&clock, &cpu, &dma);
     smx_cpu_reset(&cpu);
     machine = true;

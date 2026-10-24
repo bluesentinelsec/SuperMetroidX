@@ -70,7 +70,7 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
     value = bus->rom[file];
   } else if ((bank & 0x7F) < 0x40 && off >= 0x2100 && off < 0x4500) {
     /* Status registers are readable. Write-only PPU registers read as open bus. */
-    if (off >= 0x4210 && off <= 0x421F) {
+    if ((off >= 0x2140 && off <= 0x2143) || (off >= 0x4210 && off <= 0x421F)) {
       value = bus->mmio[off];
       /* Reading $4210 acknowledges the NMI flag. */
       if (off == 0x4210) {
@@ -109,6 +109,9 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
     }
     if (off <= 0x21FF && bus->mmio_write != NULL) {
       bus->mmio_write(bus->mmio_user, off, value);
+    }
+    if (off >= 0x2140 && off <= 0x2143 && bus->apu_write != NULL) {
+      bus->apu_write(bus->apu_user, (Uint8)(off - 0x2140), value);
     }
   }
 }
