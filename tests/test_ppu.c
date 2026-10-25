@@ -44,6 +44,19 @@ int main(void) {
   expect_u8("white r", ppu.pixels[2], 255);
   color_hash = smx_ppu_frame_hash(&ppu);
   expect_true("hash changes", blank_hash != color_hash);
+
+  /* The top three bits repeat into the low bits, so 3 is 24. */
+  smx_ppu_write_cgram(&ppu, 0, (Uint16)(3u | (28u << 5) | (7u << 10)));
+  smx_ppu_render(&ppu);
+  expect_u8("expand r", ppu.pixels[2], 24);
+  expect_u8("expand g", ppu.pixels[1], 231);
+  expect_u8("expand b", ppu.pixels[0], 57);
+  /* Brightness 7 scales 31 to 14 before the expansion. */
+  smx_ppu_write_cgram(&ppu, 0, 0x7FFF);
+  smx_bus_write(&bus, 0x002100, 0x07);
+  smx_ppu_render(&ppu);
+  expect_u8("dim r", ppu.pixels[2], 115);
+  smx_bus_write(&bus, 0x002100, 0x0F);
   expect_true("no oracle match", !ppu.picture_matches_oracle);
   expect_true("translator blocked", !smx_translate_ready(&ppu));
 
