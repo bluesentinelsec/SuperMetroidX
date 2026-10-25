@@ -35,6 +35,9 @@
  * Bits 4-7 of $2130 black out the main pixel or skip color math in the
  * color window. A finished visible line is drawn before the next line's
  * HDMA. The picture stores scanlines 1 through 224. Scanline 0 is hidden.
+ * `$2139`/`$213A` read `vram_latch`, which an address write or the read
+ * that steps the address refills. `$213B` reads CGRAM low then high, and
+ * `$2138` reads OAM.
  * Five-bit channels round to eight bits. picture_matches_oracle latches
  * once the picture matches the NTSC logo frame.
  */
@@ -44,6 +47,7 @@ typedef struct SmxPpu {
   Uint16 cgram[256];
   Uint8 oam[544];
   Uint16 vram_addr;
+  Uint16 vram_latch;
   Uint8 vram_inc;
   Uint8 vram_map;
   bool vram_inc_high;

@@ -35,6 +35,21 @@ static void smx_ppu_store_vram(SmxPpu *ppu, bool high, Uint8 value) {
   }
 }
 
+static void smx_ppu_prefetch(SmxPpu *ppu) {
+  Uint32 word = smx_ppu_translate(ppu, ppu->vram_addr);
+  ppu->vram_latch = (Uint16)(ppu->vram[word * 2u] | ((Uint16)ppu->vram[word * 2u + 1u] << 8));
+}
+
+/* Reads return the prefetched word and refill it before the address steps. */
+static Uint8 smx_ppu_load_vram(SmxPpu *ppu, bool high) {
+  Uint8 value = (Uint8)(high ? ppu->vram_latch >> 8 : ppu->vram_latch);
+  if (high == ppu->vram_inc_high) {
+    smx_ppu_prefetch(ppu);
+    smx_ppu_vram_step(ppu);
+  }
+  return value;
+}
+
 void smx_ppu_init(SmxPpu *ppu, SmxBus *bus) {
   SDL_memset(ppu, 0, sizeof(*ppu));
   ppu->bus = bus;
@@ -76,6 +91,25 @@ static Uint8 smx_ppu_on_read(void *user, Uint16 addr, Uint8 open_bus) {
   if (addr == 0x2136) {
     return (Uint8)(product >> 16);
   }
+  if (addr == 0x2138) {
+    Uint8 value = ppu->oam_addr < sizeof(ppu->oam) ? ppu->oam[ppu->oam_addr] : 0;
+    ppu->oam_addr = (Uint16)((ppu->oam_addr + 1) & 0x03FF);
+    return value;
+  }
+  if (addr == 0x2139 || addr == 0x213A) {
+    return smx_ppu_load_vram(ppu, addr == 0x213A);
+  }
+  if (addr == 0x213B) {
+    Uint16 color = ppu->cgram[ppu->cgram_addr];
+    if (!ppu->cgram_high) {
+      ppu->cgram_high = true;
+      return (Uint8)color;
+    }
+    ppu->cgram_high = false;
+    ppu->cgram_addr = (Uint8)(ppu->cgram_addr + 1);
+    /* Bit 7 of the high byte is PPU2 open bus. */
+    return (Uint8)((color >> 8) | (open_bus & 0x80));
+  }
   return open_bus;
 }
 
@@ -88,8 +122,10 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
     ppu->vram_inc_high = (value & 0x80) != 0;
   } else if (addr == 0x2116) {
     ppu->vram_addr = (Uint16)((ppu->vram_addr & 0xFF00) | value);
+    smx_ppu_prefetch(ppu);
   } else if (addr == 0x2117) {
     ppu->vram_addr = (Uint16)((ppu->vram_addr & 0x00FF) | ((Uint16)value << 8));
+    smx_ppu_prefetch(ppu);
   } else if (addr == 0x2118) {
     smx_ppu_store_vram(ppu, false, value);
   } else if (addr == 0x2119) {
