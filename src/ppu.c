@@ -308,23 +308,16 @@ static Uint16 smx_ppu_math(const SmxPpu *ppu, Uint16 color, Uint8 source, Uint16
   return (Uint16)(channels[0] | (channels[1] << 5) | (channels[2] << 10));
 }
 
-/** Round a 5-bit channel to 8-bit. Mesen expands the same way. */
-static Uint8 smx_ppu_expand(Uint8 channel) {
-  return (Uint8)((channel * 255u + 15u) / 31u);
+/* Brightness scales the 5-bit channel, then the top bits repeat into the low bits. */
+static Uint8 smx_ppu_expand(Uint8 channel, Uint8 brightness) {
+  Uint8 scaled = (Uint8)((channel * brightness) / 15u);
+  return (Uint8)((scaled << 3) | (scaled >> 2));
 }
 
 static void smx_ppu_rgb(Uint16 bgr, Uint8 brightness, Uint8 *blue, Uint8 *green, Uint8 *red) {
-  Uint8 b = smx_ppu_expand((Uint8)((bgr & 0x7C00) >> 10));
-  Uint8 g = smx_ppu_expand((Uint8)((bgr & 0x03E0) >> 5));
-  Uint8 r = smx_ppu_expand((Uint8)(bgr & 0x001F));
-  if (brightness < 15) {
-    b = (Uint8)((b * brightness) / 15);
-    g = (Uint8)((g * brightness) / 15);
-    r = (Uint8)((r * brightness) / 15);
-  }
-  *blue = b;
-  *green = g;
-  *red = r;
+  *blue = smx_ppu_expand((Uint8)((bgr & 0x7C00) >> 10), brightness);
+  *green = smx_ppu_expand((Uint8)((bgr & 0x03E0) >> 5), brightness);
+  *red = smx_ppu_expand((Uint8)(bgr & 0x001F), brightness);
 }
 
 static Uint16 smx_ppu_word(const SmxPpu *ppu, Uint16 addr) {
