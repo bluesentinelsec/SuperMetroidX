@@ -497,6 +497,20 @@ int main(void) {
   smx_ppu_render(&ppu);
   expect_u8("sprite rotate g", ppu.pixels[1], 255);
   expect_u8("sprite rotate r", ppu.pixels[2], 0);
+  /* OAM order picks the sprite pixel. Priority 3 on sprite 1 does not lift it over sprite 0. */
+  smx_bus_write(&bus, 0x002102, 0x00);
+  smx_bus_write(&bus, 0x002103, 0x00);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0xFF);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0xFF);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0x32);
+  smx_ppu_render(&ppu);
+  expect_u8("sprite index beats priority r", ppu.pixels[2], 255);
+  expect_u8("sprite index beats priority g", ppu.pixels[1], 0);
 
   /* VRAM reads return the prefetched word. The stepping read refills it from
    * the address before stepping, so the first word comes back twice. */
