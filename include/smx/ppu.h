@@ -18,7 +18,8 @@
  * Mode 4 BG2 is 2bpp. Modes 5 and 6 keep a 256-wide picture and sample every
  * other hi-res pixel: the main screen takes the even pixels and the subscreen
  * takes the odd pixels. $2130 bit 0 selects
- * direct color. Mode 7 uses the latched
+ * direct color. `$2103` bit 7 draws sprites starting at the OAM word address.
+ * Mode 7 uses the latched
  * matrix. `$211A` bits 6-7 select the area outside 1024x1024: 2 is
  * transparent and 3 repeats character 0. Modes 0 and 1 scroll. A vertical write between the two
  * horizontal bytes keeps the fine horizontal offset.
@@ -47,6 +48,8 @@ typedef struct SmxPpu {
   Uint8 cgram_latch;
   bool cgram_high;
   Uint16 oam_addr;
+  Uint16 oam_base;
+  bool oam_rotate;
   Uint8 m7_low;
   bool m7_have_low;
   Uint8 bg_ofs;

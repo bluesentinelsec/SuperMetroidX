@@ -444,6 +444,40 @@ int main(void) {
   expect_u8("hires even r", ppu.pixels[2], 255);
   expect_u8("hires odd skipped r", ppu.pixels[4 + 2], 0);
 
+  /* Sprite 0 is red and sprite 1 is green. $2103 bit 7 puts sprite 1 in front. */
+  smx_bus_write(&bus, 0x002100, 0x0F);
+  smx_bus_write(&bus, 0x002105, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x10);
+  smx_bus_write(&bus, 0x00212E, 0x00);
+  smx_bus_write(&bus, 0x002131, 0x00);
+  smx_bus_write(&bus, 0x002101, 0x00);
+  smx_ppu_write_cgram(&ppu, 0, 0x0000);
+  smx_ppu_write_cgram(&ppu, 129, 0x001F);
+  smx_ppu_write_cgram(&ppu, 145, 0x03E0);
+  SDL_memset(ppu.oam, 0, sizeof(ppu.oam));
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x80);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002102, 0x00);
+  smx_bus_write(&bus, 0x002103, 0x00);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0xFF);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0x30);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0xFF);
+  smx_bus_write(&bus, 0x002104, 0x00);
+  smx_bus_write(&bus, 0x002104, 0x32);
+  smx_ppu_render(&ppu);
+  expect_u8("sprite order r", ppu.pixels[2], 255);
+  smx_bus_write(&bus, 0x002102, 0x02);
+  smx_bus_write(&bus, 0x002103, 0x80);
+  smx_ppu_render(&ppu);
+  expect_u8("sprite rotate g", ppu.pixels[1], 255);
+  expect_u8("sprite rotate r", ppu.pixels[2], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
