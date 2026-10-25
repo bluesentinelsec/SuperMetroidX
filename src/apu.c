@@ -1160,6 +1160,10 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
     mixed_l = (mixed_l * (Sint8)apu->dsp[0x0C]) >> 7;
     mixed_r = (mixed_r * (Sint8)apu->dsp[0x1C]) >> 7;
     smx_apu_echo(apu, echo_l, echo_r, &mixed_l, &mixed_r);
+    if ((apu->dsp[0x6C] & 0x80) != 0) {
+      mixed_l = 0;
+      mixed_r = 0;
+    }
     if (mixed_l > 32767) {
       mixed_l = 32767;
     }

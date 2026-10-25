@@ -17,7 +17,7 @@
  * sustain level, and releases on key-off. `$3D` replaces a voice's sample
  * with the noise generator. `$7D` delays the `$4D` voices through the
  * FIR coefficients and `$2C`/`$3C` add that delay back. The echo buffer
- * is not stored in SPC RAM.
+ * is not stored in SPC RAM. `$6C` bit 7 silences the output.
  * One `smx_apu_step` is one SPC700 instruction, not a cycle-accurate slice.
  */
 typedef struct SmxApu {
