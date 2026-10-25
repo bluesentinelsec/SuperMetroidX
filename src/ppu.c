@@ -86,11 +86,19 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
       ppu->cgram_addr = (Uint8)(ppu->cgram_addr + 1);
       ppu->cgram_high = false;
     }
-  } else if (addr == 0x2102) {
-    ppu->oam_addr = (Uint16)((ppu->oam_addr & 0xFF00) | value);
-  } else if (addr == 0x2103) {
-    ppu->oam_addr = (Uint16)((ppu->oam_addr & 0x00FF) | ((Uint16)(value & 0x01) << 8));
-  } else if (addr == 0x210D || addr == 0x210E || (addr >= 0x211B && addr <= 0x2120)) {
+  } else if (addr >= 0x210D && addr <= 0x2114) {
+    Uint8 index = (Uint8)((addr - 0x210D) >> 1);
+    if ((addr & 1u) == 1) {
+      ppu->bg_h[index] =
+          (Uint16)(((Uint16)value << 8) | (ppu->bg_ofs & 0xF8u) | (ppu->bg_hofs & 0x07u));
+      ppu->bg_ofs = value;
+      ppu->bg_hofs = value;
+    } else {
+      ppu->bg_v[index] = (Uint16)(((Uint16)value << 8) | ppu->bg_ofs);
+      ppu->bg_ofs = value;
+    }
+  }
+  if (addr == 0x210D || addr == 0x210E || (addr >= 0x211B && addr <= 0x2120)) {
     if (!ppu->m7_have_low) {
       ppu->m7_low = value;
       ppu->m7_have_low = true;
@@ -111,19 +119,14 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
         ppu->m7y = word;
       } else if (addr == 0x210D) {
         ppu->m7h = word;
-        ppu->bg_h[0] = word;
       } else if (addr == 0x210E) {
         ppu->m7v = word;
-        ppu->bg_v[0] = word;
-      } else if (addr >= 0x210F && addr <= 0x2114) {
-        Uint8 index = (Uint8)((addr - 0x210F) >> 1);
-        if ((addr & 1u) == 1) {
-          ppu->bg_h[index + 1] = word;
-        } else {
-          ppu->bg_v[index + 1] = word;
-        }
       }
     }
+  } else if (addr == 0x2102) {
+    ppu->oam_addr = (Uint16)((ppu->oam_addr & 0xFF00) | value);
+  } else if (addr == 0x2103) {
+    ppu->oam_addr = (Uint16)((ppu->oam_addr & 0x00FF) | ((Uint16)(value & 0x01) << 8));
   } else if (addr == 0x2132) {
     if ((value & 0x20) != 0) {
       ppu->fixed_r = (Uint8)(value & 0x1F);

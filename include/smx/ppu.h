@@ -13,7 +13,8 @@
  * The framebuffer is XRGB8888, 256 by 224. Forced blank is black.
  * Mode 0, mode 1, and mode 7 backgrounds are sampled, then sprites on the
  * main screen, including mode 1 BG3. Mode 7 uses the latched
- * matrix. Modes 0 and 1 scroll.
+ * matrix. Modes 0 and 1 scroll. A vertical write between the two
+ * horizontal bytes keeps the fine horizontal offset.
  * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
  * main-screen layers. $212F clips the subscreen the same way.
  * $2131 adds or subtracts the fixed color from $2132.
@@ -40,6 +41,8 @@ typedef struct SmxPpu {
   Uint16 oam_addr;
   Uint8 m7_low;
   bool m7_have_low;
+  Uint8 bg_ofs;
+  Uint8 bg_hofs;
   Uint16 m7a;
   Uint16 m7b;
   Uint16 m7c;
