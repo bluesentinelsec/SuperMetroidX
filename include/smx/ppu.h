@@ -93,6 +93,9 @@ void smx_ppu_render_line(SmxPpu *ppu, Uint32 y);
  */
 void smx_ppu_present_line(SmxPpu *ppu, Uint32 scanline);
 
+/** Draw pixels `x_from` up to but not including `x_to` of a visible scanline. */
+void smx_ppu_present_span(SmxPpu *ppu, Uint32 scanline, Uint32 x_from, Uint32 x_to);
+
 /** Fill every visible line from the current registers. */
 void smx_ppu_render(SmxPpu *ppu);
 

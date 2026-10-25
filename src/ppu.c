@@ -773,16 +773,16 @@ static bool smx_ppu_screen(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, 
   return hit;
 }
 
-static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row) {
+static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row, Uint32 x_from, Uint32 x_to) {
   Uint8 inidisp = smx_bus_mmio(ppu->bus, 0x2100);
   bool blank = (inidisp & 0x80) != 0;
   Uint8 brightness = (Uint8)(inidisp & 0x0F);
-  Uint32 x = 0;
+  Uint32 x = x_from;
 
   if (sample > SMX_PPU_HEIGHT || row >= SMX_PPU_HEIGHT || ppu->pixels == NULL) {
     return;
   }
-  for (; x < SMX_PPU_WIDTH; x += 1) {
+  for (; x < x_to && x < SMX_PPU_WIDTH; x += 1) {
     Uint16 color = ppu->cgram[0];
     Uint16 sub = 0;
     Uint8 source = 0;
@@ -823,14 +823,18 @@ static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row) {
 }
 
 void smx_ppu_render_line(SmxPpu *ppu, Uint32 y) {
-  smx_ppu_render_at(ppu, y, y);
+  smx_ppu_render_at(ppu, y, y, 0, SMX_PPU_WIDTH);
 }
 
-void smx_ppu_present_line(SmxPpu *ppu, Uint32 scanline) {
+void smx_ppu_present_span(SmxPpu *ppu, Uint32 scanline, Uint32 x_from, Uint32 x_to) {
   if (scanline < 1u) {
     return;
   }
-  smx_ppu_render_at(ppu, scanline, scanline - 1u);
+  smx_ppu_render_at(ppu, scanline, scanline - 1u, x_from, x_to);
+}
+
+void smx_ppu_present_line(SmxPpu *ppu, Uint32 scanline) {
+  smx_ppu_present_span(ppu, scanline, 0, SMX_PPU_WIDTH);
 }
 
 void smx_ppu_render(SmxPpu *ppu) {

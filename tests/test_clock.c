@@ -311,12 +311,81 @@ static void test_h_irq(void) {
   smx_bus_quit(&bus);
 }
 
+static void test_h_irq_dot(void) {
+  Uint8 image[0x8000];
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxClock clock;
+  static const Uint8 reset[] = {0xA9, 0x64, 0x8D, 0x07, 0x42, 0xA9, 0x10,
+                                0x8D, 0x00, 0x42, 0x58, 0x80, 0xFE};
+  Uint32 guard = 0;
+  Uint32 dot = 0;
+
+  SDL_memset(image, 0, sizeof(image));
+  SDL_memcpy(image, reset, sizeof(reset));
+  image[0x0100] = 0x40;
+  image[0x7FFE] = 0x00;
+  image[0x7FFF] = 0x81;
+  image[0x7FFC] = 0x00;
+  image[0x7FFD] = 0x80;
+  smx_bus_init(&bus, image, sizeof(image), 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  smx_cpu_reset(&cpu);
+  while ((smx_bus_mmio(&bus, 0x4211) & 0x80) == 0 && guard < 4000u) {
+    smx_clock_step(&clock);
+    guard += 1;
+  }
+  /* HTIME 100 is PPU dot 100, master clock 400 of the line. */
+  dot = (Uint32)(clock.dots % SMX_CLOCK_DOTS_PER_LINE);
+  expect_true("h-irq fired", (smx_bus_mmio(&bus, 0x4211) & 0x80) != 0);
+  expect_true("h-irq at dot 100", dot >= 400u && dot < 460u);
+  smx_bus_quit(&bus);
+}
+
+static void test_mid_line_write(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxPpu ppu;
+  SmxClock clock;
+  Uint32 line = 10;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_ppu_init(&ppu, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  clock.ppu = &ppu;
+  cpu.e = false;
+  cpu.p = 0x30;
+  cpu.pc = 0x1000;
+  smx_bus_write(&bus, 0x1000, 0x80);
+  smx_bus_write(&bus, 0x1001, 0xFE);
+  smx_ppu_write_cgram(&ppu, 0, 0x7FFF);
+  smx_bus_write(&bus, 0x002100, 0x0F);
+  /* Master clock 600 is PPU dot 150, so pixels 0 to 128 are already out. */
+  clock.dots = (Uint64)line * SMX_CLOCK_DOTS_PER_LINE + 600u;
+  smx_bus_write(&bus, 0x002100, 0x80);
+  while (clock.dots % SMX_CLOCK_DOTS_PER_FRAME < (Uint64)(line + 1u) * SMX_CLOCK_DOTS_PER_LINE) {
+    smx_clock_step(&clock);
+  }
+  expect_u8("left of the write", ppu.pixels[((line - 1u) * SMX_PPU_WIDTH + 128u) * 4u], 255);
+  expect_u8("right of the write", ppu.pixels[((line - 1u) * SMX_PPU_WIDTH + 129u) * 4u], 0);
+  smx_ppu_quit(&ppu);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   test_vblank_poll();
   test_joy_busy();
   test_nmi();
   test_irq_and_joy();
   test_h_irq();
+  test_h_irq_dot();
+  test_mid_line_write();
   test_line_before_hdma();
   test_rom_reaches_dma();
   test_logo_frame();

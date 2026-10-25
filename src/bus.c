@@ -124,6 +124,9 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
     return;
   }
   if ((bank & 0x7F) < 0x40 && off >= 0x2100 && off < 0x4500) {
+    if (off <= 0x2133 && bus->ppu_sync != NULL) {
+      bus->ppu_sync(bus->sync_user);
+    }
     bus->mmio[off] = value;
     if (off == 0x420B && value != 0) {
       bus->dma_requested = true;
