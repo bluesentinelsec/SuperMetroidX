@@ -125,8 +125,11 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
     }
   } else if (addr == 0x2102) {
     ppu->oam_addr = (Uint16)((ppu->oam_addr & 0xFF00) | value);
+    ppu->oam_base = (Uint16)((ppu->oam_base & 0x0100) | value);
   } else if (addr == 0x2103) {
     ppu->oam_addr = (Uint16)((ppu->oam_addr & 0x00FF) | ((Uint16)(value & 0x01) << 8));
+    ppu->oam_base = (Uint16)((ppu->oam_base & 0x00FF) | ((Uint16)(value & 0x01) << 8));
+    ppu->oam_rotate = (value & 0x80) != 0;
   } else if (addr == 0x2132) {
     if ((value & 0x20) != 0) {
       ppu->fixed_r = (Uint8)(value & 0x1F);
@@ -417,9 +420,11 @@ static bool smx_ppu_sample_sprite(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 p
   static const Uint8 small_h[8] = {8, 8, 8, 16, 16, 32, 32, 32};
   static const Uint8 large_w[8] = {16, 32, 64, 32, 64, 64, 32, 32};
   static const Uint8 large_h[8] = {16, 32, 64, 32, 64, 64, 64, 32};
-  Uint16 sprite = 0;
+  Uint16 n = 0;
+  Uint16 first = ppu->oam_rotate ? (Uint16)((ppu->oam_base >> 1) & 0x7F) : 0;
 
-  for (; sprite < 128; sprite += 1) {
+  for (; n < 128; n += 1) {
+    Uint16 sprite = (Uint16)((first + n) & 0x7F);
     Uint8 attr = ppu->oam[sprite * 4u + 3u];
     Uint8 pair = 0;
     Sint16 sx = 0;
