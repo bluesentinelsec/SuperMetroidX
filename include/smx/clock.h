@@ -14,9 +14,13 @@
 #define SMX_CLOCK_VBLANK_LINE 225u
 #define SMX_CLOCK_DOTS_PER_FRAME (SMX_CLOCK_DOTS_PER_LINE * SMX_CLOCK_LINES)
 
-/** NTSC master clock and the SPC700's 1.024 MHz cycle rate. */
+/**
+ * NTSC master clock and the SPC700 cycle rate. The APU crystal is nominally
+ * 24.576 MHz, but consoles average 32040 output samples a second, which is
+ * 1.02528 MHz at 32 cycles a sample. Mesen and bsnes use the same average.
+ */
 #define SMX_CLOCK_MASTER_HZ 21477272u
-#define SMX_CLOCK_SPC_HZ 1024000u
+#define SMX_CLOCK_SPC_HZ 1025280u
 /** Master clock in the line where DRAM refresh pauses the CPU for 40 clocks. */
 #define SMX_CLOCK_REFRESH_DOT 538u
 #define SMX_CLOCK_REFRESH_DOTS 40u
@@ -43,7 +47,9 @@
  * changes the pixels after it. `drawn_x` is how far the line has been drawn.
  * The SPC700 runs whole instructions to keep pace with the master clock at
  * the ratio of `SMX_CLOCK_SPC_HZ` to `SMX_CLOCK_MASTER_HZ`. `apu_credit` is
- * that lead in units of one master clock times `SMX_CLOCK_SPC_HZ`.
+ * that lead in units of one master clock times `SMX_CLOCK_SPC_HZ`, and
+ * `apu_at` is the master clock it has been paced to. A CPU access to
+ * `$2140-$2143` first runs the SPC700 up to the time of that access.
  */
 typedef struct SmxClock {
   SmxBus *bus;
@@ -54,6 +60,7 @@ typedef struct SmxClock {
   Uint32 stall;
   Uint32 drawn_x;
   Sint64 apu_credit;
+  Uint64 apu_at;
   Uint32 dma_count;
   /** Auto-joypad value: low byte to `$4218` (A X L R), high byte to `$4219`. */
   Uint16 joy;

@@ -3,6 +3,7 @@
 #include "smx/ppu.h"
 
 static void smx_clock_sync(void *user);
+static void smx_clock_apu_sync(void *user);
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   SDL_memset(clock, 0, sizeof(*clock));
@@ -12,6 +13,7 @@ void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   clock->prev_vblank = false;
   if (clock->bus != NULL) {
     clock->bus->ppu_sync = smx_clock_sync;
+    clock->bus->apu_sync = smx_clock_apu_sync;
     clock->bus->sync_user = clock;
   }
   /* The PPU comes out of reset forced blank. */
@@ -117,13 +119,15 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
   }
 }
 
-static void smx_clock_apu(SmxClock *clock, Uint32 dots) {
+/* Run the SPC700 until it has caught up to master clock `now`. */
+static void smx_clock_apu_to(SmxClock *clock, Uint64 now) {
   SmxApu *apu = (SmxApu *)clock->bus->apu_user;
 
-  if (apu == NULL) {
+  if (apu == NULL || now <= clock->apu_at) {
     return;
   }
-  clock->apu_credit += (Sint64)dots * SMX_CLOCK_SPC_HZ;
+  clock->apu_credit += (Sint64)(now - clock->apu_at) * SMX_CLOCK_SPC_HZ;
+  clock->apu_at = now;
   while (clock->apu_credit > 0) {
     if (!smx_apu_step(apu)) {
       clock->apu_credit = 0;
@@ -135,7 +139,12 @@ static void smx_clock_apu(SmxClock *clock, Uint32 dots) {
 
 static void smx_clock_spend(SmxClock *clock, Uint32 dots) {
   smx_clock_advance(clock, dots);
-  smx_clock_apu(clock, dots);
+  smx_clock_apu_to(clock, clock->dots);
+}
+
+static void smx_clock_apu_sync(void *user) {
+  SmxClock *clock = (SmxClock *)user;
+  smx_clock_apu_to(clock, clock->dots + clock->cpu->clocks);
 }
 
 /* Draw the current line up to the beam before a PPU register changes. */

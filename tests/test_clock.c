@@ -379,6 +379,29 @@ static void test_mid_line_write(void) {
   smx_bus_quit(&bus);
 }
 
+static void test_apu_port_sync(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxApu apu;
+  SmxClock clock;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_apu_init(&apu, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  /* An instruction 1000 clocks into the frame has spent 30 more on this access. */
+  clock.dots = 1000;
+  cpu.clocks = 30;
+  smx_bus_read(&bus, 0x002140);
+  expect_true("port read paces the spc", clock.apu_at == 1030u);
+  expect_true("spc ran", clock.apu_credit <= 0);
+  smx_bus_write(&bus, 0x002141, 0x00);
+  expect_true("port write paces the spc", clock.apu_at == 1030u);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   test_vblank_poll();
   test_joy_busy();
@@ -387,6 +410,7 @@ int main(void) {
   test_h_irq();
   test_h_irq_dot();
   test_mid_line_write();
+  test_apu_port_sync();
   test_line_before_hdma();
   test_rom_reaches_dma();
   test_logo_frame();
