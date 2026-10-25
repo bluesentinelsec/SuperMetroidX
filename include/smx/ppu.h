@@ -15,7 +15,9 @@
  * then sprites on the main screen, including mode 1 BG3. Mode 2 uses 4bpp
  * BG1 and BG2. Modes 2 and 4 take per-column scroll from the BG3 map. The
  * first screen column keeps the layer scroll. Mode 3 and mode 4 BG1 are 8bpp.
- * Mode 4 BG2 is 2bpp. $2130 bit 0 selects
+ * Mode 4 BG2 is 2bpp. Modes 5 and 6 keep a 256-wide picture and sample every
+ * other hi-res pixel: the main screen takes the even pixels and the subscreen
+ * takes the odd pixels. $2130 bit 0 selects
  * direct color. Mode 7 uses the latched
  * matrix. Modes 0 and 1 scroll. A vertical write between the two
  * horizontal bytes keeps the fine horizontal offset.
