@@ -168,6 +168,16 @@ int main(void) {
   expect_u8("mode7 g", ppu.pixels[1], 0);
   expect_u8("mode7 clear", ppu.pixels[8 * 4 + 2], 0);
   expect_true("mode7 no oracle", !ppu.picture_matches_oracle);
+  /* $211A = $80 hides samples past 1024. Scroll 2048 lands there. */
+  smx_bus_write(&bus, 0x00211A, 0x80);
+  smx_bus_write(&bus, 0x002130, 0x00);
+  smx_bus_write(&bus, 0x002131, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x08);
+  smx_ppu_write_cgram(&ppu, 0, 0x03E0);
+  smx_ppu_render(&ppu);
+  expect_u8("mode7 outside g", ppu.pixels[1], 255);
+  expect_u8("mode7 outside r", ppu.pixels[2], 0);
 
   expect_u8("oam high", ppu.oam[512], 0xA5);
   expect_u8("oam low kept", ppu.oam[0], 0x00);
