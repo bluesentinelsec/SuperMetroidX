@@ -372,6 +372,14 @@ int main(void) {
   expect_u8("direct g", ppu.pixels[1], 0);
   expect_u8("direct b", ppu.pixels[0], 0);
 
+  /* Mode 4 BG1 is the same 8bpp tile. BG2 is 2bpp and stays off here. */
+  smx_bus_write(&bus, 0x002105, 0x04);
+  smx_bus_write(&bus, 0x002130, 0x00);
+  smx_ppu_write_cgram(&ppu, 1, 0x001F);
+  smx_ppu_render(&ppu);
+  expect_u8("mode4 r", ppu.pixels[2], 255);
+  expect_u8("mode4 g", ppu.pixels[1], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;

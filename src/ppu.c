@@ -379,7 +379,8 @@ static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibbl
   *priority = (entry & 0x2000) != 0;
   *opaque = index != 0;
   if (depth == 8 && (smx_bus_mmio(ppu->bus, 0x2130) & 0x01) != 0 &&
-      (smx_bus_mmio(ppu->bus, 0x2105) & 0x07) == 3) {
+      ((smx_bus_mmio(ppu->bus, 0x2105) & 0x07) == 3 ||
+       (smx_bus_mmio(ppu->bus, 0x2105) & 0x07) == 4)) {
     Uint8 red = (Uint8)(index & 0x07);
     Uint8 green = (Uint8)((index >> 3) & 0x07);
     Uint8 blue = (Uint8)((index >> 6) & 0x03);
@@ -524,12 +525,12 @@ static void smx_ppu_paint_bg(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen
   Uint8 nibble = 0;
   static const Uint16 map_regs[4] = {0x2107, 0x2108, 0x2109, 0x210A};
 
-  if ((mode == 1 && bg == 3) || (mode == 3 && bg > 1)) {
+  if ((mode == 1 && bg == 3) || ((mode == 3 || mode == 4) && bg > 1)) {
     return;
   }
   if ((mode == 1 && bg < 2) || (mode == 3 && bg == 1)) {
     depth = 4;
-  } else if (mode == 3 && bg == 0) {
+  } else if ((mode == 3 || mode == 4) && bg == 0) {
     depth = 8;
   }
   if ((screen & (Uint8)(1u << bg)) == 0) {
@@ -599,7 +600,7 @@ static bool smx_ppu_screen(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, 
     if (bg3_high) {
       smx_ppu_paint_bg(ppu, x, y, screen, 2, true, sub, color, source, &hit);
     }
-  } else if (mode == 3) {
+  } else if (mode == 3 || mode == 4) {
     smx_ppu_paint_bg(ppu, x, y, screen, 1, false, sub, color, source, &hit);
     smx_ppu_paint_bg(ppu, x, y, screen, 0, false, sub, color, source, &hit);
     smx_ppu_paint_sprite(ppu, x, y, screen, 0, sub, color, source, &hit);
