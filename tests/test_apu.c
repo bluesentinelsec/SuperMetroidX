@@ -46,6 +46,38 @@ static void step_until_port(SmxApu *apu, Uint8 want) {
   g_failed = true;
 }
 
+/* The 8 kHz prescaler runs from reset, so timer 0 ticks at cycle 128, not 128 after enabling. */
+static void test_timer_prescaler(void) {
+  SmxBus bus;
+  SmxApu apu;
+  static const Uint8 program[] = {0x8F, 0x01, 0xFA, 0x8F, 0x01, 0xF1, 0x2F, 0xFE};
+  Uint32 cycles = 0;
+  Uint32 i = 0;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_apu_init(&apu, &bus);
+  SDL_memcpy(&apu.ram[0x0200], program, sizeof(program));
+  for (; i < 45u; i += 1) {
+    apu.ram[0x0300 + i] = 0x00;
+  }
+  apu.ram[0x0300 + 45u] = 0x5F;
+  apu.ram[0x0300 + 46u] = 0x00;
+  apu.ram[0x0300 + 47u] = 0x02;
+  apu.pc = 0x0300;
+  /* 45 NOPs, JMP, then two MOV dp,#imm enable timer 0 at cycle 103. */
+  while (cycles < 127u) {
+    smx_apu_step(&apu);
+    cycles += apu.cycles;
+  }
+  expect_u8("timer quiet before 128", apu.timer_out[0], 0);
+  while (cycles < 132u) {
+    smx_apu_step(&apu);
+    cycles += apu.cycles;
+  }
+  expect_u8("timer ticks at 128", apu.timer_out[0], 1);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   SmxBus bus;
   SmxApu apu;
@@ -428,5 +460,6 @@ int main(void) {
   }
 
   smx_bus_quit(&bus);
+  test_timer_prescaler();
   return g_failed ? 1 : 0;
 }

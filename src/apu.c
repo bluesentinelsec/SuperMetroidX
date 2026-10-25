@@ -103,6 +103,15 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
     return;
   }
   if (addr == 0x00F1) {
+    Uint8 index = 0;
+    /* Turning a timer on clears its counter and output, not its prescaler. */
+    for (; index < 3; index += 1) {
+      Uint8 bit = (Uint8)(1u << index);
+      if ((apu->control & bit) == 0 && (value & bit) != 0) {
+        apu->timer_stage[index] = 0;
+        apu->timer_out[index] = 0;
+      }
+    }
     apu->control = value;
     if ((value & 0x10) != 0) {
       apu->in[0] = 0;
@@ -285,7 +294,10 @@ static const Uint8 smx_spc_cycles[256] = {
     2, 8, 4, 5, 3, 4, 3, 6, 2, 4, 5, 3, 4, 3, 4, 3, 2, 8, 4, 5, 4, 5, 5, 6, 3, 4, 5, 4, 2, 2, 4,  3,
 };
 
-/* A taken branch spends two more cycles than the table entry. */
+/*
+ * A taken branch spends two more cycles than the table entry. The timer
+ * prescalers run from reset whether or not a timer is enabled.
+ */
 static void smx_spc_spend(SmxApu *apu, Uint8 op, bool take) {
   static const Uint16 rate[3] = {128, 128, 16};
   Uint8 index = 0;
@@ -293,14 +305,14 @@ static void smx_spc_spend(SmxApu *apu, Uint8 op, bool take) {
   apu->cycles = (Uint8)(smx_spc_cycles[op] + (take ? 2u : 0u));
   for (; index < 3; index += 1) {
     Uint16 limit = 0;
-    if ((apu->control & (Uint8)(1u << index)) == 0) {
-      continue;
-    }
     apu->timer_div[index] = (Uint16)(apu->timer_div[index] + apu->cycles);
     if (apu->timer_div[index] < rate[index]) {
       continue;
     }
     apu->timer_div[index] = (Uint16)(apu->timer_div[index] - rate[index]);
+    if ((apu->control & (Uint8)(1u << index)) == 0) {
+      continue;
+    }
     apu->timer_stage[index] = (Uint16)(apu->timer_stage[index] + 1);
     limit = apu->timer_target[index] == 0 ? 256 : apu->timer_target[index];
     if (apu->timer_stage[index] >= limit) {
