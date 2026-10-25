@@ -197,7 +197,7 @@ static void test_logo_frame(void) {
   expect_u8("logo mode", (Uint8)(smx_bus_mmio(&bus, 0x2105) & 0x07), 1);
   expect_u8("logo layers", smx_bus_mmio(&bus, 0x212C), 0x10);
   expect_true("logo pixels", lit_pixels(&ppu) == 1121u);
-  expect_true("logo hash", smx_ppu_frame_hash(&ppu) == 0x00ce83bdu);
+  expect_true("logo hash", smx_ppu_frame_hash(&ppu) == 0xd155b93bu);
   expect_true("logo is not an oracle match", !ppu.picture_matches_oracle);
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
@@ -271,8 +271,8 @@ static void test_line_before_hdma(void) {
   expect_true("scanline frame", smx_clock_frame(&clock));
   row0 = ppu.pixels[2];
   row1 = ppu.pixels[SMX_PPU_WIDTH * 4u + 2u];
-  expect_true("line 0 kept its brightness", row0 == 255);
-  expect_true("line 1 blanked by the next HDMA", row1 == 0);
+  expect_true("visible row is scanline 1 after its HDMA", row0 == 0);
+  expect_true("next visible row stays blank", row1 == 0);
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
 }

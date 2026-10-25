@@ -288,10 +288,15 @@ static Uint16 smx_ppu_math(const SmxPpu *ppu, Uint16 color, Uint8 source, Uint16
   return (Uint16)(channels[0] | (channels[1] << 5) | (channels[2] << 10));
 }
 
+/** Round a 5-bit channel to 8-bit. Mesen expands the same way. */
+static Uint8 smx_ppu_expand(Uint8 channel) {
+  return (Uint8)((channel * 255u + 15u) / 31u);
+}
+
 static void smx_ppu_rgb(Uint16 bgr, Uint8 brightness, Uint8 *blue, Uint8 *green, Uint8 *red) {
-  Uint8 b = (Uint8)(((bgr & 0x7C00) >> 10) * 255 / 31);
-  Uint8 g = (Uint8)(((bgr & 0x03E0) >> 5) * 255 / 31);
-  Uint8 r = (Uint8)((bgr & 0x001F) * 255 / 31);
+  Uint8 b = smx_ppu_expand((Uint8)((bgr & 0x7C00) >> 10));
+  Uint8 g = smx_ppu_expand((Uint8)((bgr & 0x03E0) >> 5));
+  Uint8 r = smx_ppu_expand((Uint8)(bgr & 0x001F));
   if (brightness < 15) {
     b = (Uint8)((b * brightness) / 15);
     g = (Uint8)((g * brightness) / 15);
@@ -696,13 +701,13 @@ static bool smx_ppu_screen(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, 
   return hit;
 }
 
-void smx_ppu_render_line(SmxPpu *ppu, Uint32 y) {
+static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row) {
   Uint8 inidisp = smx_bus_mmio(ppu->bus, 0x2100);
   bool blank = (inidisp & 0x80) != 0;
   Uint8 brightness = (Uint8)(inidisp & 0x0F);
   Uint32 x = 0;
 
-  if (y >= SMX_PPU_HEIGHT || ppu->pixels == NULL) {
+  if (sample > SMX_PPU_HEIGHT || row >= SMX_PPU_HEIGHT || ppu->pixels == NULL) {
     return;
   }
   for (; x < SMX_PPU_WIDTH; x += 1) {
@@ -719,9 +724,9 @@ void smx_ppu_render_line(SmxPpu *ppu, Uint32 y) {
     if (!blank && brightness != 0) {
       Uint8 select = smx_bus_mmio(ppu->bus, 0x2130);
       bool in_window = smx_ppu_color_window(ppu, x);
-      smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212C), false, &color, &source);
-      sub_hit =
-          smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212D), true, &sub, &unused_source);
+      smx_ppu_screen(ppu, x, sample, smx_bus_mmio(ppu->bus, 0x212C), false, &color, &source);
+      sub_hit = smx_ppu_screen(ppu, x, sample, smx_bus_mmio(ppu->bus, 0x212D), true, &sub,
+                               &unused_source);
       if (smx_ppu_region((Uint8)(select >> 6), in_window)) {
         color = 0;
       }
@@ -738,11 +743,22 @@ void smx_ppu_render_line(SmxPpu *ppu, Uint32 y) {
     } else {
       smx_ppu_rgb(smx_ppu_math(ppu, color, source, sub, sub_hit), brightness, &blue, &green, &red);
     }
-    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u] = blue;
-    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 1u] = green;
-    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 2u] = red;
-    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 3u] = 255;
+    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u] = blue;
+    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u + 1u] = green;
+    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u + 2u] = red;
+    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u + 3u] = 255;
   }
+}
+
+void smx_ppu_render_line(SmxPpu *ppu, Uint32 y) {
+  smx_ppu_render_at(ppu, y, y);
+}
+
+void smx_ppu_present_line(SmxPpu *ppu, Uint32 scanline) {
+  if (scanline < 1u) {
+    return;
+  }
+  smx_ppu_render_at(ppu, scanline, scanline - 1u);
 }
 
 void smx_ppu_render(SmxPpu *ppu) {
