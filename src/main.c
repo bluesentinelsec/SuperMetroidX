@@ -64,6 +64,7 @@ int main(int argc, char **argv) {
     smx_ppu_init(&ppu, &bus);
     smx_apu_init(&apu, &bus);
     smx_clock_init(&clock, &cpu, &dma);
+    clock.ppu = &ppu;
     smx_cpu_reset(&cpu);
     machine = true;
     playing = true;
@@ -157,7 +158,6 @@ int main(int argc, char **argv) {
         SDL_Log("cpu stopped at %u:%u", (unsigned)cpu.pb, (unsigned)cpu.pc);
         playing = false;
       }
-      smx_ppu_render(&ppu);
       if (audio != NULL) {
         /* 32000 Hz over one NTSC frame, rounded. */
         Sint16 left[532];

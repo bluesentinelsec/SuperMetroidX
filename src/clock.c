@@ -1,5 +1,6 @@
 #include "smx/clock.h"
 #include "smx/apu.h"
+#include "smx/ppu.h"
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   SDL_memset(clock, 0, sizeof(*clock));
@@ -29,6 +30,9 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
 
   clock->dots += dots;
   line_after = smx_clock_line(clock->dots);
+  if (line_before != line_after && clock->ppu != NULL && line_before < SMX_PPU_HEIGHT) {
+    smx_ppu_render_line(clock->ppu, line_before);
+  }
   if (clock->dma != NULL && line_before != line_after && line_after > 0 &&
       line_after < SMX_CLOCK_VBLANK_LINE) {
     smx_dma_hdma_line(clock->dma);

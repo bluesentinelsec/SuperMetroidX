@@ -176,6 +176,49 @@ static void test_irq_and_joy(void) {
   smx_bus_quit(&bus);
 }
 
+static void test_line_before_hdma(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxPpu ppu;
+  SmxClock clock;
+  static const Uint8 loop[] = {0x80, 0xFE};
+  Uint32 row0 = 0;
+  Uint32 row1 = 0;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_ppu_init(&ppu, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  clock.ppu = &ppu;
+  cpu.e = false;
+  cpu.p = 0x30;
+  cpu.s = 0x01FF;
+  cpu.pc = 0x1000;
+  smx_bus_write(&bus, 0x1000, loop[0]);
+  smx_bus_write(&bus, 0x1001, loop[1]);
+  smx_ppu_write_cgram(&ppu, 0, 0x001F);
+  smx_bus_write(&bus, 0x7E0000, 0x01);
+  smx_bus_write(&bus, 0x7E0001, 0x0F);
+  smx_bus_write(&bus, 0x7E0002, 0x01);
+  smx_bus_write(&bus, 0x7E0003, 0x8F);
+  smx_bus_write(&bus, 0x7E0004, 0x00);
+  smx_bus_write(&bus, 0x4300, 0x00);
+  smx_bus_write(&bus, 0x4301, 0x00);
+  smx_bus_write(&bus, 0x4302, 0x00);
+  smx_bus_write(&bus, 0x4303, 0x00);
+  smx_bus_write(&bus, 0x4304, 0x7E);
+  smx_bus_write(&bus, 0x420C, 0x01);
+  expect_true("scanline frame", smx_clock_frame(&clock));
+  row0 = ppu.pixels[2];
+  row1 = ppu.pixels[SMX_PPU_WIDTH * 4u + 2u];
+  expect_true("line 0 kept its brightness", row0 == 255);
+  expect_true("line 1 blanked by the next HDMA", row1 == 0);
+  smx_ppu_quit(&ppu);
+  smx_bus_quit(&bus);
+}
+
 static void test_h_irq(void) {
   Uint8 image[0x8000];
   SmxBus bus;
@@ -214,6 +257,7 @@ int main(void) {
   test_nmi();
   test_irq_and_joy();
   test_h_irq();
+  test_line_before_hdma();
   test_rom_reaches_dma();
   return g_failed ? 1 : 0;
 }
