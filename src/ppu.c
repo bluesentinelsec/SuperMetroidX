@@ -378,7 +378,18 @@ static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibbl
   index = smx_ppu_plane(ppu, chars, tile, row, col, depth);
   *priority = (entry & 0x2000) != 0;
   *opaque = index != 0;
-  if (depth == 8) {
+  if (depth == 8 && (smx_bus_mmio(ppu->bus, 0x2130) & 0x01) != 0 &&
+      (smx_bus_mmio(ppu->bus, 0x2105) & 0x07) == 3) {
+    Uint8 red = (Uint8)(index & 0x07);
+    Uint8 green = (Uint8)((index >> 3) & 0x07);
+    Uint8 blue = (Uint8)((index >> 6) & 0x03);
+    Uint8 pr = (Uint8)(palette & 0x01);
+    Uint8 pg = (Uint8)((palette >> 1) & 0x01);
+    Uint8 pb = (Uint8)((palette >> 2) & 0x01);
+    *color =
+        (Uint16)(((Uint16)((red << 2) | (pr << 1))) | ((Uint16)((green << 2) | (pg << 1)) << 5) |
+                 ((Uint16)((blue << 3) | (pb << 2)) << 10));
+  } else if (depth == 8) {
     *color = ppu->cgram[index];
   } else if (depth == 4) {
     *color = ppu->cgram[(Uint32)palette * 16u + index];

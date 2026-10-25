@@ -364,6 +364,14 @@ int main(void) {
   expect_u8("mode3 g", ppu.pixels[1], 0);
   expect_u8("mode3 neighbor r", ppu.pixels[4 + 2], 0);
 
+  /* Direct color: pixel 1, palette 0 is red 4, not the CGRAM word. */
+  smx_ppu_write_cgram(&ppu, 1, 0x7FFF);
+  smx_bus_write(&bus, 0x002130, 0x01);
+  smx_ppu_render(&ppu);
+  expect_u8("direct r", ppu.pixels[2], (Uint8)(4u * 255u / 31u));
+  expect_u8("direct g", ppu.pixels[1], 0);
+  expect_u8("direct b", ppu.pixels[0], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
