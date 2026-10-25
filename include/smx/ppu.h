@@ -12,7 +12,8 @@
  * NTSC picture RAM.
  * The framebuffer is XRGB8888, 256 by 224. Forced blank is black.
  * Mode 0, mode 1, mode 3, and mode 7 backgrounds are sampled, then sprites on the
- * main screen, including mode 1 BG3. Mode 7 uses the latched
+ * main screen, including mode 1 BG3. Mode 3 BG1 is 8bpp, and $2130 bit 0
+ * selects direct color. Mode 7 uses the latched
  * matrix. Modes 0 and 1 scroll. A vertical write between the two
  * horizontal bytes keeps the fine horizontal offset.
  * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
