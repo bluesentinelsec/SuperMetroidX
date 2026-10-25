@@ -380,6 +380,40 @@ int main(void) {
   expect_u8("mode4 r", ppu.pixels[2], 255);
   expect_u8("mode4 g", ppu.pixels[1], 0);
 
+  /* Mode 2 offset-per-tile. Column 0 keeps BG1. Column 1 uses BG3 entry 0. */
+  smx_bus_write(&bus, 0x002105, 0x02);
+  smx_bus_write(&bus, 0x002107, 0x04);
+  smx_bus_write(&bus, 0x002109, 0x0C);
+  smx_bus_write(&bus, 0x00212C, 0x01);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_bus_write(&bus, 0x002111, 0x00);
+  smx_bus_write(&bus, 0x002111, 0x00);
+  smx_bus_write(&bus, 0x002112, 0x00);
+  smx_bus_write(&bus, 0x002112, 0x00);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x01);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x01);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002116, 0x02);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x04);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x0C);
+  smx_bus_write(&bus, 0x002118, 0x08);
+  smx_bus_write(&bus, 0x002119, 0x20);
+  smx_ppu_write_cgram(&ppu, 0, 0x0000);
+  smx_ppu_write_cgram(&ppu, 1, 0x001F);
+  smx_ppu_write_cgram(&ppu, 17, 0x03E0);
+  smx_ppu_render(&ppu);
+  expect_u8("opt first r", ppu.pixels[2], 255);
+  expect_u8("opt column g", ppu.pixels[8 * 4 + 1], 255);
+  expect_u8("opt column r", ppu.pixels[8 * 4 + 2], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
