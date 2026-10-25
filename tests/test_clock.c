@@ -1,3 +1,4 @@
+#include "smx/apu.h"
 #include "smx/cart.h"
 #include "smx/clock.h"
 
@@ -146,6 +147,63 @@ static void test_rom_reaches_dma(void) {
   smx_cart_free(&cart);
 }
 
+static Uint32 lit_pixels(const SmxPpu *ppu) {
+  Uint32 n = 0;
+  Uint32 i = 0;
+  Uint32 count = (Uint32)SMX_PPU_WIDTH * SMX_PPU_HEIGHT;
+
+  for (; i < count; i += 1) {
+    const Uint8 *pixel = ppu->pixels + i * 4u;
+    if (pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0) {
+      n += 1;
+    }
+  }
+  return n;
+}
+
+/** Frame 41 of the NTSC image is the Nintendo logo. The hash is ours, not an external oracle. */
+static void test_logo_frame(void) {
+  const char *path = SDL_getenv("SMX_ROM");
+  SmxCart cart;
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxPpu ppu;
+  SmxApu apu;
+  SmxClock clock;
+  Uint32 frame = 0;
+
+  if (path == NULL || path[0] == '\0') {
+    path = "SuperMetroid.sfc";
+  }
+  smx_cart_init(&cart);
+  if (!smx_cart_load_path(&cart, path)) {
+    if (SDL_getenv("SMX_REQUIRE_ROM") != NULL) {
+      expect_true("rom", false);
+    }
+    return;
+  }
+  smx_bus_init(&bus, cart.bytes, cart.size, smx_cart_sram_bytes(cart.sram_size_code));
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_ppu_init(&ppu, &bus);
+  smx_apu_init(&apu, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  clock.ppu = &ppu;
+  smx_cpu_reset(&cpu);
+  for (; frame < 41; frame += 1) {
+    expect_true("logo frame ran", smx_clock_frame(&clock));
+  }
+  expect_u8("logo mode", (Uint8)(smx_bus_mmio(&bus, 0x2105) & 0x07), 1);
+  expect_u8("logo layers", smx_bus_mmio(&bus, 0x212C), 0x10);
+  expect_true("logo pixels", lit_pixels(&ppu) == 1121u);
+  expect_true("logo hash", smx_ppu_frame_hash(&ppu) == 0x00ce83bdu);
+  expect_true("logo is not an oracle match", !ppu.picture_matches_oracle);
+  smx_ppu_quit(&ppu);
+  smx_bus_quit(&bus);
+  smx_cart_free(&cart);
+}
+
 static void test_irq_and_joy(void) {
   Uint8 image[0x8000];
   SmxBus bus;
@@ -259,5 +317,6 @@ int main(void) {
   test_h_irq();
   test_line_before_hdma();
   test_rom_reaches_dma();
+  test_logo_frame();
   return g_failed ? 1 : 0;
 }
