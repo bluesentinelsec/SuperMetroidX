@@ -1,6 +1,7 @@
 #include "smx/ppu.h"
 
 static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value);
+static Uint8 smx_ppu_on_read(void *user, Uint16 addr, Uint8 open_bus);
 
 static Uint16 smx_ppu_translate(const SmxPpu *ppu, Uint16 addr) {
   addr = (Uint16)(addr & 0x7FFF);
@@ -41,6 +42,7 @@ void smx_ppu_init(SmxPpu *ppu, SmxBus *bus) {
   ppu->picture_matches_oracle = false;
   if (bus != NULL) {
     bus->mmio_write = smx_ppu_on_write;
+    bus->mmio_read = smx_ppu_on_read;
     bus->mmio_user = ppu;
     bus->mmio[0x2100] = 0x8F;
   }
@@ -49,6 +51,7 @@ void smx_ppu_init(SmxPpu *ppu, SmxBus *bus) {
 void smx_ppu_quit(SmxPpu *ppu) {
   if (ppu->bus != NULL && ppu->bus->mmio_user == ppu) {
     ppu->bus->mmio_write = NULL;
+    ppu->bus->mmio_read = NULL;
     ppu->bus->mmio_user = NULL;
   }
   SDL_free(ppu->pixels);
@@ -57,6 +60,23 @@ void smx_ppu_quit(SmxPpu *ppu) {
 
 void smx_ppu_write_cgram(SmxPpu *ppu, Uint8 index, Uint16 bgr555) {
   ppu->cgram[index] = (Uint16)(bgr555 & 0x7FFF);
+}
+
+static Uint8 smx_ppu_on_read(void *user, Uint16 addr, Uint8 open_bus) {
+  SmxPpu *ppu = (SmxPpu *)user;
+  Sint16 b_high = (Sint16)((Sint16)ppu->m7b >> 8);
+  Sint32 product = (Sint32)(Sint16)ppu->m7a * (Sint32)b_high;
+
+  if (addr == 0x2134) {
+    return (Uint8)product;
+  }
+  if (addr == 0x2135) {
+    return (Uint8)(product >> 8);
+  }
+  if (addr == 0x2136) {
+    return (Uint8)(product >> 16);
+  }
+  return open_bus;
 }
 
 static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
@@ -99,29 +119,29 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
     }
   }
   if (addr == 0x210D || addr == 0x210E || (addr >= 0x211B && addr <= 0x2120)) {
-    if (!ppu->m7_have_low) {
-      ppu->m7_low = value;
-      ppu->m7_have_low = true;
-    } else {
-      Uint16 word = (Uint16)(ppu->m7_low | ((Uint16)value << 8));
-      ppu->m7_have_low = false;
-      if (addr == 0x211B) {
-        ppu->m7a = word;
-      } else if (addr == 0x211C) {
-        ppu->m7b = word;
-      } else if (addr == 0x211D) {
-        ppu->m7c = word;
-      } else if (addr == 0x211E) {
-        ppu->m7d = word;
-      } else if (addr == 0x211F) {
-        ppu->m7x = word;
-      } else if (addr == 0x2120) {
-        ppu->m7y = word;
-      } else if (addr == 0x210D) {
-        ppu->m7h = word;
-      } else if (addr == 0x210E) {
-        ppu->m7v = word;
-      }
+    /* Every write commits. The previous byte is the low half. */
+    Uint16 word = (Uint16)(((Uint16)value << 8) | ppu->m7_low);
+    ppu->m7_low = value;
+    ppu->m7_have_low = true;
+    if (addr == 0x210D || addr == 0x210E) {
+      word = (Uint16)(word & 0x1FFFu);
+    }
+    if (addr == 0x211B) {
+      ppu->m7a = word;
+    } else if (addr == 0x211C) {
+      ppu->m7b = word;
+    } else if (addr == 0x211D) {
+      ppu->m7c = word;
+    } else if (addr == 0x211E) {
+      ppu->m7d = word;
+    } else if (addr == 0x211F) {
+      ppu->m7x = word;
+    } else if (addr == 0x2120) {
+      ppu->m7y = word;
+    } else if (addr == 0x210D) {
+      ppu->m7h = word;
+    } else if (addr == 0x210E) {
+      ppu->m7v = word;
     }
   } else if (addr == 0x2102) {
     ppu->oam_addr = (Uint16)((ppu->oam_addr & 0xFF00) | value);
@@ -492,20 +512,43 @@ static Sint32 smx_ppu_sex13(Uint16 value) {
   return (Sint32)value;
 }
 
+static Sint32 smx_ppu_m7_clip(Sint32 value) {
+  if ((value & 0x2000) != 0) {
+    return value | ~(Sint32)0x3FF;
+  }
+  return value & 0x3FF;
+}
+
 static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *color) {
   Uint8 select = smx_bus_mmio(ppu->bus, 0x211A);
-  Sint16 a = (Sint16)ppu->m7a;
-  Sint16 b = (Sint16)ppu->m7b;
-  Sint16 c = (Sint16)ppu->m7c;
-  Sint16 d = (Sint16)ppu->m7d;
+  Sint32 a = (Sint16)ppu->m7a;
+  Sint32 b = (Sint16)ppu->m7b;
+  Sint32 c = (Sint16)ppu->m7c;
+  Sint32 d = (Sint16)ppu->m7d;
   Sint32 cx = smx_ppu_sex13(ppu->m7x);
   Sint32 cy = smx_ppu_sex13(ppu->m7y);
-  Sint32 sx = smx_ppu_sex13((Uint16)(ppu->m7h - ppu->m7x));
-  Sint32 sy = smx_ppu_sex13((Uint16)((ppu->m7v + (Uint16)y) - ppu->m7y));
-  Sint32 ox = (Sint32)a * sx + (Sint32)b * sy + (cx << 8) + (Sint32)a * (Sint32)x;
-  Sint32 oy = (Sint32)c * sx + (Sint32)d * sy + (cy << 8) + (Sint32)c * (Sint32)x;
-  Sint32 px = ox >> 8;
-  Sint32 py = oy >> 8;
+  Sint32 h = smx_ppu_sex13(ppu->m7h);
+  Sint32 v = smx_ppu_sex13(ppu->m7v);
+  Sint32 real_y = (select & 0x02) != 0 ? (Sint32)(255u - y) : (Sint32)y;
+  Sint32 x_value = ((a * smx_ppu_m7_clip(h - cx)) & ~(Sint32)63) + ((b * real_y) & ~(Sint32)63) +
+                   ((b * smx_ppu_m7_clip(v - cy)) & ~(Sint32)63) + (cx << 8);
+  Sint32 y_value = ((c * smx_ppu_m7_clip(h - cx)) & ~(Sint32)63) + ((d * real_y) & ~(Sint32)63) +
+                   ((d * smx_ppu_m7_clip(v - cy)) & ~(Sint32)63) + (cy << 8);
+  Sint32 x_step = a;
+  Sint32 y_step = c;
+  Sint32 px = 0;
+  Sint32 py = 0;
+
+  if ((select & 0x01) != 0) {
+    x_value += x_step * 255;
+    y_value += y_step * 255;
+    x_step = -x_step;
+    y_step = -y_step;
+  }
+  x_value += x_step * (Sint32)x;
+  y_value += y_step * (Sint32)x;
+  px = x_value >> 8;
+  py = y_value >> 8;
   bool outside = px < 0 || py < 0 || px > 1023 || py > 1023;
   Uint16 tile = 0;
   Uint16 word = 0;
