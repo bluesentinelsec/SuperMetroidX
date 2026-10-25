@@ -513,6 +513,56 @@ static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *
   return true;
 }
 
+/** Replace BG1 or BG2 scroll from the BG3 map in modes 2 and 4. The first column keeps the layer
+ * scroll. */
+static void smx_ppu_opt(const SmxPpu *ppu, Uint8 mode, Uint8 bg, Uint32 x, Uint16 *hscroll,
+                        Uint16 *vscroll) {
+  Uint16 h = *hscroll;
+  Uint16 bg3h = 0;
+  Uint16 bg3v = 0;
+  Uint32 col = 0;
+  Uint32 ox = 0;
+  Uint32 oy = 0;
+  Uint16 map = 0;
+  Uint16 hentry = 0;
+  Uint16 mask = 0;
+
+  if ((mode != 2 && mode != 4) || bg > 1) {
+    return;
+  }
+  if (x < (Uint32)(8u - (h & 7u))) {
+    return;
+  }
+  col = (x - (Uint32)(8u - (h & 7u))) >> 3;
+  bg3h = ppu->bg_h[2];
+  bg3v = ppu->bg_v[2];
+  map = (Uint16)((smx_bus_mmio(ppu->bus, 0x2109) & 0xFC) << 8);
+  ox = ((bg3h & 0x3F8u) >> 3) + col;
+  oy = (bg3v & 0x3F8u) >> 3;
+  hentry = smx_ppu_word(ppu, (Uint16)(map + (oy & 31u) * 32u + (ox & 31u)));
+  mask = bg == 0 ? 0x2000u : 0x4000u;
+  if (mode == 4) {
+    if ((hentry & mask) == 0) {
+      return;
+    }
+    if ((hentry & 0x8000) != 0) {
+      *vscroll = (Uint16)(hentry & 0x03FF);
+    } else {
+      *hscroll = (Uint16)((((x & ~7u) + (hentry & 0x03F8u) + ((x + h) & 7u)) - x) & 0x03FF);
+    }
+    return;
+  }
+  if ((hentry & mask) != 0) {
+    *hscroll = (Uint16)((((x & ~7u) + (hentry & 0x03F8u) + ((x + h) & 7u)) - x) & 0x03FF);
+  }
+  {
+    Uint16 ventry = smx_ppu_word(ppu, (Uint16)(map + ((oy + 1u) & 31u) * 32u + (ox & 31u)));
+    if ((ventry & mask) != 0) {
+      *vscroll = (Uint16)(ventry & 0x03FF);
+    }
+  }
+}
+
 static void smx_ppu_paint_bg(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, Uint8 bg,
                              bool high, bool sub, Uint16 *color, Uint8 *source, bool *hit) {
   Uint8 mode = (Uint8)(smx_bus_mmio(ppu->bus, 0x2105) & 0x07);
@@ -525,10 +575,10 @@ static void smx_ppu_paint_bg(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen
   Uint8 nibble = 0;
   static const Uint16 map_regs[4] = {0x2107, 0x2108, 0x2109, 0x210A};
 
-  if ((mode == 1 && bg == 3) || ((mode == 3 || mode == 4) && bg > 1)) {
+  if ((mode == 1 && bg == 3) || (mode == 2 && bg > 1) || ((mode == 3 || mode == 4) && bg > 1)) {
     return;
   }
-  if ((mode == 1 && bg < 2) || (mode == 3 && bg == 1)) {
+  if ((mode == 1 && bg < 2) || mode == 2 || (mode == 3 && bg == 1)) {
     depth = 4;
   } else if ((mode == 3 || mode == 4) && bg == 0) {
     depth = 8;
@@ -538,9 +588,14 @@ static void smx_ppu_paint_bg(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen
   }
   char_reg = smx_bus_mmio(ppu->bus, bg < 2 ? 0x210B : 0x210C);
   nibble = (bg & 1) == 0 ? (Uint8)(char_reg & 0x0F) : (Uint8)(char_reg >> 4);
-  smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, depth, large,
-                    smx_ppu_mosaic(ppu, bg, x), smx_ppu_mosaic(ppu, bg, y), ppu->bg_h[bg],
-                    ppu->bg_v[bg], &opaque, &priority, &sample);
+  {
+    Uint16 hscroll = ppu->bg_h[bg];
+    Uint16 vscroll = ppu->bg_v[bg];
+    smx_ppu_opt(ppu, mode, bg, smx_ppu_mosaic(ppu, bg, x), &hscroll, &vscroll);
+    smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, depth, large,
+                      smx_ppu_mosaic(ppu, bg, x), smx_ppu_mosaic(ppu, bg, y), hscroll, vscroll,
+                      &opaque, &priority, &sample);
+  }
   if (opaque && priority == high && !smx_ppu_window_masks(ppu, bg, x, sub ? 0x212F : 0x212E)) {
     *color = sample;
     *source = (Uint8)(bg + 1);
@@ -600,7 +655,7 @@ static bool smx_ppu_screen(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, 
     if (bg3_high) {
       smx_ppu_paint_bg(ppu, x, y, screen, 2, true, sub, color, source, &hit);
     }
-  } else if (mode == 3 || mode == 4) {
+  } else if (mode == 2 || mode == 3 || mode == 4) {
     smx_ppu_paint_bg(ppu, x, y, screen, 1, false, sub, color, source, &hit);
     smx_ppu_paint_bg(ppu, x, y, screen, 0, false, sub, color, source, &hit);
     smx_ppu_paint_sprite(ppu, x, y, screen, 0, sub, color, source, &hit);
