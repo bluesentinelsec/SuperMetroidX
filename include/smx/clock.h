@@ -20,6 +20,8 @@
 /** Master clock in the line where DRAM refresh pauses the CPU for 40 clocks. */
 #define SMX_CLOCK_REFRESH_DOT 538u
 #define SMX_CLOCK_REFRESH_DOTS 40u
+/** At PPU dot `h`, the pixels left of `h - 21` have been drawn. */
+#define SMX_CLOCK_FIRST_PIXEL_DOT 21u
 
 /**
  * Instruction-timed NTSC clock.
@@ -31,11 +33,14 @@
  * Bit 0 stays set for 4224 master clocks from the start of vblank,
  * and `$4200` bit 7 arms an NMI on the rising edge. A write to `$420B`
  * runs general-purpose DMA before the next instruction. `$4200` bit 4
- * fires an IRQ when the dot in the line matches `$4207`/`$4208`. Bit 5
+ * fires an IRQ when the line reaches PPU dot `$4207`/`$4208`, four master
+ * clocks per dot. Bit 5
  * still fires at the start of the line in `$4209`/`$420A`. Both bits wait
  * for that dot on that line. HDMA reloads when line 0 starts and runs as
  * each of lines 1 to 224 starts. When `ppu` is set, each visible line is
- * drawn as the dot counter leaves it, before HDMA for the next line.
+ * drawn as the dot counter leaves it, before HDMA for the next line. A PPU
+ * register write first draws the line up to the beam, so the write only
+ * changes the pixels after it. `drawn_x` is how far the line has been drawn.
  * The SPC700 runs whole instructions to keep pace with the master clock at
  * the ratio of `SMX_CLOCK_SPC_HZ` to `SMX_CLOCK_MASTER_HZ`. `apu_credit` is
  * that lead in units of one master clock times `SMX_CLOCK_SPC_HZ`.
@@ -47,6 +52,7 @@ typedef struct SmxClock {
   SmxPpu *ppu;
   Uint64 dots;
   Uint32 stall;
+  Uint32 drawn_x;
   Sint64 apu_credit;
   Uint32 dma_count;
   Uint16 joy;
@@ -56,7 +62,7 @@ typedef struct SmxClock {
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);
 
-/** Run one instruction and the dots it consumes. */
+/** Pay any pending stall, then run one instruction and the dots it consumes. */
 bool smx_clock_step(SmxClock *clock);
 
 /** Run master clocks up to the start of the next NTSC frame. */

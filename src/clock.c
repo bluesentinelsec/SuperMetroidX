@@ -2,12 +2,18 @@
 #include "smx/apu.h"
 #include "smx/ppu.h"
 
+static void smx_clock_sync(void *user);
+
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   SDL_memset(clock, 0, sizeof(*clock));
   clock->cpu = cpu;
   clock->dma = dma;
   clock->bus = cpu->bus;
   clock->prev_vblank = false;
+  if (clock->bus != NULL) {
+    clock->bus->ppu_sync = smx_clock_sync;
+    clock->bus->sync_user = clock;
+  }
   /* The PPU comes out of reset forced blank. */
   if (clock->bus != NULL) {
     clock->bus->mmio[0x2100] = 0x8F;
@@ -41,7 +47,10 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
   }
   if (line_before != line_after && clock->ppu != NULL && line_before >= 1u &&
       line_before <= SMX_PPU_HEIGHT) {
-    smx_ppu_present_line(clock->ppu, line_before);
+    smx_ppu_present_span(clock->ppu, line_before, clock->drawn_x, SMX_PPU_WIDTH);
+  }
+  if (line_before != line_after) {
+    clock->drawn_x = 0;
   }
   if (clock->dma != NULL && line_before != line_after) {
     if (line_after == 0) {
@@ -83,17 +92,15 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
     }
   }
   {
-    Uint32 step = 0;
     Uint16 htime = (Uint16)(clock->bus->mmio[0x4207] | ((Uint16)clock->bus->mmio[0x4208] << 8));
     Uint16 vtime = (Uint16)(clock->bus->mmio[0x4209] | ((Uint16)clock->bus->mmio[0x420A] << 8));
     bool h_irq = (clock->bus->mmio[0x4200] & 0x10) != 0;
     bool v_irq = (clock->bus->mmio[0x4200] & 0x20) != 0;
-    htime = (Uint16)(htime & 0x01FFu);
-    for (; h_irq && step < dots; step += 1) {
-      Uint64 at = clock->dots - dots + step;
-      if (smx_clock_dot(at) == htime && (!v_irq || smx_clock_line(at) == (vtime & 0x01FFu))) {
-        smx_clock_irq(clock);
-      }
+    /* HTIME counts PPU dots, four master clocks each. */
+    Uint32 at = (Uint32)(htime & 0x01FFu) * 4u;
+    if (h_irq && at >= dot_before && at < dot_before + dots &&
+        (!v_irq || line_before == (vtime & 0x01FFu))) {
+      smx_clock_irq(clock);
     }
   }
   clock->prev_vblank = vblank;
@@ -113,6 +120,9 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
 static void smx_clock_apu(SmxClock *clock, Uint32 dots) {
   SmxApu *apu = (SmxApu *)clock->bus->apu_user;
 
+  if (apu == NULL) {
+    return;
+  }
   clock->apu_credit += (Sint64)dots * SMX_CLOCK_SPC_HZ;
   while (clock->apu_credit > 0) {
     if (!smx_apu_step(apu)) {
@@ -120,6 +130,31 @@ static void smx_clock_apu(SmxClock *clock, Uint32 dots) {
       return;
     }
     clock->apu_credit -= (Sint64)apu->cycles * SMX_CLOCK_MASTER_HZ;
+  }
+}
+
+static void smx_clock_spend(SmxClock *clock, Uint32 dots) {
+  smx_clock_advance(clock, dots);
+  smx_clock_apu(clock, dots);
+}
+
+/* Draw the current line up to the beam before a PPU register changes. */
+static void smx_clock_sync(void *user) {
+  SmxClock *clock = (SmxClock *)user;
+  Uint32 line = smx_clock_line(clock->dots);
+  Uint32 dot = smx_clock_dot(clock->dots) + clock->cpu->clocks;
+  Uint32 x = SMX_PPU_WIDTH;
+
+  if (clock->ppu == NULL || line < 1u || line > SMX_PPU_HEIGHT) {
+    return;
+  }
+  if (dot < SMX_CLOCK_DOTS_PER_LINE) {
+    x = dot / 4u < SMX_CLOCK_FIRST_PIXEL_DOT ? 0 : dot / 4u - SMX_CLOCK_FIRST_PIXEL_DOT;
+    x = x > SMX_PPU_WIDTH ? SMX_PPU_WIDTH : x;
+  }
+  if (x > clock->drawn_x) {
+    smx_ppu_present_span(clock->ppu, line, clock->drawn_x, x);
+    clock->drawn_x = x;
   }
 }
 
@@ -131,21 +166,21 @@ bool smx_clock_step(SmxClock *clock) {
   if (clock->dots == 0 && clock->dma != NULL) {
     clock->stall += smx_dma_hdma_init(clock->dma);
   }
+  /* Refresh and HDMA found while advancing pause the CPU before it continues. */
+  while (clock->stall != 0) {
+    dots = clock->stall;
+    clock->stall = 0;
+    smx_clock_spend(clock, dots);
+  }
   ran = smx_cpu_step(clock->cpu);
-
+  dots = clock->cpu->clocks;
+  clock->cpu->clocks = 0;
+  smx_clock_spend(clock, dots);
   if (clock->bus->dma_requested) {
     clock->stall += smx_dma_run(clock->dma, clock->bus->dma_channels);
     clock->bus->mmio[0x420B] = 0;
     clock->bus->dma_requested = false;
     clock->dma_count += 1;
-  }
-  /* Refresh and HDMA found while advancing are paid on the next step. */
-  dots = clock->cpu->clocks + clock->stall;
-  clock->cpu->clocks = 0;
-  clock->stall = 0;
-  smx_clock_advance(clock, dots);
-  if (clock->bus->apu_user != NULL) {
-    smx_clock_apu(clock, dots);
   }
   return ran;
 }

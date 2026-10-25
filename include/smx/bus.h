@@ -25,6 +25,9 @@ typedef struct SmxBus {
   void *mmio_user;
   void (*apu_write)(void *user, Uint8 index, Uint8 value);
   void *apu_user;
+  /** Called before a write to `$2100-$2133` so the picture catches up to the beam. */
+  void (*ppu_sync)(void *user);
+  void *sync_user;
 } SmxBus;
 
 void smx_bus_init(SmxBus *bus, const Uint8 *rom, Uint32 rom_size, Uint32 sram_size);
