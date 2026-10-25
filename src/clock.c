@@ -104,11 +104,15 @@ bool smx_clock_step(SmxClock *clock) {
     clock->bus->dma_requested = false;
     clock->dma_count += 1;
   }
-  smx_clock_advance(clock, 8);
-  /* The SPC700 is polled, so one instruction per 65816 step is enough for the
-   * boot handshakes. This is not the 1.024 MHz ratio. */
+  /* Three fast-ROM cycles. A fast cycle is 6 master clocks. */
+  smx_clock_advance(clock, 18);
   if (clock->bus->apu_user != NULL) {
-    smx_apu_step((SmxApu *)clock->bus->apu_user);
+    /* Four SPC cycles at 21 master clocks per cycle. */
+    clock->apu_dots += 18u;
+    while (clock->apu_dots >= 84u) {
+      clock->apu_dots -= 84u;
+      smx_apu_step((SmxApu *)clock->bus->apu_user);
+    }
   }
   return ran;
 }

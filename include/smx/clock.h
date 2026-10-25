@@ -16,7 +16,8 @@
 
 /**
  * Instruction-timed NTSC clock.
- * Each instruction spends 8 master clocks. `$4212` bit 7 follows vblank.
+ * Each instruction spends 18 master clocks, three fast-ROM cycles.
+ * `$4212` bit 7 follows vblank.
  * Bit 0 stays set for 4224 master clocks from the start of vblank.
  * and `$4200` bit 7 arms an NMI on the rising edge. A write to `$420B`
  * runs general-purpose DMA before the next instruction. `$4200` bit 4
@@ -24,6 +25,8 @@
  * still fires at the start of the line in `$4209`/`$420A`. Both bits wait
  * for that dot on that line. When `ppu` is set, each visible line is
  * drawn as the dot counter leaves it, before HDMA for the next line.
+ * The SPC700 runs one instruction every 84 master clocks. That is four
+ * SPC cycles at the NTSC ratio of 21 master clocks per cycle.
  */
 typedef struct SmxClock {
   SmxBus *bus;
@@ -31,6 +34,7 @@ typedef struct SmxClock {
   SmxDma *dma;
   SmxPpu *ppu;
   Uint32 dots;
+  Uint32 apu_dots;
   Uint32 dma_count;
   Uint16 joy;
   bool prev_vblank;
