@@ -361,6 +361,32 @@ int main(void) {
     smx_apu_step(&apu);
     smx_apu_render(&apu, left, NULL, 1);
     expect_s16("noise", left[0], 8060);
+    apu.dsp[0x3D] = 0;
+    apu.dsp[0x02] = 0;
+    apu.dsp[0x03] = 0;
+    apu.dsp[0x0C] = 0x7F;
+    apu.dsp[0x00] = 0x7F;
+    apu.dsp[0x4D] = 0x01;
+    apu.dsp[0x7D] = 0x01;
+    apu.dsp[0x0F] = 0x7F;
+    apu.dsp[0x2C] = 0x7F;
+    apu.dsp[0x0D] = 0;
+    apu.echo_pos = 0;
+    SDL_memset(apu.echo_l, 0, sizeof(apu.echo_l));
+    SDL_memset(apu.echo_r, 0, sizeof(apu.echo_r));
+    apu.pc = 0x0A00 + sizeof(program) - 8;
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_render(&apu, left, NULL, 1);
+    expect_s16("echo dry", left[0], 2015);
+    {
+      Sint16 skip[511];
+      smx_apu_render(&apu, skip, NULL, 511);
+    }
+    smx_apu_render(&apu, left, NULL, 1);
+    expect_s16("echo wet", left[0], 4014);
   }
 
   smx_bus_quit(&bus);

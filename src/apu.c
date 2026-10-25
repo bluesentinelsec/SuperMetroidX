@@ -1006,6 +1006,52 @@ bool smx_apu_step(SmxApu *apu) {
 
 static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2);
 
+static void smx_apu_echo(SmxApu *apu, Sint32 input_l, Sint32 input_r, Sint32 *mixed_l,
+                         Sint32 *mixed_r) {
+  Uint8 delay = (Uint8)(apu->dsp[0x7D] & 0x0F);
+  Uint16 length = 0;
+  Sint32 fir_l = 0;
+  Sint32 fir_r = 0;
+  Sint32 write_l = 0;
+  Sint32 write_r = 0;
+  Uint8 tap = 0;
+
+  if (delay == 0) {
+    return;
+  }
+  length = (Uint16)((Uint16)delay * 512u);
+  if (apu->echo_pos >= length) {
+    apu->echo_pos = 0;
+  }
+  for (; tap < 8; tap += 1) {
+    Uint16 index = (Uint16)((apu->echo_pos + length - tap) % length);
+    Sint8 coeff = (Sint8)apu->dsp[(Uint8)(0x0Fu + (Uint8)(tap * 0x10u))];
+    fir_l += (Sint32)apu->echo_l[index] * coeff;
+    fir_r += (Sint32)apu->echo_r[index] * coeff;
+  }
+  fir_l >>= 7;
+  fir_r >>= 7;
+  *mixed_l += (fir_l * (Sint8)apu->dsp[0x2C]) >> 7;
+  *mixed_r += (fir_r * (Sint8)apu->dsp[0x3C]) >> 7;
+  write_l = input_l + ((fir_l * (Sint8)apu->dsp[0x0D]) >> 7);
+  write_r = input_r + ((fir_r * (Sint8)apu->dsp[0x0D]) >> 7);
+  if (write_l > 32767) {
+    write_l = 32767;
+  }
+  if (write_l < -32768) {
+    write_l = -32768;
+  }
+  if (write_r > 32767) {
+    write_r = 32767;
+  }
+  if (write_r < -32768) {
+    write_r = -32768;
+  }
+  apu->echo_l[apu->echo_pos] = (Sint16)write_l;
+  apu->echo_r[apu->echo_pos] = (Sint16)write_r;
+  apu->echo_pos = (Uint16)((apu->echo_pos + 1u) % length);
+}
+
 static void smx_apu_envelope(SmxApu *apu, Uint8 voice) {
   Uint8 base = (Uint8)(voice * 0x10u);
   Uint8 adsr1 = apu->dsp[base + 5u];
@@ -1059,6 +1105,8 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
 
   for (; i < count; i += 1) {
     Sint32 mixed_l = 0;
+    Sint32 echo_l = 0;
+    Sint32 echo_r = 0;
     Uint16 noise_bit = (Uint16)((apu->noise ^ (Uint16)(apu->noise >> 1)) & 1u);
     apu->noise = (Uint16)((apu->noise >> 1) | (noise_bit << 14));
     Sint32 mixed_r = 0;
@@ -1104,9 +1152,14 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
       }
       mixed_l += (sample * volume_l) >> 7;
       mixed_r += (sample * volume_r) >> 7;
+      if ((apu->dsp[0x4D] & (Uint8)(1u << voice)) != 0) {
+        echo_l += (sample * volume_l) >> 7;
+        echo_r += (sample * volume_r) >> 7;
+      }
     }
     mixed_l = (mixed_l * (Sint8)apu->dsp[0x0C]) >> 7;
     mixed_r = (mixed_r * (Sint8)apu->dsp[0x1C]) >> 7;
+    smx_apu_echo(apu, echo_l, echo_r, &mixed_l, &mixed_r);
     if (mixed_l > 32767) {
       mixed_l = 32767;
     }

@@ -15,7 +15,9 @@
  * `$1C` scale those outputs. `$5C` keys a voice off. A GAIN write with
  * bit 7 clear sets that voice's level. ADSR bit 7 attacks, decays to the
  * sustain level, and releases on key-off. `$3D` replaces a voice's sample
- * with the noise generator. Echo is not applied.
+ * with the noise generator. `$7D` delays the `$4D` voices through the
+ * FIR coefficients and `$2C`/`$3C` add that delay back. The echo buffer
+ * is not stored in SPC RAM.
  * One `smx_apu_step` is one SPC700 instruction, not a cycle-accurate slice.
  */
 typedef struct SmxApu {
@@ -54,6 +56,9 @@ typedef struct SmxApu {
   Uint16 voice_env[8];
   Uint8 voice_state[8];
   Uint16 noise;
+  Uint16 echo_pos;
+  Sint16 echo_l[7680];
+  Sint16 echo_r[7680];
   Sint16 voice_buf[8][16];
 } SmxApu;
 
