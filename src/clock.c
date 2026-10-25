@@ -151,7 +151,8 @@ bool smx_clock_step(SmxClock *clock) {
 }
 
 bool smx_clock_frame(SmxClock *clock) {
-  Uint64 target = clock->dots + SMX_CLOCK_DOTS_PER_FRAME;
+  /* Stop at the next line 0 so a long DMA cannot move the frame boundary. */
+  Uint64 target = (clock->dots / SMX_CLOCK_DOTS_PER_FRAME + 1u) * SMX_CLOCK_DOTS_PER_FRAME;
   bool ran = true;
 
   while (ran && clock->dots < target) {

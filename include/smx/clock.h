@@ -59,7 +59,7 @@ void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);
 /** Run one instruction and the dots it consumes. */
 bool smx_clock_step(SmxClock *clock);
 
-/** Run one NTSC frame of master clocks. */
+/** Run master clocks up to the start of the next NTSC frame. */
 bool smx_clock_frame(SmxClock *clock);
 
 #endif /* SMX_CLOCK_H_ */
