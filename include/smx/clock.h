@@ -3,6 +3,7 @@
 
 #include "smx/cpu.h"
 #include "smx/dma.h"
+#include "smx/ppu.h"
 
 #include <SDL3/SDL.h>
 
@@ -21,12 +22,14 @@
  * runs general-purpose DMA before the next instruction. `$4200` bit 4
  * fires an IRQ when the dot in the line matches `$4207`/`$4208`. Bit 5
  * still fires at the start of the line in `$4209`/`$420A`. Both bits wait
- * for that dot on that line.
+ * for that dot on that line. When `ppu` is set, each visible line is
+ * drawn as the dot counter leaves it, before HDMA for the next line.
  */
 typedef struct SmxClock {
   SmxBus *bus;
   SmxCpu *cpu;
   SmxDma *dma;
+  SmxPpu *ppu;
   Uint32 dots;
   Uint32 dma_count;
   Uint16 joy;

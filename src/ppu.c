@@ -594,53 +594,60 @@ static bool smx_ppu_screen(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, 
   return hit;
 }
 
-void smx_ppu_render(SmxPpu *ppu) {
+void smx_ppu_render_line(SmxPpu *ppu, Uint32 y) {
   Uint8 inidisp = smx_bus_mmio(ppu->bus, 0x2100);
   bool blank = (inidisp & 0x80) != 0;
   Uint8 brightness = (Uint8)(inidisp & 0x0F);
+  Uint32 x = 0;
+
+  if (y >= SMX_PPU_HEIGHT || ppu->pixels == NULL) {
+    return;
+  }
+  for (; x < SMX_PPU_WIDTH; x += 1) {
+    Uint16 color = ppu->cgram[0];
+    Uint16 sub = 0;
+    Uint8 source = 0;
+    Uint8 unused_source = 0;
+    bool sub_hit = false;
+    bool clip_math = false;
+    Uint8 blue = 0;
+    Uint8 green = 0;
+    Uint8 red = 0;
+
+    if (!blank && brightness != 0) {
+      Uint8 select = smx_bus_mmio(ppu->bus, 0x2130);
+      bool in_window = smx_ppu_color_window(ppu, x);
+      smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212C), false, &color, &source);
+      sub_hit =
+          smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212D), true, &sub, &unused_source);
+      if (smx_ppu_region((Uint8)(select >> 6), in_window)) {
+        color = 0;
+      }
+      if (smx_ppu_region((Uint8)((select >> 4) & 0x03), in_window)) {
+        clip_math = true;
+      }
+    }
+    if (blank || brightness == 0) {
+      blue = 0;
+      green = 0;
+      red = 0;
+    } else if (clip_math) {
+      smx_ppu_rgb(color, brightness, &blue, &green, &red);
+    } else {
+      smx_ppu_rgb(smx_ppu_math(ppu, color, source, sub, sub_hit), brightness, &blue, &green, &red);
+    }
+    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u] = blue;
+    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 1u] = green;
+    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 2u] = red;
+    ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 3u] = 255;
+  }
+}
+
+void smx_ppu_render(SmxPpu *ppu) {
   Uint32 y = 0;
 
   for (; y < SMX_PPU_HEIGHT; y += 1) {
-    Uint32 x = 0;
-    for (; x < SMX_PPU_WIDTH; x += 1) {
-      Uint16 color = ppu->cgram[0];
-      Uint16 sub = 0;
-      Uint8 source = 0;
-      Uint8 unused_source = 0;
-      bool sub_hit = false;
-      bool clip_math = false;
-      Uint8 blue = 0;
-      Uint8 green = 0;
-      Uint8 red = 0;
-
-      if (!blank && brightness != 0) {
-        Uint8 select = smx_bus_mmio(ppu->bus, 0x2130);
-        bool in_window = smx_ppu_color_window(ppu, x);
-        smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212C), false, &color, &source);
-        sub_hit =
-            smx_ppu_screen(ppu, x, y, smx_bus_mmio(ppu->bus, 0x212D), true, &sub, &unused_source);
-        if (smx_ppu_region((Uint8)(select >> 6), in_window)) {
-          color = 0;
-        }
-        if (smx_ppu_region((Uint8)((select >> 4) & 0x03), in_window)) {
-          clip_math = true;
-        }
-      }
-      if (blank || brightness == 0) {
-        blue = 0;
-        green = 0;
-        red = 0;
-      } else if (clip_math) {
-        smx_ppu_rgb(color, brightness, &blue, &green, &red);
-      } else {
-        smx_ppu_rgb(smx_ppu_math(ppu, color, source, sub, sub_hit), brightness, &blue, &green,
-                    &red);
-      }
-      ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u] = blue;
-      ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 1u] = green;
-      ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 2u] = red;
-      ppu->pixels[(y * SMX_PPU_WIDTH + x) * 4u + 3u] = 255;
-    }
+    smx_ppu_render_line(ppu, y);
   }
 }
 

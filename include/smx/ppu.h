@@ -24,7 +24,8 @@
  * the background layers it enables. `$2130` bit 1 blends the main
  * pixel with the subscreen from `$212D` instead of the fixed color.
  * Bits 4-7 of $2130 black out the main pixel or skip color math in the
- * color window. picture_matches_oracle stays false.
+ * color window. A finished visible line is drawn before the next line's
+ * HDMA. picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
@@ -66,7 +67,10 @@ void smx_ppu_quit(SmxPpu *ppu);
 /** Write one CGRAM word. `index` is the color number. */
 void smx_ppu_write_cgram(SmxPpu *ppu, Uint8 index, Uint16 bgr555);
 
-/** Fill the framebuffer from INIDISP and backdrop color 0. */
+/** Draw scanline `y` from the registers as they are now. */
+void smx_ppu_render_line(SmxPpu *ppu, Uint32 y);
+
+/** Fill every visible line from the current registers. */
 void smx_ppu_render(SmxPpu *ppu);
 
 /** FNV-1a of the XRGB framebuffer. */
