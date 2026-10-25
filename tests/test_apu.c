@@ -387,6 +387,9 @@ int main(void) {
     }
     smx_apu_render(&apu, left, NULL, 1);
     expect_s16("echo wet", left[0], 4014);
+    apu.dsp[0x6C] = 0x80;
+    smx_apu_render(&apu, left, NULL, 1);
+    expect_s16("mute", left[0], 0);
   }
 
   smx_bus_quit(&bus);
