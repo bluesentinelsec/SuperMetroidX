@@ -33,6 +33,19 @@ static void expect_true(const char *name, bool value) {
   }
 }
 
+static void step_until_port(SmxApu *apu, Uint8 want) {
+  Uint32 guard = 0;
+
+  for (; guard < 100000u; guard += 1) {
+    smx_apu_step(apu);
+    if (smx_apu_read_port(apu, 0) == want) {
+      return;
+    }
+  }
+  SDL_Log("apu: port wait expired");
+  g_failed = true;
+}
+
 int main(void) {
   SmxBus bus;
   SmxApu apu;
@@ -49,12 +62,17 @@ int main(void) {
   smx_bus_write(&bus, 0x002143, 0x02);
   smx_bus_write(&bus, 0x002141, 0x01);
   smx_bus_write(&bus, 0x002140, 0xCC);
+  step_until_port(&apu, 0xCC);
   expect_u8("echo kick", smx_bus_read(&bus, 0x002140), 0xCC);
 
   smx_bus_write(&bus, 0x002140, 0x00);
   smx_bus_write(&bus, 0x002141, 0x12);
+  step_until_port(&apu, 0x00);
+  smx_apu_step(&apu);
   smx_bus_write(&bus, 0x002140, 0x01);
   smx_bus_write(&bus, 0x002141, 0x34);
+  step_until_port(&apu, 0x01);
+  smx_apu_step(&apu);
   expect_u8("byte 0", smx_apu_ram(&apu, 0x0200), 0x12);
   expect_u8("byte 1", smx_apu_ram(&apu, 0x0201), 0x34);
   expect_u8("echo index", smx_bus_read(&bus, 0x002140), 0x01);
@@ -63,6 +81,13 @@ int main(void) {
   smx_bus_write(&bus, 0x002143, 0x02);
   smx_bus_write(&bus, 0x002141, 0x00);
   smx_bus_write(&bus, 0x002140, 0x05);
+  step_until_port(&apu, 0x05);
+  {
+    Uint32 guard = 0;
+    for (; guard < 100000u && !apu.program_ready; guard += 1) {
+      smx_apu_step(&apu);
+    }
+  }
   expect_u8("echo entry", smx_bus_read(&bus, 0x002140), 0x05);
   expect_u16("entry", apu.entry, 0x0200);
   expect_true("program waiting", apu.program_ready);
