@@ -14,8 +14,12 @@ void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   }
 }
 
-static Uint32 smx_clock_line(Uint32 dots) {
-  return (dots % SMX_CLOCK_DOTS_PER_FRAME) / SMX_CLOCK_DOTS_PER_LINE;
+static Uint32 smx_clock_line(Uint64 dots) {
+  return (Uint32)((dots % SMX_CLOCK_DOTS_PER_FRAME) / SMX_CLOCK_DOTS_PER_LINE);
+}
+
+static Uint32 smx_clock_dot(Uint64 dots) {
+  return (Uint32)(dots % SMX_CLOCK_DOTS_PER_LINE);
 }
 
 static void smx_clock_irq(SmxClock *clock) {
@@ -23,24 +27,32 @@ static void smx_clock_irq(SmxClock *clock) {
   smx_cpu_irq(clock->cpu);
 }
 
-static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
+/* `dots` must not run past the end of the current line. */
+static void smx_clock_span(SmxClock *clock, Uint32 dots) {
   Uint32 line_before = smx_clock_line(clock->dots);
+  Uint32 dot_before = smx_clock_dot(clock->dots);
   Uint32 line_after = 0;
   bool vblank = false;
 
   clock->dots += dots;
   line_after = smx_clock_line(clock->dots);
+  if (dot_before < SMX_CLOCK_REFRESH_DOT && dot_before + dots >= SMX_CLOCK_REFRESH_DOT) {
+    clock->stall += SMX_CLOCK_REFRESH_DOTS;
+  }
   if (line_before != line_after && clock->ppu != NULL && line_before >= 1u &&
       line_before <= SMX_PPU_HEIGHT) {
     smx_ppu_present_line(clock->ppu, line_before);
   }
-  if (clock->dma != NULL && line_before != line_after && line_after > 0 &&
-      line_after < SMX_CLOCK_VBLANK_LINE) {
-    smx_dma_hdma_line(clock->dma);
+  if (clock->dma != NULL && line_before != line_after) {
+    if (line_after == 0) {
+      clock->stall += smx_dma_hdma_init(clock->dma);
+    } else if (line_after < SMX_CLOCK_VBLANK_LINE) {
+      clock->stall += smx_dma_hdma_line(clock->dma);
+    }
   }
   vblank = line_after >= SMX_CLOCK_VBLANK_LINE;
   {
-    Uint32 frame_dot = clock->dots % SMX_CLOCK_DOTS_PER_FRAME;
+    Uint32 frame_dot = (Uint32)(clock->dots % SMX_CLOCK_DOTS_PER_FRAME);
     Uint32 vblank_at = SMX_CLOCK_VBLANK_LINE * SMX_CLOCK_DOTS_PER_LINE;
     Uint8 status = (Uint8)(clock->bus->mmio[0x4212] & (Uint8)~0x81u);
     /* Auto-joypad read holds bit 0 for 4224 master clocks from vblank. */
@@ -78,10 +90,8 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
     bool v_irq = (clock->bus->mmio[0x4200] & 0x20) != 0;
     htime = (Uint16)(htime & 0x01FFu);
     for (; h_irq && step < dots; step += 1) {
-      Uint32 at = clock->dots - dots + step;
-      Uint32 line = smx_clock_line(at);
-      Uint32 dot = (at % SMX_CLOCK_DOTS_PER_FRAME) % SMX_CLOCK_DOTS_PER_LINE;
-      if (dot == htime && (!v_irq || line == (vtime & 0x01FFu))) {
+      Uint64 at = clock->dots - dots + step;
+      if (smx_clock_dot(at) == htime && (!v_irq || smx_clock_line(at) == (vtime & 0x01FFu))) {
         smx_clock_irq(clock);
       }
     }
@@ -89,36 +99,59 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
   clock->prev_vblank = vblank;
 }
 
+static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
+  while (dots != 0) {
+    Uint32 chunk = SMX_CLOCK_DOTS_PER_LINE - smx_clock_dot(clock->dots);
+    if (chunk > dots) {
+      chunk = dots;
+    }
+    smx_clock_span(clock, chunk);
+    dots -= chunk;
+  }
+}
+
+static void smx_clock_apu(SmxClock *clock, Uint32 dots) {
+  SmxApu *apu = (SmxApu *)clock->bus->apu_user;
+
+  clock->apu_credit += (Sint64)dots * SMX_CLOCK_SPC_HZ;
+  while (clock->apu_credit > 0) {
+    if (!smx_apu_step(apu)) {
+      clock->apu_credit = 0;
+      return;
+    }
+    clock->apu_credit -= (Sint64)apu->cycles * SMX_CLOCK_MASTER_HZ;
+  }
+}
+
 bool smx_clock_step(SmxClock *clock) {
   bool ran = false;
+  Uint32 dots = 0;
 
-  if (clock->dma != NULL && (clock->dots % SMX_CLOCK_DOTS_PER_FRAME) == 0) {
-    smx_dma_hdma_init(clock->dma);
-    smx_dma_hdma_line(clock->dma);
+  /* The first frame starts on line 0 without crossing into it. */
+  if (clock->dots == 0 && clock->dma != NULL) {
+    clock->stall += smx_dma_hdma_init(clock->dma);
   }
   ran = smx_cpu_step(clock->cpu);
 
   if (clock->bus->dma_requested) {
-    smx_dma_run(clock->dma, clock->bus->dma_channels);
+    clock->stall += smx_dma_run(clock->dma, clock->bus->dma_channels);
     clock->bus->mmio[0x420B] = 0;
     clock->bus->dma_requested = false;
     clock->dma_count += 1;
   }
-  /* Three fast-ROM cycles. A fast cycle is 6 master clocks. */
-  smx_clock_advance(clock, 18);
+  /* Refresh and HDMA found while advancing are paid on the next step. */
+  dots = clock->cpu->clocks + clock->stall;
+  clock->cpu->clocks = 0;
+  clock->stall = 0;
+  smx_clock_advance(clock, dots);
   if (clock->bus->apu_user != NULL) {
-    /* Four SPC cycles at 21 master clocks per cycle. */
-    clock->apu_dots += 18u;
-    while (clock->apu_dots >= 84u) {
-      clock->apu_dots -= 84u;
-      smx_apu_step((SmxApu *)clock->bus->apu_user);
-    }
+    smx_clock_apu(clock, dots);
   }
   return ran;
 }
 
 bool smx_clock_frame(SmxClock *clock) {
-  Uint32 target = clock->dots + SMX_CLOCK_DOTS_PER_FRAME;
+  Uint64 target = clock->dots + SMX_CLOCK_DOTS_PER_FRAME;
   bool ran = true;
 
   while (ran && clock->dots < target) {

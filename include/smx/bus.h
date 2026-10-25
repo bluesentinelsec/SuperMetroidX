@@ -33,6 +33,14 @@ void smx_bus_quit(SmxBus *bus);
 Uint8 smx_bus_read(SmxBus *bus, Uint32 addr);
 void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value);
 
+/**
+ * Master clocks one 65816 access to `addr` takes.
+ * WRAM, SRAM, slow ROM, and the bank $40-$7F space are 8. `$4000-$41FF` is 12.
+ * The other I/O pages are 6. ROM at $80-$FF:8000 and $C0-$FF is 6 when `$420D`
+ * bit 0 is set.
+ */
+Uint8 smx_bus_speed(const SmxBus *bus, Uint32 addr);
+
 /** Latched MMIO value, including write-only registers. */
 Uint8 smx_bus_mmio(const SmxBus *bus, Uint16 addr);
 

@@ -5,7 +5,11 @@
 
 #include <SDL3/SDL.h>
 
-/** 65816. `bus` is borrowed. */
+/**
+ * 65816. `bus` is borrowed.
+ * `clocks` gains the master clocks of every access at the bus speed of its
+ * address, plus 6 for each internal cycle. The caller drains it.
+ */
 typedef struct SmxCpu {
   SmxBus *bus;
   Uint16 a;
@@ -20,6 +24,7 @@ typedef struct SmxCpu {
   bool e;
   bool stopped;
   bool waiting;
+  Uint32 clocks;
 } SmxCpu;
 
 void smx_cpu_init(SmxCpu *cpu, SmxBus *bus);

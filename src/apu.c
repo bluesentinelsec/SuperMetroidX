@@ -274,16 +274,29 @@ static Uint8 smx_spc_logic(SmxApu *apu, Uint8 op, Uint8 left, Uint8 right) {
   return result;
 }
 
-static void smx_spc_timers(SmxApu *apu) {
+static const Uint8 smx_spc_cycles[256] = {
+    2, 8, 4, 5, 3, 4, 3, 6, 2, 6, 5, 4, 5, 4, 6, 8, 2, 8, 4, 5, 4, 5, 5, 6, 5, 5, 6, 5, 2, 2, 4,  6,
+    2, 8, 4, 5, 3, 4, 3, 6, 2, 6, 5, 4, 5, 4, 5, 4, 2, 8, 4, 5, 4, 5, 5, 6, 5, 5, 6, 5, 2, 2, 3,  8,
+    2, 8, 4, 5, 3, 4, 3, 6, 2, 6, 4, 4, 5, 4, 6, 6, 2, 8, 4, 5, 4, 5, 5, 6, 5, 5, 4, 5, 2, 2, 4,  3,
+    2, 8, 4, 5, 3, 4, 3, 6, 2, 6, 4, 4, 5, 4, 5, 5, 2, 8, 4, 5, 4, 5, 5, 6, 5, 5, 5, 5, 2, 2, 3,  6,
+    2, 8, 4, 5, 3, 4, 3, 6, 2, 6, 5, 4, 5, 2, 4, 5, 2, 8, 4, 5, 4, 5, 5, 6, 5, 5, 5, 5, 2, 2, 12, 5,
+    3, 8, 4, 5, 3, 4, 3, 6, 2, 6, 4, 4, 5, 2, 4, 4, 2, 8, 4, 5, 4, 5, 5, 6, 5, 5, 5, 5, 2, 2, 3,  4,
+    3, 8, 4, 5, 4, 5, 4, 7, 2, 5, 6, 4, 5, 2, 4, 9, 2, 8, 4, 5, 5, 6, 6, 7, 4, 5, 5, 5, 2, 2, 6,  3,
+    2, 8, 4, 5, 3, 4, 3, 6, 2, 4, 5, 3, 4, 3, 4, 3, 2, 8, 4, 5, 4, 5, 5, 6, 3, 4, 5, 4, 2, 2, 4,  3,
+};
+
+/* A taken branch spends two more cycles than the table entry. */
+static void smx_spc_spend(SmxApu *apu, Uint8 op, bool take) {
   static const Uint16 rate[3] = {128, 128, 16};
   Uint8 index = 0;
 
+  apu->cycles = (Uint8)(smx_spc_cycles[op] + (take ? 2u : 0u));
   for (; index < 3; index += 1) {
     Uint16 limit = 0;
     if ((apu->control & (Uint8)(1u << index)) == 0) {
       continue;
     }
-    apu->timer_div[index] = (Uint16)(apu->timer_div[index] + 4);
+    apu->timer_div[index] = (Uint16)(apu->timer_div[index] + apu->cycles);
     if (apu->timer_div[index] < rate[index]) {
       continue;
     }
@@ -368,11 +381,11 @@ bool smx_apu_step(SmxApu *apu) {
     if ((op & 0xE0) != 0x60) {
       smx_spc_write(apu, addr, left);
     }
-    smx_spc_timers(apu);
+    smx_spc_spend(apu, op, take);
     return true;
   }
   if (smx_spc_move_a(apu, op)) {
-    smx_spc_timers(apu);
+    smx_spc_spend(apu, op, take);
     return true;
   }
   if ((op & 0x0F) >= 4 && (op & 0x0F) <= 9 && (op < 0xC0) &&
@@ -383,7 +396,7 @@ bool smx_apu_step(SmxApu *apu) {
     if (col == 8) {
       right = smx_spc_fetch(apu);
       apu->a = smx_spc_logic(apu, row, apu->a, right);
-      smx_spc_timers(apu);
+      smx_spc_spend(apu, op, take);
       return true;
     }
     if (col == 9) {
@@ -397,7 +410,7 @@ bool smx_apu_step(SmxApu *apu) {
       } else {
         smx_spc_logic(apu, row, left, right);
       }
-      smx_spc_timers(apu);
+      smx_spc_spend(apu, op, take);
       return true;
     }
     kind = (Uint8)(col - 4);
@@ -417,7 +430,7 @@ bool smx_apu_step(SmxApu *apu) {
     } else {
       apu->a = smx_spc_logic(apu, row, apu->a, right);
     }
-    smx_spc_timers(apu);
+    smx_spc_spend(apu, op, take);
     return true;
   }
 
@@ -943,7 +956,7 @@ bool smx_apu_step(SmxApu *apu) {
     apu->running = false;
     return false;
   }
-  smx_spc_timers(apu);
+  smx_spc_spend(apu, op, take);
   if (!apu->program_ready && apu->pc < 0xFFC0) {
     apu->program_ready = true;
     apu->entry = apu->pc;
