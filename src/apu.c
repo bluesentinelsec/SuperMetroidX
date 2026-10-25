@@ -189,7 +189,13 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
         apu->voice_p1[voice] = 0;
         apu->voice_p2[voice] = 0;
         apu->voice_phase[voice] = 0;
-        apu->voice_env[voice] = 0x07FF;
+        if ((apu->dsp[(Uint8)(voice * 0x10u + 0x05u)] & 0x80) != 0) {
+          apu->voice_env[voice] = 0;
+          apu->voice_state[voice] = 1;
+        } else {
+          apu->voice_env[voice] = 0x07FF;
+          apu->voice_state[voice] = 0;
+        }
         apu->voice_i[voice] = 16;
         apu->voice_on[voice] = true;
       }
@@ -200,8 +206,13 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
         if ((value & (Uint8)(1u << voice)) == 0) {
           continue;
         }
-        apu->voice_on[voice] = false;
-        apu->voice_i[voice] = 16;
+        if ((apu->dsp[(Uint8)(voice * 0x10u + 0x05u)] & 0x80) != 0 &&
+            apu->voice_state[voice] != 0) {
+          apu->voice_state[voice] = 4;
+        } else {
+          apu->voice_on[voice] = false;
+          apu->voice_i[voice] = 16;
+        }
       }
     }
     if ((apu->dsp_addr & 0x0F) == 0x07 && (apu->dsp_addr & 0x70) < 0x80 && (value & 0x80) == 0) {
@@ -994,6 +1005,54 @@ bool smx_apu_step(SmxApu *apu) {
 
 static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2);
 
+static void smx_apu_envelope(SmxApu *apu, Uint8 voice) {
+  Uint8 base = (Uint8)(voice * 0x10u);
+  Uint8 adsr1 = apu->dsp[base + 5u];
+  Uint8 adsr2 = apu->dsp[base + 6u];
+  Sint32 env = apu->voice_env[voice];
+  Uint16 sustain = (Uint16)((((adsr2 >> 5) + 1u) * 0x100u) - 1u);
+
+  if ((adsr1 & 0x80) == 0 || apu->voice_state[voice] == 0) {
+    return;
+  }
+  if (apu->voice_state[voice] == 1) {
+    if ((adsr1 & 0x0F) == 15) {
+      env = 0x07FF;
+    } else {
+      env += (Sint32)(1u << (adsr1 & 0x0F));
+    }
+    if (env >= 0x07FF) {
+      env = 0x07FF;
+      apu->voice_state[voice] = 2;
+    }
+  }
+  if (apu->voice_state[voice] == 2) {
+    env -= 32;
+    if (env <= (Sint32)sustain) {
+      env = sustain;
+      apu->voice_state[voice] = 3;
+    }
+  } else if (apu->voice_state[voice] == 3) {
+    if ((adsr2 & 0x1F) != 0) {
+      env -= 1;
+    }
+  } else if (apu->voice_state[voice] == 4) {
+    env -= 0x40;
+    if (env <= 0) {
+      env = 0;
+      apu->voice_on[voice] = false;
+      apu->voice_i[voice] = 16;
+    }
+  }
+  if (env < 0) {
+    env = 0;
+  }
+  if (env > 0x07FF) {
+    env = 0x07FF;
+  }
+  apu->voice_env[voice] = (Uint16)env;
+}
+
 void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
   Uint32 i = 0;
 
@@ -1006,6 +1065,9 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
       Sint32 sample = 0;
       Sint8 volume_l = (Sint8)apu->dsp[base];
       Sint8 volume_r = (Sint8)apu->dsp[base + 1u];
+      if (apu->voice_on[voice]) {
+        smx_apu_envelope(apu, voice);
+      }
       if (apu->voice_on[voice] && apu->voice_i[voice] >= 16) {
         Uint8 header = apu->ram[apu->voice_addr[voice]];
         smx_apu_brr_decode_impl(&apu->ram[apu->voice_addr[voice]], apu->voice_buf[voice],
