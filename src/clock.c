@@ -30,8 +30,9 @@ static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
 
   clock->dots += dots;
   line_after = smx_clock_line(clock->dots);
-  if (line_before != line_after && clock->ppu != NULL && line_before < SMX_PPU_HEIGHT) {
-    smx_ppu_render_line(clock->ppu, line_before);
+  if (line_before != line_after && clock->ppu != NULL && line_before >= 1u &&
+      line_before <= SMX_PPU_HEIGHT) {
+    smx_ppu_present_line(clock->ppu, line_before);
   }
   if (clock->dma != NULL && line_before != line_after && line_after > 0 &&
       line_after < SMX_CLOCK_VBLANK_LINE) {

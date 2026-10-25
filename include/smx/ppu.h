@@ -33,7 +33,8 @@
  * pixel with the subscreen from `$212D` instead of the fixed color.
  * Bits 4-7 of $2130 black out the main pixel or skip color math in the
  * color window. A finished visible line is drawn before the next line's
- * HDMA. picture_matches_oracle stays false.
+ * HDMA. The picture stores scanlines 1 through 224. Scanline 0 is hidden.
+ * Five-bit channels round to eight bits. picture_matches_oracle stays false.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
@@ -77,8 +78,14 @@ void smx_ppu_quit(SmxPpu *ppu);
 /** Write one CGRAM word. `index` is the color number. */
 void smx_ppu_write_cgram(SmxPpu *ppu, Uint8 index, Uint16 bgr555);
 
-/** Draw scanline `y` from the registers as they are now. */
+/** Draw scanline `y` into picture row `y`. */
 void smx_ppu_render_line(SmxPpu *ppu, Uint32 y);
+
+/**
+ * Draw PPU scanline `scanline` into the visible picture.
+ * Scanline 0 is hidden. Scanlines 1 through 224 fill rows 0 through 223.
+ */
+void smx_ppu_present_line(SmxPpu *ppu, Uint32 scanline);
 
 /** Fill every visible line from the current registers. */
 void smx_ppu_render(SmxPpu *ppu);

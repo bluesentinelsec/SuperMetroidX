@@ -378,7 +378,7 @@ int main(void) {
   smx_ppu_write_cgram(&ppu, 1, 0x7FFF);
   smx_bus_write(&bus, 0x002130, 0x01);
   smx_ppu_render(&ppu);
-  expect_u8("direct r", ppu.pixels[2], (Uint8)(4u * 255u / 31u));
+  expect_u8("direct r", ppu.pixels[2], (Uint8)((4u * 255u + 15u) / 31u));
   expect_u8("direct g", ppu.pixels[1], 0);
   expect_u8("direct b", ppu.pixels[0], 0);
 
