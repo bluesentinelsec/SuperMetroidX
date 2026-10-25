@@ -27,6 +27,8 @@ typedef struct SmxBus {
   void *apu_user;
   /** Called before a write to `$2100-$2133` so the picture catches up to the beam. */
   void (*ppu_sync)(void *user);
+  /** Called before an access to `$2140-$2143` so the SPC700 catches up. */
+  void (*apu_sync)(void *user);
   void *sync_user;
 } SmxBus;
 

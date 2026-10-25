@@ -93,6 +93,9 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
     if (off >= 0x2134 && off <= 0x213F && bus->mmio_read != NULL) {
       value = bus->mmio_read(bus->mmio_user, off, bus->open_bus);
     } else if ((off >= 0x2140 && off <= 0x2143) || (off >= 0x4210 && off <= 0x421F)) {
+      if (off <= 0x2143 && bus->apu_sync != NULL) {
+        bus->apu_sync(bus->sync_user);
+      }
       value = bus->mmio[off];
       /* Reading $4210 acknowledges the NMI flag. */
       if (off == 0x4210) {
@@ -126,6 +129,9 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
   if ((bank & 0x7F) < 0x40 && off >= 0x2100 && off < 0x4500) {
     if (off <= 0x2133 && bus->ppu_sync != NULL) {
       bus->ppu_sync(bus->sync_user);
+    }
+    if (off >= 0x2140 && off <= 0x2143 && bus->apu_sync != NULL) {
+      bus->apu_sync(bus->sync_user);
     }
     bus->mmio[off] = value;
     if (off == 0x420B && value != 0) {
