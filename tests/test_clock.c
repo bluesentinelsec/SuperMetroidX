@@ -228,11 +228,12 @@ static void test_irq_and_joy(void) {
   smx_cpu_init(&cpu, &bus);
   smx_dma_init(&dma, &bus);
   smx_clock_init(&clock, &cpu, &dma);
-  clock.joy = 0x0010;
+  clock.joy = 0x1080;
   smx_cpu_reset(&cpu);
   expect_true("irq frame", smx_clock_frame(&clock));
   expect_u8("irq wrote", smx_bus_wram(&bus, 0x0010), 0x77);
-  expect_u8("joy start", smx_bus_read(&bus, 0x004218), 0x10);
+  expect_u8("joy a", smx_bus_read(&bus, 0x004218), 0x80);
+  expect_u8("joy start", smx_bus_read(&bus, 0x004219), 0x10);
   smx_bus_quit(&bus);
 }
 

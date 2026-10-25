@@ -7,6 +7,20 @@
 #include <SDL3/SDL.h>
 
 /** Process entry. `int` is required by the C standard. */
+/*
+ * Keyboard to joypad, in the bit order of a 16-bit read of `$4218`:
+ * B Y Select Start Up Down Left Right in the high byte, A X L R in the low.
+ */
+static const struct {
+  SDL_Scancode scancode;
+  Uint16 button;
+} smx_keymap[] = {
+    {SDL_SCANCODE_Z, 0x8000},      {SDL_SCANCODE_X, 0x4000},     {SDL_SCANCODE_RSHIFT, 0x2000},
+    {SDL_SCANCODE_RETURN, 0x1000}, {SDL_SCANCODE_UP, 0x0800},    {SDL_SCANCODE_DOWN, 0x0400},
+    {SDL_SCANCODE_LEFT, 0x0200},   {SDL_SCANCODE_RIGHT, 0x0100}, {SDL_SCANCODE_A, 0x0080},
+    {SDL_SCANCODE_S, 0x0040},      {SDL_SCANCODE_Q, 0x0020},     {SDL_SCANCODE_W, 0x0010},
+};
+
 int main(int argc, char **argv) {
   bool smoke = false;
   const char *rom_path = NULL;
@@ -117,41 +131,11 @@ int main(int argc, char **argv) {
     if (playing) {
       const bool *keys = SDL_GetKeyboardState(NULL);
       Uint16 joy = 0;
-      if (keys[SDL_SCANCODE_RIGHT]) {
-        joy = (Uint16)(joy | 0x0001);
-      }
-      if (keys[SDL_SCANCODE_LEFT]) {
-        joy = (Uint16)(joy | 0x0002);
-      }
-      if (keys[SDL_SCANCODE_DOWN]) {
-        joy = (Uint16)(joy | 0x0004);
-      }
-      if (keys[SDL_SCANCODE_UP]) {
-        joy = (Uint16)(joy | 0x0008);
-      }
-      if (keys[SDL_SCANCODE_RETURN]) {
-        joy = (Uint16)(joy | 0x0010);
-      }
-      if (keys[SDL_SCANCODE_RSHIFT]) {
-        joy = (Uint16)(joy | 0x0020);
-      }
-      if (keys[SDL_SCANCODE_X]) {
-        joy = (Uint16)(joy | 0x0040);
-      }
-      if (keys[SDL_SCANCODE_Z]) {
-        joy = (Uint16)(joy | 0x0080);
-      }
-      if (keys[SDL_SCANCODE_S]) {
-        joy = (Uint16)(joy | 0x4000);
-      }
-      if (keys[SDL_SCANCODE_A]) {
-        joy = (Uint16)(joy | 0x8000);
-      }
-      if (keys[SDL_SCANCODE_Q]) {
-        joy = (Uint16)(joy | 0x2000);
-      }
-      if (keys[SDL_SCANCODE_W]) {
-        joy = (Uint16)(joy | 0x1000);
+      Uint32 key = 0;
+      for (; key < sizeof(smx_keymap) / sizeof(smx_keymap[0]); key += 1) {
+        if (keys[smx_keymap[key].scancode]) {
+          joy = (Uint16)(joy | smx_keymap[key].button);
+        }
       }
       clock.joy = joy;
       if (!smx_clock_frame(&clock)) {
