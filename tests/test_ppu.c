@@ -331,6 +331,39 @@ int main(void) {
   smx_ppu_render(&ppu);
   expect_u8("sub window off g", ppu.pixels[1], 255);
 
+  /* Mode 3 BG1 is 8bpp. Color 1 is the low bit of the first tile. */
+  smx_bus_write(&bus, 0x002105, 0x03);
+  smx_bus_write(&bus, 0x002107, 0x04);
+  smx_bus_write(&bus, 0x00210B, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x01);
+  smx_bus_write(&bus, 0x00212D, 0x00);
+  smx_bus_write(&bus, 0x002130, 0x00);
+  smx_bus_write(&bus, 0x002131, 0x00);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  {
+    Uint32 word = 0;
+    for (; word < 32; word += 1) {
+      smx_bus_write(&bus, 0x002118, 0x00);
+      smx_bus_write(&bus, 0x002119, 0x00);
+    }
+  }
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0x80);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_ppu_write_cgram(&ppu, 0, 0x0000);
+  smx_ppu_write_cgram(&ppu, 1, 0x001F);
+  smx_ppu_render(&ppu);
+  expect_u8("mode3 r", ppu.pixels[2], 255);
+  expect_u8("mode3 g", ppu.pixels[1], 0);
+  expect_u8("mode3 neighbor r", ppu.pixels[4 + 2], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
