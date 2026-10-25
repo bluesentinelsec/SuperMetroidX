@@ -351,6 +351,16 @@ int main(void) {
     smx_apu_step(&apu);
     smx_apu_render(&apu, left, NULL, 1);
     expect_s16("adsr slow", left[0], 0);
+    apu.dsp[0x05] = 0;
+    apu.dsp[0x3D] = 0x01;
+    apu.noise = 0x4000;
+    apu.pc = 0x0A00 + sizeof(program) - 8;
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_step(&apu);
+    smx_apu_render(&apu, left, NULL, 1);
+    expect_s16("noise", left[0], 8060);
   }
 
   smx_bus_quit(&bus);

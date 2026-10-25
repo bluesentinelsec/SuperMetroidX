@@ -82,6 +82,7 @@ void smx_apu_init(SmxApu *apu, SmxBus *bus) {
   apu->out[1] = 0xBB;
   /* Bit 7 maps the IPL ROM over $FFC0-$FFFF until the program clears it. */
   apu->control = 0x80;
+  apu->noise = 0x4000;
   if (bus != NULL) {
     bus->apu_user = apu;
     bus->apu_write = smx_apu_cpu_write;
@@ -1058,6 +1059,8 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
 
   for (; i < count; i += 1) {
     Sint32 mixed_l = 0;
+    Uint16 noise_bit = (Uint16)((apu->noise ^ (Uint16)(apu->noise >> 1)) & 1u);
+    apu->noise = (Uint16)((apu->noise >> 1) | (noise_bit << 14));
     Sint32 mixed_r = 0;
     Uint8 voice = 0;
     for (; voice < 8; voice += 1) {
@@ -1085,7 +1088,11 @@ void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
       }
       if (apu->voice_i[voice] < 16) {
         Uint16 pitch = (Uint16)(apu->dsp[base + 2u] | ((Uint16)apu->dsp[base + 3u] << 8));
-        sample = (apu->voice_buf[voice][apu->voice_i[voice]] * (Sint32)apu->voice_env[voice]) >> 11;
+        sample = apu->voice_buf[voice][apu->voice_i[voice]];
+        if ((apu->dsp[0x3D] & (Uint8)(1u << voice)) != 0) {
+          sample = (Sint16)apu->noise;
+        }
+        sample = (sample * (Sint32)apu->voice_env[voice]) >> 11;
         apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] + pitch);
         while (apu->voice_phase[voice] >= 0x1000) {
           apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] - 0x1000);
