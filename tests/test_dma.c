@@ -43,7 +43,8 @@ int main(void) {
   write_reg(&bus, 0x4305, 0x04);
   write_reg(&bus, 0x4306, 0x00);
   write_reg(&bus, 0x420C, 0xFF);
-  smx_dma_run(&dma, 0x01);
+  /* 8 to start, 8 for the channel, and 8 for each of 4 bytes. */
+  expect_u8("clocks", (Uint8)smx_dma_run(&dma, 0x01), 48);
 
   expect_true("ran", dma.ran);
   expect_u8("count", (Uint8)dma.log_count, 4);

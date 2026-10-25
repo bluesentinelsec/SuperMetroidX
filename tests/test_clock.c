@@ -273,8 +273,8 @@ static void test_line_before_hdma(void) {
   expect_true("scanline frame", smx_clock_frame(&clock));
   row0 = ppu.pixels[2];
   row1 = ppu.pixels[SMX_PPU_WIDTH * 4u + 2u];
-  expect_true("visible row is scanline 1 after its HDMA", row0 == 0);
-  expect_true("next visible row stays blank", row1 == 0);
+  expect_true("line 0 HDMA lights scanline 1", row0 != 0);
+  expect_true("line 1 HDMA blanks scanline 2", row1 == 0);
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
 }

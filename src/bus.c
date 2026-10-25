@@ -31,6 +31,25 @@ Uint8 smx_bus_wram(const SmxBus *bus, Uint32 addr) {
   return bus->wram[addr];
 }
 
+Uint8 smx_bus_speed(const SmxBus *bus, Uint32 addr) {
+  Uint8 bank = (Uint8)(addr >> 16);
+  Uint16 off = (Uint16)addr;
+
+  if ((bank & 0x40) != 0 || off >= 0x8000) {
+    if ((bank & 0x80) != 0 && (bus->mmio[0x420D] & 0x01) != 0) {
+      return 6;
+    }
+    return 8;
+  }
+  if (off < 0x2000 || off >= 0x6000) {
+    return 8;
+  }
+  if (off >= 0x4000 && off < 0x4200) {
+    return 12;
+  }
+  return 6;
+}
+
 static bool smx_bus_rom_offset(Uint8 bank, Uint16 off, Uint32 *file) {
   Uint8 mapped = (Uint8)(bank & 0x7F);
 

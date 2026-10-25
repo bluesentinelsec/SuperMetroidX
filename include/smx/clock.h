@@ -14,27 +14,40 @@
 #define SMX_CLOCK_VBLANK_LINE 225u
 #define SMX_CLOCK_DOTS_PER_FRAME (SMX_CLOCK_DOTS_PER_LINE * SMX_CLOCK_LINES)
 
+/** NTSC master clock and the SPC700's 1.024 MHz cycle rate. */
+#define SMX_CLOCK_MASTER_HZ 21477272u
+#define SMX_CLOCK_SPC_HZ 1024000u
+/** Master clock in the line where DRAM refresh pauses the CPU for 40 clocks. */
+#define SMX_CLOCK_REFRESH_DOT 538u
+#define SMX_CLOCK_REFRESH_DOTS 40u
+
 /**
  * Instruction-timed NTSC clock.
- * Each instruction spends 18 master clocks, three fast-ROM cycles.
+ * Each instruction spends the master clocks the CPU counted for it: every
+ * access at its bus speed and 6 for each internal cycle. General-purpose DMA,
+ * HDMA, and DRAM refresh pause the CPU for the clocks they cost, which
+ * `stall` holds until the next step. Time advances one line at a time.
  * `$4212` bit 7 follows vblank.
- * Bit 0 stays set for 4224 master clocks from the start of vblank.
+ * Bit 0 stays set for 4224 master clocks from the start of vblank,
  * and `$4200` bit 7 arms an NMI on the rising edge. A write to `$420B`
  * runs general-purpose DMA before the next instruction. `$4200` bit 4
  * fires an IRQ when the dot in the line matches `$4207`/`$4208`. Bit 5
  * still fires at the start of the line in `$4209`/`$420A`. Both bits wait
- * for that dot on that line. When `ppu` is set, each visible line is
+ * for that dot on that line. HDMA reloads when line 0 starts and runs as
+ * each of lines 1 to 224 starts. When `ppu` is set, each visible line is
  * drawn as the dot counter leaves it, before HDMA for the next line.
- * The SPC700 runs one instruction every 84 master clocks. That is four
- * SPC cycles at the NTSC ratio of 21 master clocks per cycle.
+ * The SPC700 runs whole instructions to keep pace with the master clock at
+ * the ratio of `SMX_CLOCK_SPC_HZ` to `SMX_CLOCK_MASTER_HZ`. `apu_credit` is
+ * that lead in units of one master clock times `SMX_CLOCK_SPC_HZ`.
  */
 typedef struct SmxClock {
   SmxBus *bus;
   SmxCpu *cpu;
   SmxDma *dma;
   SmxPpu *ppu;
-  Uint32 dots;
-  Uint32 apu_dots;
+  Uint64 dots;
+  Uint32 stall;
+  Sint64 apu_credit;
   Uint32 dma_count;
   Uint16 joy;
   bool prev_vblank;
@@ -46,7 +59,7 @@ void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);
 /** Run one instruction and the dots it consumes. */
 bool smx_clock_step(SmxClock *clock);
 
-/** Run one NTSC frame of master clocks. */
+/** Run master clocks up to the start of the next NTSC frame. */
 bool smx_clock_frame(SmxClock *clock);
 
 #endif /* SMX_CLOCK_H_ */

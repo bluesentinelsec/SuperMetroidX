@@ -52,6 +52,16 @@ int main(void) {
 
   smx_bus_init(&bus, NULL, 0, 0);
   smx_apu_init(&apu, &bus);
+  {
+    /* MOV X,#; MOV SP,X; MOV A,#; MOV (X),A; DEC X; BNE taken. */
+    static const Uint8 want[] = {2, 2, 2, 4, 2, 4};
+    Uint8 index = 0;
+    for (; index < sizeof(want); index += 1) {
+      smx_apu_step(&apu);
+      expect_u8("ipl cycles", apu.cycles, want[index]);
+    }
+    smx_apu_init(&apu, &bus);
+  }
   expect_u8("ready 0", smx_bus_read(&bus, 0x002140), 0xAA);
   expect_u8("ready 1", smx_bus_read(&bus, 0x002141), 0xBB);
   smx_bus_write(&bus, 0x002140, 0xFF);

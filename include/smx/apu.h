@@ -18,7 +18,8 @@
  * with the noise generator. `$7D` delays the `$4D` voices through the
  * FIR coefficients and `$2C`/`$3C` add that delay back. The echo buffer
  * is not stored in SPC RAM. `$6C` bit 7 silences the output.
- * One `smx_apu_step` is one SPC700 instruction, not a cycle-accurate slice.
+ * One `smx_apu_step` is one SPC700 instruction. `cycles` is what it spent:
+ * the opcode's cycle count, plus two when a branch is taken.
  */
 typedef struct SmxApu {
   SmxBus *bus;
@@ -39,6 +40,7 @@ typedef struct SmxApu {
   Uint8 y;
   Uint8 sp;
   Uint8 psw;
+  Uint8 cycles;
   bool program_ready;
   bool running;
   bool voice_on[8];

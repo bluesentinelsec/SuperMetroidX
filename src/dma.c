@@ -52,8 +52,9 @@ static void transfer_unit(SmxDma *dma, Uint8 pattern, Uint8 b_addr, Uint32 *a_ad
   }
 }
 
-void smx_dma_run(SmxDma *dma, Uint8 channels) {
+Uint32 smx_dma_run(SmxDma *dma, Uint8 channels) {
   Uint8 channel = 0;
+  Uint32 clocks = 8;
 
   dma->ran = true;
   dma->log_count = 0;
@@ -81,6 +82,7 @@ void smx_dma_run(SmxDma *dma, Uint8 channels) {
     fixed = (control & 0x08) != 0;
     a_step = (control & 0x10) != 0 ? -1 : 1;
     remaining = count == 0 ? 65536u : count;
+    clocks += 8u + remaining * 8u;
     while (remaining != 0) {
       transfer_unit(dma, (Uint8)(control & 0x07), b_addr, &a_addr, to_a, fixed, a_step);
       remaining -= pattern_len((Uint8)(control & 0x07));
@@ -89,9 +91,11 @@ void smx_dma_run(SmxDma *dma, Uint8 channels) {
       }
     }
   }
+  return clocks;
 }
 
-static void hdma_load(SmxDma *dma, Uint8 channel) {
+/* Returns the master clocks spent reading the table entry. */
+static Uint32 hdma_load(SmxDma *dma, Uint8 channel) {
   Uint8 control = channel_reg(dma, channel, 0);
   Uint8 count = smx_bus_read(dma->bus, dma->hdma_addr[channel]);
 
@@ -99,7 +103,7 @@ static void hdma_load(SmxDma *dma, Uint8 channel) {
   if (count == 0) {
     dma->hdma_done[channel] = true;
     dma->hdma_do[channel] = false;
-    return;
+    return 8;
   }
   dma->hdma_lines[channel] = (Uint8)(count & 0x7F);
   dma->hdma_repeat[channel] = (count & 0x80) != 0;
@@ -110,12 +114,15 @@ static void hdma_load(SmxDma *dma, Uint8 channel) {
     dma->hdma_indirect[channel] =
         (Uint16)(low | ((Uint16)smx_bus_read(dma->bus, dma->hdma_addr[channel]) << 8));
     dma->hdma_addr[channel] = (dma->hdma_addr[channel] + 1u) & 0x00FFFFFFu;
+    return 24;
   }
+  return 8;
 }
 
-void smx_dma_hdma_init(SmxDma *dma) {
+Uint32 smx_dma_hdma_init(SmxDma *dma) {
   Uint8 enable = smx_bus_mmio(dma->bus, 0x420C);
   Uint8 channel = 0;
+  Uint32 clocks = 0;
 
   for (; channel < 8; channel += 1) {
     dma->hdma_done[channel] = true;
@@ -127,13 +134,15 @@ void smx_dma_hdma_init(SmxDma *dma) {
     dma->hdma_addr[channel] |= (Uint32)channel_reg(dma, channel, 3) << 8;
     dma->hdma_addr[channel] |= (Uint32)channel_reg(dma, channel, 4) << 16;
     dma->hdma_done[channel] = false;
-    hdma_load(dma, channel);
+    clocks += hdma_load(dma, channel);
   }
+  return clocks == 0 ? 0 : clocks + 18u;
 }
 
-void smx_dma_hdma_line(SmxDma *dma) {
+Uint32 smx_dma_hdma_line(SmxDma *dma) {
   Uint8 enable = smx_bus_mmio(dma->bus, 0x420C);
   Uint8 channel = 0;
+  Uint32 clocks = 0;
 
   for (; channel < 8; channel += 1) {
     Uint8 control = 0;
@@ -145,7 +154,9 @@ void smx_dma_hdma_line(SmxDma *dma) {
     }
     control = channel_reg(dma, channel, 0);
     indirect = (control & 0x40) != 0;
+    clocks += 8u;
     if (dma->hdma_do[channel]) {
+      clocks += 8u * pattern_len((Uint8)(control & 0x07));
       if (indirect) {
         source = ((Uint32)channel_reg(dma, channel, 7) << 16) | dma->hdma_indirect[channel];
       } else {
@@ -163,7 +174,8 @@ void smx_dma_hdma_line(SmxDma *dma) {
       dma->hdma_lines[channel] = (Uint8)(dma->hdma_lines[channel] - 1);
       dma->hdma_do[channel] = dma->hdma_repeat[channel];
     } else {
-      hdma_load(dma, channel);
+      clocks += hdma_load(dma, channel);
     }
   }
+  return clocks == 0 ? 0 : clocks + 18u;
 }

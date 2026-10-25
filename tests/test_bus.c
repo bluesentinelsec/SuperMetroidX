@@ -79,8 +79,29 @@ static void test_lorom_window(void) {
   smx_cart_free(&cart);
 }
 
+static void test_speed(void) {
+  SmxBus bus;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  expect_u8("wram mirror", smx_bus_speed(&bus, 0x000000), 8);
+  expect_u8("ppu", smx_bus_speed(&bus, 0x002100), 6);
+  expect_u8("joypad", smx_bus_speed(&bus, 0x004016), 12);
+  expect_u8("cpu io", smx_bus_speed(&bus, 0x004200), 6);
+  expect_u8("expansion", smx_bus_speed(&bus, 0x006000), 8);
+  expect_u8("rom", smx_bus_speed(&bus, 0x008000), 8);
+  expect_u8("slow fast rom", smx_bus_speed(&bus, 0x808000), 8);
+  smx_bus_write(&bus, 0x00420D, 0x01);
+  expect_u8("fast rom", smx_bus_speed(&bus, 0x808000), 6);
+  expect_u8("fast high rom", smx_bus_speed(&bus, 0xC00000), 6);
+  expect_u8("bank 00 stays slow", smx_bus_speed(&bus, 0x008000), 8);
+  expect_u8("wram bank", smx_bus_speed(&bus, 0x7E0000), 8);
+  expect_u8("bank 40", smx_bus_speed(&bus, 0x400000), 8);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   test_wram_sram_mmio();
+  test_speed();
   test_lorom_window();
   return g_failed ? 1 : 0;
 }

@@ -217,8 +217,30 @@ static void test_stz_abs_x(void) {
   smx_bus_quit(&bus);
 }
 
+static void test_cycles(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  static const Uint8 code[] = {0xEA, 0xAD, 0x34, 0x12, 0x64, 0x10, 0x80, 0x00, 0xC2,
+                               0x20, 0xAD, 0x34, 0x12, 0xB5, 0x12, 0xD0, 0x00};
+  static const Uint32 want[] = {14, 32, 24, 22, 22, 40, 38, 16};
+  Uint32 index = 0;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  native(&cpu, code, sizeof(code));
+  /* WRAM is 8 master clocks an access and an internal cycle is 6. */
+  for (; index < sizeof(want) / sizeof(want[0]); index += 1) {
+    cpu.clocks = 0;
+    cpu.p = (Uint8)(cpu.p | 0x02);
+    step_n(&cpu, 1);
+    expect_u16("clocks", (Uint16)cpu.clocks, (Uint16)want[index]);
+  }
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   test_alu_and_flow();
+  test_cycles();
   test_stz_abs_x();
   test_boot();
   return g_failed ? 1 : 0;
