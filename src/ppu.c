@@ -769,6 +769,9 @@ void smx_ppu_render(SmxPpu *ppu) {
   }
 }
 
+/** Mesen 2.1.1 NTSC frame 41, the Nintendo logo. */
+#define SMX_PPU_NTSC_LOGO_HASH 0xd155b93bu
+
 Uint32 smx_ppu_frame_hash(const SmxPpu *ppu) {
   Uint32 hash = 2166136261u;
   Uint32 i = 0;
@@ -778,4 +781,13 @@ Uint32 smx_ppu_frame_hash(const SmxPpu *ppu) {
     hash *= 16777619u;
   }
   return hash;
+}
+
+void smx_ppu_note_picture(SmxPpu *ppu) {
+  if (ppu == NULL || ppu->picture_matches_oracle || ppu->pixels == NULL) {
+    return;
+  }
+  if (smx_ppu_frame_hash(ppu) == SMX_PPU_NTSC_LOGO_HASH) {
+    ppu->picture_matches_oracle = true;
+  }
 }

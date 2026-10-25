@@ -8,6 +8,7 @@
 /**
  * The 65816-to-C translator is a separate tool.
  * It stays disabled until a rendered frame has matched an NTSC oracle.
+ * The Nintendo logo frame is that oracle.
  */
 bool smx_translate_ready(const SmxPpu *ppu);
 

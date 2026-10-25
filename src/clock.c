@@ -120,5 +120,8 @@ bool smx_clock_frame(SmxClock *clock) {
   while (ran && clock->dots < target) {
     ran = smx_clock_step(clock);
   }
+  if (clock->ppu != NULL) {
+    smx_ppu_note_picture(clock->ppu);
+  }
   return ran;
 }
