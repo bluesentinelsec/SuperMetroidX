@@ -30,6 +30,7 @@ int main(int argc, char **argv) {
     SDL_Log("SDL_Init failed: %s", SDL_GetError());
     return 1;
   }
+  bool audio_ready = SDL_InitSubSystem(SDL_INIT_AUDIO);
 
   SDL_Window *window = SDL_CreateWindow("SuperMetroidX", 960, 540, SDL_WINDOW_RESIZABLE);
   if (window == NULL) {
@@ -86,6 +87,22 @@ int main(int argc, char **argv) {
   Uint8 blue = 0;
   smx_backdrop(&red, &green, &blue);
 
+  SDL_AudioStream *audio = NULL;
+  if (playing && audio_ready) {
+    SDL_AudioSpec spec;
+    spec.format = SDL_AUDIO_S16;
+    spec.channels = 2;
+    spec.freq = 32000;
+    audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (audio == NULL) {
+      SDL_Log("audio unavailable: %s", SDL_GetError());
+    } else if (!SDL_ResumeAudioStreamDevice(audio)) {
+      SDL_Log("audio resume failed: %s", SDL_GetError());
+      SDL_DestroyAudioStream(audio);
+      audio = NULL;
+    }
+  }
+
   bool running = true;
   Uint64 started = SDL_GetTicks();
   while (running) {
@@ -141,6 +158,19 @@ int main(int argc, char **argv) {
         playing = false;
       }
       smx_ppu_render(&ppu);
+      if (audio != NULL) {
+        /* 32000 Hz over one NTSC frame, rounded. */
+        Sint16 left[532];
+        Sint16 right[532];
+        Sint16 interleaved[532 * 2];
+        Uint32 sample = 0;
+        smx_apu_render(&apu, left, right, 532);
+        for (; sample < 532; sample += 1) {
+          interleaved[sample * 2u] = left[sample];
+          interleaved[sample * 2u + 1u] = right[sample];
+        }
+        SDL_PutAudioStreamData(audio, interleaved, (int)sizeof(interleaved));
+      }
       SDL_UpdateTexture(texture, NULL, ppu.pixels, SMX_PPU_WIDTH * 4);
       int win_w = 0;
       int win_h = 0;
@@ -170,6 +200,9 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (audio != NULL) {
+    SDL_DestroyAudioStream(audio);
+  }
   if (texture != NULL) {
     SDL_DestroyTexture(texture);
   }
