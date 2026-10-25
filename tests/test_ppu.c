@@ -414,6 +414,26 @@ int main(void) {
   expect_u8("opt column g", ppu.pixels[8 * 4 + 1], 255);
   expect_u8("opt column r", ppu.pixels[8 * 4 + 2], 0);
 
+  /* Mode 5 main screen keeps even hi-res pixels. 0xC0 is source pixels 0 and 1. */
+  smx_bus_write(&bus, 0x002105, 0x05);
+  smx_bus_write(&bus, 0x002107, 0x04);
+  smx_bus_write(&bus, 0x00212C, 0x01);
+  smx_bus_write(&bus, 0x00212D, 0x00);
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x00);
+  smx_bus_write(&bus, 0x002118, 0xC0);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x04);
+  smx_bus_write(&bus, 0x002118, 0x00);
+  smx_bus_write(&bus, 0x002119, 0x00);
+  smx_ppu_write_cgram(&ppu, 0, 0x0000);
+  smx_ppu_write_cgram(&ppu, 1, 0x001F);
+  smx_ppu_render(&ppu);
+  expect_u8("hires even r", ppu.pixels[2], 255);
+  expect_u8("hires odd skipped r", ppu.pixels[4 + 2], 0);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;

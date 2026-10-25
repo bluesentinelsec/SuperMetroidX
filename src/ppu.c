@@ -333,15 +333,22 @@ static Uint32 smx_ppu_mosaic(const SmxPpu *ppu, Uint8 bg, Uint32 value) {
 }
 
 static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibble, Uint8 depth,
-                              bool large, Uint32 x, Uint32 y, Uint16 hscroll, Uint16 vscroll,
-                              bool *opaque, bool *priority, Uint16 *color) {
+                              bool large, bool hires, bool odd, Uint32 x, Uint32 y, Uint16 hscroll,
+                              Uint16 vscroll, bool *opaque, bool *priority, Uint16 *color) {
   Uint16 map = (Uint16)((map_reg & 0xFC) << 8);
   Uint16 chars = (Uint16)((char_nibble & 0x0F) << 12);
   Uint32 px = (x + (hscroll & 0x03FFu)) & 0x03FFu;
   Uint32 py = (y + (vscroll & 0x03FFu)) & 0x03FFu;
-  Uint32 shift = large ? 4u : 3u;
-  Uint32 ex = px >> shift;
-  Uint32 ey = py >> shift;
+  Uint32 shift_x = large ? 4u : 3u;
+  Uint32 shift_y = large ? 4u : 3u;
+  Uint32 ex = 0;
+
+  if (hires) {
+    px = px * 2u + (odd ? 1u : 0u);
+    shift_x = 4u;
+  }
+  ex = px >> shift_x;
+  Uint32 ey = py >> shift_y;
   Uint32 tx = ex & 31u;
   Uint32 ty = ey & 31u;
   Uint16 entry = 0;
@@ -357,23 +364,24 @@ static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibbl
   entry = smx_ppu_word(ppu, (Uint16)(map + ty * 32u + tx));
   Uint16 tile = (Uint16)(entry & 0x03FF);
   Uint8 palette = (Uint8)((entry >> 10) & 0x07);
-  Uint8 span = large ? 15 : 7;
-  Uint8 local_x = (Uint8)(px & span);
-  Uint8 local_y = (Uint8)(py & span);
+  Uint8 span_x = (large || hires) ? 15 : 7;
+  Uint8 span_y = large ? 15 : 7;
+  Uint8 local_x = (Uint8)(px & span_x);
+  Uint8 local_y = (Uint8)(py & span_y);
   Uint8 row = 0;
   Uint8 col = 0;
   Uint8 index = 0;
 
   if ((entry & 0x8000) != 0) {
-    local_y = (Uint8)(span - local_y);
+    local_y = (Uint8)(span_y - local_y);
   }
   if ((entry & 0x4000) != 0) {
-    local_x = (Uint8)(span - local_x);
+    local_x = (Uint8)(span_x - local_x);
   }
   row = (Uint8)(local_y & 7u);
   col = (Uint8)(local_x & 7u);
-  if (large) {
-    tile = (Uint16)(tile + (local_x >> 3) + (Uint16)(local_y >> 3) * 16u);
+  if (large || hires) {
+    tile = (Uint16)(tile + (local_x >> 3) + (large ? (Uint16)(local_y >> 3) * 16u : 0u));
   }
   index = smx_ppu_plane(ppu, chars, tile, row, col, depth);
   *priority = (entry & 0x2000) != 0;
@@ -527,7 +535,7 @@ static void smx_ppu_opt(const SmxPpu *ppu, Uint8 mode, Uint8 bg, Uint32 x, Uint1
   Uint16 hentry = 0;
   Uint16 mask = 0;
 
-  if ((mode != 2 && mode != 4) || bg > 1) {
+  if ((mode != 2 && mode != 4 && mode != 6) || bg > 1) {
     return;
   }
   if (x < (Uint32)(8u - (h & 7u))) {
@@ -575,10 +583,12 @@ static void smx_ppu_paint_bg(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen
   Uint8 nibble = 0;
   static const Uint16 map_regs[4] = {0x2107, 0x2108, 0x2109, 0x210A};
 
-  if ((mode == 1 && bg == 3) || (mode == 2 && bg > 1) || ((mode == 3 || mode == 4) && bg > 1)) {
+  if ((mode == 1 && bg == 3) || (mode == 2 && bg > 1) || ((mode == 3 || mode == 4) && bg > 1) ||
+      (mode == 6 && bg > 0)) {
     return;
   }
-  if ((mode == 1 && bg < 2) || mode == 2 || (mode == 3 && bg == 1)) {
+  if ((mode == 1 && bg < 2) || mode == 2 || mode == 6 || (mode == 5 && bg == 0) ||
+      (mode == 3 && bg == 1)) {
     depth = 4;
   } else if ((mode == 3 || mode == 4) && bg == 0) {
     depth = 8;
@@ -593,8 +603,8 @@ static void smx_ppu_paint_bg(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen
     Uint16 vscroll = ppu->bg_v[bg];
     smx_ppu_opt(ppu, mode, bg, smx_ppu_mosaic(ppu, bg, x), &hscroll, &vscroll);
     smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, depth, large,
-                      smx_ppu_mosaic(ppu, bg, x), smx_ppu_mosaic(ppu, bg, y), hscroll, vscroll,
-                      &opaque, &priority, &sample);
+                      mode == 5 || mode == 6, sub, smx_ppu_mosaic(ppu, bg, x),
+                      smx_ppu_mosaic(ppu, bg, y), hscroll, vscroll, &opaque, &priority, &sample);
   }
   if (opaque && priority == high && !smx_ppu_window_masks(ppu, bg, x, sub ? 0x212F : 0x212E)) {
     *color = sample;
@@ -655,7 +665,7 @@ static bool smx_ppu_screen(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, 
     if (bg3_high) {
       smx_ppu_paint_bg(ppu, x, y, screen, 2, true, sub, color, source, &hit);
     }
-  } else if (mode == 2 || mode == 3 || mode == 4) {
+  } else if (mode == 2 || mode == 3 || mode == 4 || mode == 5 || mode == 6) {
     smx_ppu_paint_bg(ppu, x, y, screen, 1, false, sub, color, source, &hit);
     smx_ppu_paint_bg(ppu, x, y, screen, 0, false, sub, color, source, &hit);
     smx_ppu_paint_sprite(ppu, x, y, screen, 0, sub, color, source, &hit);
