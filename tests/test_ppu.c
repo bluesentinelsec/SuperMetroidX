@@ -498,6 +498,28 @@ int main(void) {
   expect_u8("sprite rotate g", ppu.pixels[1], 255);
   expect_u8("sprite rotate r", ppu.pixels[2], 0);
 
+  /* VRAM reads return the prefetched word. The stepping read refills it from
+   * the address before stepping, so the first word comes back twice. */
+  smx_bus_write(&bus, 0x002115, 0x80);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x01);
+  smx_bus_write(&bus, 0x002118, 0x34);
+  smx_bus_write(&bus, 0x002119, 0x12);
+  smx_bus_write(&bus, 0x002118, 0x78);
+  smx_bus_write(&bus, 0x002119, 0x56);
+  smx_bus_write(&bus, 0x002116, 0x00);
+  smx_bus_write(&bus, 0x002117, 0x01);
+  expect_u8("vram read lo", smx_bus_read(&bus, 0x002139), 0x34);
+  expect_u8("vram read hi", smx_bus_read(&bus, 0x00213A), 0x12);
+  expect_u8("vram again lo", smx_bus_read(&bus, 0x002139), 0x34);
+  expect_u8("vram again hi", smx_bus_read(&bus, 0x00213A), 0x12);
+  expect_u8("vram next lo", smx_bus_read(&bus, 0x002139), 0x78);
+  expect_u8("vram next hi", smx_bus_read(&bus, 0x00213A), 0x56);
+  smx_ppu_write_cgram(&ppu, 5, 0x7ABC);
+  smx_bus_write(&bus, 0x002121, 0x05);
+  expect_u8("cgram read lo", smx_bus_read(&bus, 0x00213B), 0xBC);
+  expect_u8("cgram read hi", (Uint8)(smx_bus_read(&bus, 0x00213B) & 0x7F), 0x7A);
+
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   return g_failed ? 1 : 0;
