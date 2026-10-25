@@ -55,6 +55,7 @@ typedef struct SmxClock {
   Uint32 drawn_x;
   Sint64 apu_credit;
   Uint32 dma_count;
+  /** Auto-joypad value: low byte to `$4218` (A X L R), high byte to `$4219`. */
   Uint16 joy;
   bool prev_vblank;
   bool irq_line;
