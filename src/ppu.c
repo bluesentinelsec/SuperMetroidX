@@ -501,7 +501,7 @@ static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *
   Uint16 word = 0;
   Uint8 index = 0;
 
-  if (outside && (select & 0x40) != 0 && (select & 0x80) == 0) {
+  if (outside && (select & 0xC0) == 0x80) {
     return false;
   }
   if (outside && (select & 0xC0) == 0xC0) {

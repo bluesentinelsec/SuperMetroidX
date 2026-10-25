@@ -19,7 +19,8 @@
  * other hi-res pixel: the main screen takes the even pixels and the subscreen
  * takes the odd pixels. $2130 bit 0 selects
  * direct color. Mode 7 uses the latched
- * matrix. Modes 0 and 1 scroll. A vertical write between the two
+ * matrix. `$211A` bits 6-7 select the area outside 1024x1024: 2 is
+ * transparent and 3 repeats character 0. Modes 0 and 1 scroll. A vertical write between the two
  * horizontal bytes keeps the fine horizontal offset.
  * HDMA can rewrite those registers per line. $2123-$212B and $212E clip
  * main-screen layers. $212F clips the subscreen the same way.
