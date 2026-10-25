@@ -74,6 +74,19 @@ int main(void) {
   expect_u8("tile b", ppu.pixels[0], 0);
   expect_u8("gap r", ppu.pixels[4 + 2], 0);
   expect_u8("next tile r", ppu.pixels[8 * 4 + 2], 0);
+  /* A vertical write between the horizontal bytes keeps the low 3 bits. */
+  smx_bus_write(&bus, 0x00210D, 0x07);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_ppu_render(&ppu);
+  expect_u8("fine scroll r", ppu.pixels[2], 0);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210D, 0x00);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_bus_write(&bus, 0x00210E, 0x00);
+  smx_ppu_render(&ppu);
+  expect_u8("scroll restored r", ppu.pixels[2], 255);
   smx_bus_write(&bus, 0x00210D, 0x08);
   smx_bus_write(&bus, 0x00210D, 0x00);
   smx_ppu_render(&ppu);
