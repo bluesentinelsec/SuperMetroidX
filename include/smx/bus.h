@@ -21,6 +21,7 @@ typedef struct SmxBus {
   bool dma_requested;
   Uint8 dma_channels;
   void (*mmio_write)(void *user, Uint16 addr, Uint8 value);
+  Uint8 (*mmio_read)(void *user, Uint16 addr, Uint8 open_bus);
   void *mmio_user;
   void (*apu_write)(void *user, Uint8 index, Uint8 value);
   void *apu_user;

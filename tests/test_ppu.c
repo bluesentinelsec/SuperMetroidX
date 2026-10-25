@@ -168,16 +168,23 @@ int main(void) {
   expect_u8("mode7 g", ppu.pixels[1], 0);
   expect_u8("mode7 clear", ppu.pixels[8 * 4 + 2], 0);
   expect_true("mode7 no oracle", !ppu.picture_matches_oracle);
-  /* $211A = $80 hides samples past 1024. Scroll 2048 lands there. */
+  /* $211A = $80 hides samples past 1024. A negative scroll lands there. */
   smx_bus_write(&bus, 0x00211A, 0x80);
   smx_bus_write(&bus, 0x002130, 0x00);
   smx_bus_write(&bus, 0x002131, 0x00);
-  smx_bus_write(&bus, 0x00210D, 0x00);
-  smx_bus_write(&bus, 0x00210D, 0x08);
+  smx_bus_write(&bus, 0x00210D, 0xF0);
+  smx_bus_write(&bus, 0x00210D, 0x1F);
   smx_ppu_write_cgram(&ppu, 0, 0x03E0);
   smx_ppu_render(&ppu);
   expect_u8("mode7 outside g", ppu.pixels[1], 255);
   expect_u8("mode7 outside r", ppu.pixels[2], 0);
+  smx_bus_write(&bus, 0x00211C, 0x00);
+  smx_bus_write(&bus, 0x00211C, 0x03);
+  smx_bus_write(&bus, 0x00211B, 0x00);
+  smx_bus_write(&bus, 0x00211B, 0x02);
+  expect_u8("m7 product low", smx_bus_read(&bus, 0x002134), 0x00);
+  expect_u8("m7 product mid", smx_bus_read(&bus, 0x002135), 0x06);
+  expect_u8("m7 product high", smx_bus_read(&bus, 0x002136), 0x00);
 
   expect_u8("oam high", ppu.oam[512], 0xA5);
   expect_u8("oam low kept", ppu.oam[0], 0x00);
