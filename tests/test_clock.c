@@ -340,7 +340,7 @@ static void test_h_irq_dot(void) {
     guard += 1;
   }
   /* HTIME 100 is PPU dot 100, master clock 400 of the line. */
-  dot = (Uint32)(clock.dots % SMX_CLOCK_DOTS_PER_LINE);
+  dot = clock.dot;
   expect_true("h-irq fired", (smx_bus_mmio(&bus, 0x4211) & 0x80) != 0);
   expect_true("h-irq at dot 100", dot >= 400u && dot < 460u);
   smx_bus_quit(&bus);
@@ -369,8 +369,10 @@ static void test_mid_line_write(void) {
   smx_bus_write(&bus, 0x002100, 0x0F);
   /* Master clock 600 is PPU dot 150, so pixels 0 to 128 are already out. */
   clock.dots = (Uint64)line * SMX_CLOCK_DOTS_PER_LINE + 600u;
+  clock.line = line;
+  clock.dot = 600u;
   smx_bus_write(&bus, 0x002100, 0x80);
-  while (clock.dots % SMX_CLOCK_DOTS_PER_FRAME < (Uint64)(line + 1u) * SMX_CLOCK_DOTS_PER_LINE) {
+  while (clock.line <= line) {
     smx_clock_step(&clock);
   }
   expect_u8("left of the write", ppu.pixels[((line - 1u) * SMX_PPU_WIDTH + 128u) * 4u], 255);
@@ -402,6 +404,30 @@ static void test_apu_port_sync(void) {
   smx_bus_quit(&bus);
 }
 
+static void test_short_line(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxClock clock;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  cpu.e = false;
+  cpu.p = 0x30;
+  cpu.pc = 0x1000;
+  smx_bus_write(&bus, 0x1000, 0x80);
+  smx_bus_write(&bus, 0x1001, 0xFE);
+  expect_true("frame 0", smx_clock_frame(&clock));
+  expect_true("frame 1", smx_clock_frame(&clock));
+  /* Frame 0 is even and full length. Frame 1 is odd and drops 4 clocks. */
+  expect_true("on frame 2", clock.frame == 2u && clock.line == 0u);
+  expect_true("frame 2 starts after one short line",
+              clock.dots - clock.dot == 2u * SMX_CLOCK_DOTS_PER_FRAME - 4u);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   test_vblank_poll();
   test_joy_busy();
@@ -411,6 +437,7 @@ int main(void) {
   test_h_irq_dot();
   test_mid_line_write();
   test_apu_port_sync();
+  test_short_line();
   test_line_before_hdma();
   test_rom_reaches_dma();
   test_logo_frame();

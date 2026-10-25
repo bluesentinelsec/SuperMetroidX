@@ -22,12 +22,14 @@ void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   }
 }
 
-static Uint32 smx_clock_line(Uint64 dots) {
-  return (Uint32)((dots % SMX_CLOCK_DOTS_PER_FRAME) / SMX_CLOCK_DOTS_PER_LINE);
-}
+/* Line 240 of every odd field is four master clocks short unless interlaced. */
+static Uint32 smx_clock_line_length(const SmxClock *clock, Uint32 line) {
+  bool interlace = (clock->bus->mmio[0x2133] & 0x01) != 0;
 
-static Uint32 smx_clock_dot(Uint64 dots) {
-  return (Uint32)(dots % SMX_CLOCK_DOTS_PER_LINE);
+  if (line == SMX_CLOCK_SHORT_LINE && clock->field && !interlace) {
+    return SMX_CLOCK_DOTS_PER_LINE - 4u;
+  }
+  return SMX_CLOCK_DOTS_PER_LINE;
 }
 
 static void smx_clock_irq(SmxClock *clock) {
@@ -37,13 +39,23 @@ static void smx_clock_irq(SmxClock *clock) {
 
 /* `dots` must not run past the end of the current line. */
 static void smx_clock_span(SmxClock *clock, Uint32 dots) {
-  Uint32 line_before = smx_clock_line(clock->dots);
-  Uint32 dot_before = smx_clock_dot(clock->dots);
+  Uint32 line_before = clock->line;
+  Uint32 dot_before = clock->dot;
   Uint32 line_after = 0;
   bool vblank = false;
 
   clock->dots += dots;
-  line_after = smx_clock_line(clock->dots);
+  clock->dot += dots;
+  if (clock->dot >= smx_clock_line_length(clock, line_before)) {
+    clock->dot = 0;
+    clock->line += 1;
+    if (clock->line == SMX_CLOCK_LINES) {
+      clock->line = 0;
+      clock->frame += 1;
+      clock->field = !clock->field;
+    }
+  }
+  line_after = clock->line;
   if (dot_before < SMX_CLOCK_REFRESH_DOT && dot_before + dots >= SMX_CLOCK_REFRESH_DOT) {
     clock->stall += SMX_CLOCK_REFRESH_DOTS;
   }
@@ -63,14 +75,13 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
   }
   vblank = line_after >= SMX_CLOCK_VBLANK_LINE;
   {
-    Uint32 frame_dot = (Uint32)(clock->dots % SMX_CLOCK_DOTS_PER_FRAME);
-    Uint32 vblank_at = SMX_CLOCK_VBLANK_LINE * SMX_CLOCK_DOTS_PER_LINE;
     Uint8 status = (Uint8)(clock->bus->mmio[0x4212] & (Uint8)~0x81u);
     /* Auto-joypad read holds bit 0 for 4224 master clocks from vblank. */
     if (vblank) {
       status = (Uint8)(status | 0x80);
     }
-    if (frame_dot >= vblank_at && frame_dot < vblank_at + 4224u) {
+    if (vblank &&
+        (line_after - SMX_CLOCK_VBLANK_LINE) * SMX_CLOCK_DOTS_PER_LINE + clock->dot < 4224u) {
       status = (Uint8)(status | 0x01);
     }
     clock->bus->mmio[0x4212] = status;
@@ -110,7 +121,7 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
 
 static void smx_clock_advance(SmxClock *clock, Uint32 dots) {
   while (dots != 0) {
-    Uint32 chunk = SMX_CLOCK_DOTS_PER_LINE - smx_clock_dot(clock->dots);
+    Uint32 chunk = smx_clock_line_length(clock, clock->line) - clock->dot;
     if (chunk > dots) {
       chunk = dots;
     }
@@ -150,14 +161,14 @@ static void smx_clock_apu_sync(void *user) {
 /* Draw the current line up to the beam before a PPU register changes. */
 static void smx_clock_sync(void *user) {
   SmxClock *clock = (SmxClock *)user;
-  Uint32 line = smx_clock_line(clock->dots);
-  Uint32 dot = smx_clock_dot(clock->dots) + clock->cpu->clocks;
+  Uint32 line = clock->line;
+  Uint32 dot = clock->dot + clock->cpu->clocks;
   Uint32 x = SMX_PPU_WIDTH;
 
   if (clock->ppu == NULL || line < 1u || line > SMX_PPU_HEIGHT) {
     return;
   }
-  if (dot < SMX_CLOCK_DOTS_PER_LINE) {
+  if (dot < smx_clock_line_length(clock, line)) {
     x = dot / 4u < SMX_CLOCK_FIRST_PIXEL_DOT ? 0 : dot / 4u - SMX_CLOCK_FIRST_PIXEL_DOT;
     x = x > SMX_PPU_WIDTH ? SMX_PPU_WIDTH : x;
   }
@@ -196,10 +207,10 @@ bool smx_clock_step(SmxClock *clock) {
 
 bool smx_clock_frame(SmxClock *clock) {
   /* Stop at the next line 0 so a long DMA cannot move the frame boundary. */
-  Uint64 target = (clock->dots / SMX_CLOCK_DOTS_PER_FRAME + 1u) * SMX_CLOCK_DOTS_PER_FRAME;
+  Uint64 frame = clock->frame;
   bool ran = true;
 
-  while (ran && clock->dots < target) {
+  while (ran && clock->frame == frame) {
     ran = smx_clock_step(clock);
   }
   if (clock->ppu != NULL) {

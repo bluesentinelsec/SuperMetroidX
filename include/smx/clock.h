@@ -7,11 +7,14 @@
 
 #include <SDL3/SDL.h>
 
-/** Master clocks in one NTSC scanline, including the short-line average. */
+/** Master clocks in one NTSC scanline. */
 #define SMX_CLOCK_DOTS_PER_LINE 1364u
 /** NTSC frames are 262 lines, with vblank starting on line 225. */
 #define SMX_CLOCK_LINES 262u
 #define SMX_CLOCK_VBLANK_LINE 225u
+/** On odd fields without interlace this line is 1360 master clocks. */
+#define SMX_CLOCK_SHORT_LINE 240u
+/** Master clocks in a frame without the short line. */
 #define SMX_CLOCK_DOTS_PER_FRAME (SMX_CLOCK_DOTS_PER_LINE * SMX_CLOCK_LINES)
 
 /**
@@ -50,6 +53,9 @@
  * that lead in units of one master clock times `SMX_CLOCK_SPC_HZ`, and
  * `apu_at` is the master clock it has been paced to. A CPU access to
  * `$2140-$2143` first runs the SPC700 up to the time of that access.
+ * `line` and `dot` are the beam position, `frame` counts frames since power
+ * on, and `field` flips at each new frame. Odd fields drop four master clocks
+ * from line 240 unless `$2133` bit 0 selects interlace.
  */
 typedef struct SmxClock {
   SmxBus *bus;
@@ -57,6 +63,10 @@ typedef struct SmxClock {
   SmxDma *dma;
   SmxPpu *ppu;
   Uint64 dots;
+  Uint64 frame;
+  Uint32 line;
+  Uint32 dot;
+  bool field;
   Uint32 stall;
   Uint32 drawn_x;
   Sint64 apu_credit;
