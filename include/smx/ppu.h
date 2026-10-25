@@ -34,7 +34,8 @@
  * Bits 4-7 of $2130 black out the main pixel or skip color math in the
  * color window. A finished visible line is drawn before the next line's
  * HDMA. The picture stores scanlines 1 through 224. Scanline 0 is hidden.
- * Five-bit channels round to eight bits. picture_matches_oracle stays false.
+ * Five-bit channels round to eight bits. picture_matches_oracle latches
+ * once the picture matches the NTSC logo frame.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
@@ -92,5 +93,8 @@ void smx_ppu_render(SmxPpu *ppu);
 
 /** FNV-1a of the XRGB framebuffer. */
 Uint32 smx_ppu_frame_hash(const SmxPpu *ppu);
+
+/** Latch picture_matches_oracle when the picture is the NTSC logo frame. */
+void smx_ppu_note_picture(SmxPpu *ppu);
 
 #endif /* SMX_PPU_H_ */
