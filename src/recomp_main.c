@@ -97,8 +97,8 @@ static bool smx_save_trace(const SmxTranslator *translator, const char *path, co
   SDL_WriteIO(out, header, SDL_strlen(header));
   for (; index < translator->entries.capacity; index += 1) {
     if (translator->entries.slots[index] != 0) {
-      Sint32 length =
-          SDL_snprintf(line, sizeof(line), "%x\n", (unsigned)(translator->entries.slots[index] - 1u));
+      Sint32 length = SDL_snprintf(line, sizeof(line), "%x\n",
+                                   (unsigned)(translator->entries.slots[index] - 1u));
       SDL_WriteIO(out, line, (size_t)length);
     }
   }
