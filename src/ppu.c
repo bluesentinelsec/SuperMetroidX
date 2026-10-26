@@ -279,87 +279,49 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
 }
 
 /* Main-screen window: true when this layer is hidden at x. */
-static bool smx_ppu_window_masks(const SmxPpu *ppu, Uint8 layer, Uint32 x, Uint16 enable_reg) {
-  Uint8 enable = smx_bus_mmio(ppu->bus, enable_reg);
-  Uint8 sel = 0;
-  Uint8 logic = 0;
-  Uint8 shift = 0;
-  bool ena1 = false;
-  bool ena2 = false;
-  bool in1 = false;
-  bool in2 = false;
-  bool inside = false;
+/*
+ * Fill `inside` for pixels `x_from` to `x_to` from one layer's window settings: `sel` is its
+ * nibble of $2123-$2125 (invert 1, enable 1, invert 2, enable 2) and `logic` its two bits of
+ * $212A/$212B, which combine the windows when both are enabled.
+ */
+static void smx_ppu_window_span(const SmxPpu *ppu, Uint8 sel, Uint8 logic, Uint32 x_from,
+                                Uint32 x_to, bool *inside) {
   Uint8 left1 = smx_bus_mmio(ppu->bus, 0x2126);
   Uint8 right1 = smx_bus_mmio(ppu->bus, 0x2127);
   Uint8 left2 = smx_bus_mmio(ppu->bus, 0x2128);
   Uint8 right2 = smx_bus_mmio(ppu->bus, 0x2129);
+  bool ena1 = (sel & 0x02) != 0;
+  bool ena2 = (sel & 0x08) != 0;
+  bool inv1 = (sel & 0x01) != 0;
+  bool inv2 = (sel & 0x04) != 0;
+  Uint32 x = x_from;
 
-  if ((enable & (Uint8)(1u << layer)) == 0) {
-    return false;
+  if (!ena1 && !ena2) {
+    SDL_memset(&inside[x_from], 0, x_to - x_from);
+    return;
   }
-  if (layer < 2) {
-    sel = smx_bus_mmio(ppu->bus, 0x2123);
-    logic = (Uint8)(smx_bus_mmio(ppu->bus, 0x212A) >> (layer * 2u));
-    shift = (Uint8)(layer * 4u);
-  } else if (layer < 4) {
-    sel = smx_bus_mmio(ppu->bus, 0x2124);
-    logic = (Uint8)(smx_bus_mmio(ppu->bus, 0x212A) >> (layer * 2u));
-    shift = (Uint8)((layer - 2u) * 4u);
-  } else {
-    sel = smx_bus_mmio(ppu->bus, 0x2125);
-    logic = smx_bus_mmio(ppu->bus, 0x212B);
-    shift = 0;
-  }
-  ena1 = (sel & (Uint8)(0x02u << shift)) != 0;
-  ena2 = (sel & (Uint8)(0x08u << shift)) != 0;
-  in1 = ((x >= left1 && x <= right1) != ((sel & (Uint8)(0x01u << shift)) != 0));
-  in2 = ((x >= left2 && x <= right2) != ((sel & (Uint8)(0x04u << shift)) != 0));
-  if (ena1 && ena2) {
-    logic = (Uint8)(logic & 0x03);
-    if (logic == 0) {
-      inside = in1 || in2;
-    } else if (logic == 1) {
-      inside = in1 && in2;
-    } else if (logic == 2) {
-      inside = in1 != in2;
-    } else {
-      inside = in1 == in2;
+  logic = (Uint8)(logic & 0x03);
+  for (; x < x_to; x += 1) {
+    bool in1 = (x >= left1 && x <= right1) != inv1;
+    bool in2 = (x >= left2 && x <= right2) != inv2;
+    bool in = false;
+    if (ena1 && ena2) {
+      if (logic == 0) {
+        in = in1 || in2;
+      } else if (logic == 1) {
+        in = in1 && in2;
+      } else if (logic == 2) {
+        in = in1 != in2;
+      } else {
+        in = in1 == in2;
+      }
+    } else if (ena1) {
+      in = in1;
+    } else if (ena2) {
+      in = in2;
     }
-  } else if (ena1) {
-    inside = in1;
-  } else if (ena2) {
-    inside = in2;
+    inside[x] = in;
   }
-  return inside;
-}
-
-static bool smx_ppu_color_window(const SmxPpu *ppu, Uint32 x) {
-  Uint8 sel = smx_bus_mmio(ppu->bus, 0x2125);
-  Uint8 logic = (Uint8)((smx_bus_mmio(ppu->bus, 0x212B) >> 2) & 0x03);
-  bool ena1 = (sel & 0x20) != 0;
-  bool ena2 = (sel & 0x80) != 0;
-  bool in1 = ((x >= smx_bus_mmio(ppu->bus, 0x2126) && x <= smx_bus_mmio(ppu->bus, 0x2127)) !=
-              ((sel & 0x10) != 0));
-  bool in2 = ((x >= smx_bus_mmio(ppu->bus, 0x2128) && x <= smx_bus_mmio(ppu->bus, 0x2129)) !=
-              ((sel & 0x40) != 0));
-  bool inside = false;
-
-  if (ena1 && ena2) {
-    if (logic == 0) {
-      inside = in1 || in2;
-    } else if (logic == 1) {
-      inside = in1 && in2;
-    } else if (logic == 2) {
-      inside = in1 != in2;
-    } else {
-      inside = in1 == in2;
-    }
-  } else if (ena1) {
-    inside = in1;
-  } else if (ena2) {
-    inside = in2;
-  }
-  return inside;
 }
 
 static bool smx_ppu_region(Uint8 code, bool inside) {
@@ -438,108 +400,38 @@ static Uint16 smx_ppu_word(const SmxPpu *ppu, Uint16 addr) {
   return (Uint16)(ppu->vram[byte] | ((Uint16)ppu->vram[byte + 1] << 8));
 }
 
-static Uint8 smx_ppu_plane(const SmxPpu *ppu, Uint16 base_word, Uint16 tile, Uint8 row, Uint8 col,
-                           Uint8 depth) {
+/*
+ * Decode one 8-pixel row of a character into palette indices, left pixel first. VRAM wraps at
+ * 64 KiB.
+ */
+static void smx_ppu_decode_row(const SmxPpu *ppu, Uint16 base_word, Uint16 tile, Uint8 row,
+                               Uint8 depth, Uint8 *indices) {
   Uint32 bytes = depth == 8 ? 64u : (depth == 4 ? 32u : 16u);
-  Uint32 base = ((Uint32)(base_word & 0x7FFF) * 2u) + (Uint32)tile * bytes;
-  Uint8 bit = (Uint8)(7u - (col & 7u));
-  Uint8 p0 = ppu->vram[base + (Uint32)row * 2u];
-  Uint8 p1 = ppu->vram[base + (Uint32)row * 2u + 1u];
-  Uint8 index = (Uint8)(((p0 >> bit) & 1u) | (((p1 >> bit) & 1u) << 1));
-  Uint8 plane = 2;
-
-  for (; depth >= 4 && plane < depth; plane = (Uint8)(plane + 2)) {
-    Uint32 at = base + (Uint32)(plane / 2u) * 16u + (Uint32)row * 2u;
-    Uint8 even = ppu->vram[at];
-    Uint8 odd = ppu->vram[at + 1u];
-    index = (Uint8)(index | (((even >> bit) & 1u) << plane) | (((odd >> bit) & 1u) << (plane + 1)));
-  }
-  return index;
-}
-
-static Uint32 smx_ppu_mosaic(const SmxPpu *ppu, Uint8 bg, Uint32 value) {
-  Uint8 reg = smx_bus_mmio(ppu->bus, 0x2106);
-  Uint8 size = (Uint8)((reg & 0x0F) + 1u);
-  if (size == 1 || (reg & (Uint8)(0x10u << bg)) == 0) {
-    return value;
-  }
-  return value - (value % size);
-}
-
-static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibble, Uint8 depth,
-                              bool large, bool hires, bool odd, Uint32 x, Uint32 y, Uint16 hscroll,
-                              Uint16 vscroll, bool *opaque, bool *priority, Uint16 *color) {
-  Uint16 map = (Uint16)((map_reg & 0xFC) << 8);
-  Uint16 chars = (Uint16)((char_nibble & 0x0F) << 12);
-  Uint32 px = (x + (hscroll & 0x03FFu)) & 0x03FFu;
-  Uint32 py = (y + (vscroll & 0x03FFu)) & 0x03FFu;
-  Uint32 shift_x = large ? 4u : 3u;
-  Uint32 shift_y = large ? 4u : 3u;
-  Uint32 ex = 0;
-
-  if (hires) {
-    px = px * 2u + (odd ? 1u : 0u);
-    shift_x = 4u;
-  }
-  ex = px >> shift_x;
-  Uint32 ey = py >> shift_y;
-  Uint32 tx = ex & 31u;
-  Uint32 ty = ey & 31u;
-  Uint16 entry = 0;
-  bool wide = (map_reg & 0x01) != 0;
-  bool tall = (map_reg & 0x02) != 0;
-
-  if (wide && (ex & 32u) != 0) {
-    map = (Uint16)(map + 0x400u);
-  }
-  if (tall && (ey & 32u) != 0) {
-    map = (Uint16)(map + (wide ? 0x800u : 0x400u));
-  }
-  entry = smx_ppu_word(ppu, (Uint16)(map + ty * 32u + tx));
-  Uint16 tile = (Uint16)(entry & 0x03FF);
-  Uint8 palette = (Uint8)((entry >> 10) & 0x07);
-  Uint8 span_x = (large || hires) ? 15 : 7;
-  Uint8 span_y = large ? 15 : 7;
-  Uint8 local_x = (Uint8)(px & span_x);
-  Uint8 local_y = (Uint8)(py & span_y);
-  Uint8 row = 0;
+  Uint32 base = ((Uint32)(base_word & 0x7FFF) * 2u) + (Uint32)tile * bytes + (Uint32)row * 2u;
+  Uint8 planes[8];
+  Uint8 plane = 0;
   Uint8 col = 0;
-  Uint8 index = 0;
 
-  if ((entry & 0x8000) != 0) {
-    local_y = (Uint8)(span_y - local_y);
+  for (; plane < depth; plane = (Uint8)(plane + 2)) {
+    Uint32 at = base + (Uint32)(plane / 2u) * 16u;
+    planes[plane] = ppu->vram[at & 0xFFFFu];
+    planes[plane + 1] = ppu->vram[(at + 1u) & 0xFFFFu];
   }
-  if ((entry & 0x4000) != 0) {
-    local_x = (Uint8)(span_x - local_x);
-  }
-  row = (Uint8)(local_y & 7u);
-  col = (Uint8)(local_x & 7u);
-  if (large || hires) {
-    tile = (Uint16)(tile + (local_x >> 3) + (large ? (Uint16)(local_y >> 3) * 16u : 0u));
-  }
-  index = smx_ppu_plane(ppu, chars, tile, row, col, depth);
-  *priority = (entry & 0x2000) != 0;
-  *opaque = index != 0;
-  if (depth == 8 && (smx_bus_mmio(ppu->bus, 0x2130) & 0x01) != 0 &&
-      ((smx_bus_mmio(ppu->bus, 0x2105) & 0x07) == 3 ||
-       (smx_bus_mmio(ppu->bus, 0x2105) & 0x07) == 4)) {
-    Uint8 red = (Uint8)(index & 0x07);
-    Uint8 green = (Uint8)((index >> 3) & 0x07);
-    Uint8 blue = (Uint8)((index >> 6) & 0x03);
-    Uint8 pr = (Uint8)(palette & 0x01);
-    Uint8 pg = (Uint8)((palette >> 1) & 0x01);
-    Uint8 pb = (Uint8)((palette >> 2) & 0x01);
-    *color =
-        (Uint16)(((Uint16)((red << 2) | (pr << 1))) | ((Uint16)((green << 2) | (pg << 1)) << 5) |
-                 ((Uint16)((blue << 3) | (pb << 2)) << 10));
-  } else if (depth == 8) {
-    *color = ppu->cgram[index];
-  } else if (depth == 4) {
-    *color = ppu->cgram[(Uint32)palette * 16u + index];
-  } else {
-    *color = ppu->cgram[(Uint32)palette * 4u + index];
+  for (; col < 8; col += 1) {
+    Uint8 bit = (Uint8)(7u - col);
+    Uint8 index = 0;
+    for (plane = 0; plane < depth; plane += 1) {
+      index = (Uint8)(index | (((planes[plane] >> bit) & 1u) << plane));
+    }
+    indices[col] = index;
   }
 }
+
+/* A background layer over one span: color, and priority 0 or 1, or 0xFF where it is clear. */
+typedef struct SmxPpuLine {
+  Uint16 color[SMX_PPU_WIDTH];
+  Uint8 prio[SMX_PPU_WIDTH];
+} SmxPpuLine;
 
 /*
  * Evaluate the sprites on scanline `y` into `obj_color`/`obj_prio`, as the
@@ -621,6 +513,7 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
       Uint8 tile_col = (attr & 0x40) != 0 ? (Uint8)(columns - 1u - column) : column;
       Uint16 tile = (Uint16)(ppu->oam[sprite * 4u + 2u] | ((Uint16)(attr & 0x01) << 8));
       Uint16 base = name_base;
+      Uint8 indices[8];
       Uint8 px = 0;
 
       if (tiles == SMX_PPU_LINE_TILES) {
@@ -637,14 +530,13 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
         base = (Uint16)(base + name_gap);
         tile = (Uint16)(tile & 0x00FF);
       }
+      smx_ppu_decode_row(ppu, base, tile, (Uint8)(pos & 7u), 4, indices);
       for (px = 0; px < 8u; px += 1) {
         Sint16 x = (Sint16)(draw_x + px);
-        Uint8 index = 0;
+        Uint8 index = indices[(attr & 0x40) != 0 ? 7u - px : px];
         if (x < 0 || x >= (Sint16)SMX_PPU_WIDTH) {
           continue;
         }
-        index = smx_ppu_plane(ppu, base, tile, (Uint8)(pos & 7u),
-                              (Uint8)((attr & 0x40) != 0 ? 7u - px : px), 4);
         if (index != 0) {
           ppu->obj_prio[x] = (Uint8)((attr >> 4) & 0x03);
           ppu->obj_math[x] = (attr & 0x08) != 0;
@@ -686,9 +578,9 @@ static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *
   Sint32 v = smx_ppu_sex13(ppu->m7v);
   Sint32 real_y = (select & 0x02) != 0 ? (Sint32)(255u - y) : (Sint32)y;
   Sint32 x_value = ((a * smx_ppu_m7_clip(h - cx)) & ~(Sint32)63) + ((b * real_y) & ~(Sint32)63) +
-                   ((b * smx_ppu_m7_clip(v - cy)) & ~(Sint32)63) + (cx << 8);
+                   ((b * smx_ppu_m7_clip(v - cy)) & ~(Sint32)63) + cx * 256;
   Sint32 y_value = ((c * smx_ppu_m7_clip(h - cx)) & ~(Sint32)63) + ((d * real_y) & ~(Sint32)63) +
-                   ((d * smx_ppu_m7_clip(v - cy)) & ~(Sint32)63) + (cy << 8);
+                   ((d * smx_ppu_m7_clip(v - cy)) & ~(Sint32)63) + cy * 256;
   Sint32 x_step = a;
   Sint32 y_step = c;
   Sint32 px = 0;
@@ -779,172 +671,350 @@ static void smx_ppu_opt(const SmxPpu *ppu, Uint8 mode, Uint8 bg, Uint32 x, Uint1
   }
 }
 
-static void smx_ppu_paint_bg(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, Uint8 bg,
-                             bool high, bool sub, Uint16 *color, Uint8 *source, bool *hit) {
-  Uint8 mode = (Uint8)(smx_bus_mmio(ppu->bus, 0x2105) & 0x07);
-  Uint8 depth = 2;
-  bool large = (smx_bus_mmio(ppu->bus, 0x2105) & (Uint8)(0x10u << bg)) != 0;
-  bool opaque = false;
-  bool priority = false;
-  Uint16 sample = 0;
-  Uint8 char_reg = 0;
-  Uint8 nibble = 0;
-  static const Uint16 map_regs[4] = {0x2107, 0x2108, 0x2109, 0x210A};
+/* Mosaic snaps a coordinate to the top-left of its block for the layers $2106 enables. */
+static Uint32 smx_ppu_mosaic(Uint8 reg, Uint8 bg, Uint32 value) {
+  Uint8 size = (Uint8)((reg & 0x0F) + 1u);
+  if (size == 1 || (reg & (Uint8)(0x10u << bg)) == 0) {
+    return value;
+  }
+  return value - (value % size);
+}
 
-  if ((mode == 1 && bg == 3) || (mode == 2 && bg > 1) || ((mode == 3 || mode == 4) && bg > 1) ||
-      (mode == 6 && bg > 0)) {
-    return;
-  }
-  if ((mode == 1 && bg < 2) || mode == 2 || mode == 6 || (mode == 5 && bg == 0) ||
-      (mode == 3 && bg == 1)) {
-    depth = 4;
-  } else if ((mode == 3 || mode == 4) && bg == 0) {
-    depth = 8;
-  }
-  if ((screen & (Uint8)(1u << bg)) == 0) {
-    return;
-  }
-  char_reg = smx_bus_mmio(ppu->bus, bg < 2 ? 0x210B : 0x210C);
-  nibble = (bg & 1) == 0 ? (Uint8)(char_reg & 0x0F) : (Uint8)(char_reg >> 4);
-  {
+/* Bits per pixel of a background in a mode, or 0 when the mode has no such layer. */
+static Uint8 smx_ppu_depth(Uint8 mode, Uint8 bg) {
+  static const Uint8 depths[8][4] = {{2, 2, 2, 2}, {4, 4, 2, 0}, {4, 4, 0, 0}, {8, 4, 0, 0},
+                                     {8, 2, 0, 0}, {4, 2, 0, 0}, {4, 0, 0, 0}, {0, 0, 0, 0}};
+  return depths[mode][bg];
+}
+
+/*
+ * Draw background `bg` of scanline `y` over pixels `x_from` to `x_to`. In modes 5 and 6 a pixel
+ * is two hi-res pixels: `odd` picks the right one, which the subscreen shows.
+ */
+static void smx_ppu_bg_line(const SmxPpu *ppu, Uint8 mode, Uint8 bg, bool odd, Uint32 y,
+                            Uint32 x_from, Uint32 x_to, SmxPpuLine *line) {
+  static const Uint16 map_regs[4] = {0x2107, 0x2108, 0x2109, 0x210A};
+  Uint8 depth = smx_ppu_depth(mode, bg);
+  Uint8 map_reg = smx_bus_mmio(ppu->bus, map_regs[bg]);
+  Uint8 char_reg = smx_bus_mmio(ppu->bus, bg < 2 ? 0x210B : 0x210C);
+  Uint16 chars = (Uint16)(((bg & 1) == 0 ? (char_reg & 0x0F) : (char_reg >> 4)) << 12);
+  Uint8 mosaic = smx_bus_mmio(ppu->bus, 0x2106);
+  bool large = (smx_bus_mmio(ppu->bus, 0x2105) & (Uint8)(0x10u << bg)) != 0;
+  bool hires = mode == 5 || mode == 6;
+  bool offset_per_tile = (mode == 2 || mode == 4 || mode == 6) && bg < 2;
+  bool direct =
+      depth == 8 && (smx_bus_mmio(ppu->bus, 0x2130) & 0x01) != 0 && (mode == 3 || mode == 4);
+  bool wide = (map_reg & 0x01) != 0;
+  bool tall = (map_reg & 0x02) != 0;
+  Uint32 shift_x = (large || hires) ? 4u : 3u;
+  Uint32 shift_y = large ? 4u : 3u;
+  Uint8 span_x = (large || hires) ? 15 : 7;
+  Uint8 span_y = large ? 15 : 7;
+  Uint32 my = smx_ppu_mosaic(mosaic, bg, y);
+  Uint32 cached = 0xFFFFFFFFu;
+  Uint32 cell = 0xFFFFFFFFu;
+  Uint16 entry = 0;
+  Uint8 indices[8];
+  Uint32 x = x_from;
+
+  for (; x < x_to; x += 1) {
+    Uint32 mx = smx_ppu_mosaic(mosaic, bg, x);
     Uint16 hscroll = ppu->bg_h[bg];
     Uint16 vscroll = ppu->bg_v[bg];
-    smx_ppu_opt(ppu, mode, bg, smx_ppu_mosaic(ppu, bg, x), &hscroll, &vscroll);
-    smx_ppu_sample_bg(ppu, smx_bus_mmio(ppu->bus, map_regs[bg]), nibble, depth, large,
-                      mode == 5 || mode == 6, sub, smx_ppu_mosaic(ppu, bg, x),
-                      smx_ppu_mosaic(ppu, bg, y), hscroll, vscroll, &opaque, &priority, &sample);
-  }
-  if (opaque && priority == high && !smx_ppu_window_masks(ppu, bg, x, sub ? 0x212F : 0x212E)) {
-    *color = sample;
-    *source = (Uint8)(bg + 1);
-    *hit = true;
+    Uint32 px = 0;
+    Uint32 py = 0;
+    Uint32 ex = 0;
+    Uint32 ey = 0;
+    Uint16 tile = 0;
+    Uint8 palette = 0;
+    Uint8 local_x = 0;
+    Uint8 local_y = 0;
+    Uint8 index = 0;
+    Uint32 key = 0;
+
+    if (offset_per_tile) {
+      smx_ppu_opt(ppu, mode, bg, mx, &hscroll, &vscroll);
+    }
+    px = (mx + (hscroll & 0x03FFu)) & 0x03FFu;
+    py = (my + (vscroll & 0x03FFu)) & 0x03FFu;
+    if (hires) {
+      px = px * 2u + (odd ? 1u : 0u);
+    }
+    ex = px >> shift_x;
+    ey = py >> shift_y;
+    if (((ey << 8) | ex) != cell) {
+      Uint16 map = (Uint16)((map_reg & 0xFC) << 8);
+      if (wide && (ex & 32u) != 0) {
+        map = (Uint16)(map + 0x400u);
+      }
+      if (tall && (ey & 32u) != 0) {
+        map = (Uint16)(map + (wide ? 0x800u : 0x400u));
+      }
+      entry = smx_ppu_word(ppu, (Uint16)(map + (ey & 31u) * 32u + (ex & 31u)));
+      cell = (ey << 8) | ex;
+    }
+    tile = (Uint16)(entry & 0x03FF);
+    palette = (Uint8)((entry >> 10) & 0x07);
+    local_x = (Uint8)(px & span_x);
+    local_y = (Uint8)(py & span_y);
+    if ((entry & 0x8000) != 0) {
+      local_y = (Uint8)(span_y - local_y);
+    }
+    if ((entry & 0x4000) != 0) {
+      local_x = (Uint8)(span_x - local_x);
+    }
+    if (large || hires) {
+      tile = (Uint16)(tile + (local_x >> 3) + (large ? (Uint16)(local_y >> 3) * 16u : 0u));
+    }
+    /* Neighbouring pixels usually share a character row; decode each row once. */
+    key = ((Uint32)tile << 3) | (local_y & 7u);
+    if (key != cached) {
+      smx_ppu_decode_row(ppu, chars, tile, (Uint8)(local_y & 7u), depth, indices);
+      cached = key;
+    }
+    index = indices[local_x & 7u];
+    if (index == 0) {
+      line->prio[x] = 0xFF;
+      continue;
+    }
+    line->prio[x] = (entry & 0x2000) != 0 ? 1 : 0;
+    if (direct) {
+      Uint8 red = (Uint8)(index & 0x07);
+      Uint8 green = (Uint8)((index >> 3) & 0x07);
+      Uint8 blue = (Uint8)((index >> 6) & 0x03);
+      Uint8 pr = (Uint8)(palette & 0x01);
+      Uint8 pg = (Uint8)((palette >> 1) & 0x01);
+      Uint8 pb = (Uint8)((palette >> 2) & 0x01);
+      line->color[x] =
+          (Uint16)(((Uint16)((red << 2) | (pr << 1))) | ((Uint16)((green << 2) | (pg << 1)) << 5) |
+                   ((Uint16)((blue << 3) | (pb << 2)) << 10));
+    } else if (depth == 8) {
+      line->color[x] = ppu->cgram[index];
+    } else if (depth == 4) {
+      line->color[x] = ppu->cgram[(Uint32)palette * 16u + index];
+    } else {
+      line->color[x] = ppu->cgram[(Uint32)palette * 4u + index];
+    }
   }
 }
 
-static void smx_ppu_paint_sprite(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen,
-                                 Uint8 priority, bool sub, Uint16 *color, Uint8 *source,
-                                 bool *hit) {
-  (void)y;
-  if ((screen & 0x10) == 0 || ppu->obj_prio[x] != priority) {
-    return;
-  }
-  if (!smx_ppu_window_masks(ppu, 4, x, sub ? 0x212F : 0x212E)) {
-    *color = ppu->obj_color[x];
-    *source = ppu->obj_math[x] ? 5 : 6;
-    *hit = true;
+/* Mode 7 BG1 of scanline `y` over pixels `x_from` to `x_to`. */
+static void smx_ppu_mode7_line(const SmxPpu *ppu, Uint32 y, Uint32 x_from, Uint32 x_to,
+                               SmxPpuLine *line) {
+  Uint8 mosaic = smx_bus_mmio(ppu->bus, 0x2106);
+  Uint32 my = smx_ppu_mosaic(mosaic, 0, y);
+  Uint32 x = x_from;
+
+  for (; x < x_to; x += 1) {
+    Uint16 color = 0;
+    if (smx_ppu_sample_mode7(ppu, smx_ppu_mosaic(mosaic, 0, x), my, &color)) {
+      line->color[x] = color;
+      line->prio[x] = 0;
+    } else {
+      line->prio[x] = 0xFF;
+    }
   }
 }
 
-static bool smx_ppu_screen(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 screen, bool sub,
-                           Uint16 *color, Uint8 *source) {
-  Uint8 mode = (Uint8)(smx_bus_mmio(ppu->bus, 0x2105) & 0x07);
-  bool bg3_high = (smx_bus_mmio(ppu->bus, 0x2105) & 0x08) != 0;
-  bool hit = false;
+/*
+ * Layer order from back to front, per mode. Each entry is a layer (0-3 a background, 4 the
+ * sprites) in the high nibble and the priority it shows at in the low one. Mode 7 BG1 has a
+ * single priority, 0.
+ */
+#define SMX_PPU_OBJ 4u
+#define SMX_PPU_SLOT(layer, prio) (Uint8)(((layer) << 4) | (prio))
 
+static const Uint8 smx_ppu_order_mode0[] = {
+    SMX_PPU_SLOT(3, 0), SMX_PPU_SLOT(2, 0), SMX_PPU_SLOT(4, 0), SMX_PPU_SLOT(3, 1),
+    SMX_PPU_SLOT(2, 1), SMX_PPU_SLOT(4, 1), SMX_PPU_SLOT(1, 0), SMX_PPU_SLOT(0, 0),
+    SMX_PPU_SLOT(4, 2), SMX_PPU_SLOT(1, 1), SMX_PPU_SLOT(0, 1), SMX_PPU_SLOT(4, 3)};
+static const Uint8 smx_ppu_order_mode1[] = {
+    SMX_PPU_SLOT(2, 0), SMX_PPU_SLOT(4, 0), SMX_PPU_SLOT(2, 1), SMX_PPU_SLOT(4, 1),
+    SMX_PPU_SLOT(1, 0), SMX_PPU_SLOT(0, 0), SMX_PPU_SLOT(4, 2), SMX_PPU_SLOT(1, 1),
+    SMX_PPU_SLOT(0, 1), SMX_PPU_SLOT(4, 3)};
+/* Mode 1 with $2105 bit 3: priority BG3 moves in front of everything. */
+static const Uint8 smx_ppu_order_mode1_bg3[] = {
+    SMX_PPU_SLOT(2, 0), SMX_PPU_SLOT(4, 0), SMX_PPU_SLOT(4, 1), SMX_PPU_SLOT(1, 0),
+    SMX_PPU_SLOT(0, 0), SMX_PPU_SLOT(4, 2), SMX_PPU_SLOT(1, 1), SMX_PPU_SLOT(0, 1),
+    SMX_PPU_SLOT(4, 3), SMX_PPU_SLOT(2, 1)};
+static const Uint8 smx_ppu_order_mode2[] = {
+    SMX_PPU_SLOT(1, 0), SMX_PPU_SLOT(0, 0), SMX_PPU_SLOT(4, 0), SMX_PPU_SLOT(1, 1),
+    SMX_PPU_SLOT(4, 1), SMX_PPU_SLOT(0, 1), SMX_PPU_SLOT(4, 2), SMX_PPU_SLOT(4, 3)};
+static const Uint8 smx_ppu_order_mode7[] = {SMX_PPU_SLOT(4, 0), SMX_PPU_SLOT(0, 0),
+                                            SMX_PPU_SLOT(4, 1), SMX_PPU_SLOT(4, 2),
+                                            SMX_PPU_SLOT(4, 3)};
+
+/* Everything one span of one scanline needs, decoded once. */
+typedef struct SmxPpuSpan {
+  const Uint8 *order;
+  Uint8 order_size;
+  /** Layers drawn on the main screen ($212C) and the subscreen ($212D). */
+  Uint8 screen[2];
+  /** Layers the windows clip on each screen ($212E and $212F). */
+  Uint8 clip[2];
+  /** The backgrounds for each screen. They differ only in hi-res modes. */
+  const SmxPpuLine *bg[2][4];
+  /** Where each layer's window and the color window apply. */
+  bool inside[5][SMX_PPU_WIDTH];
+  bool color_inside[SMX_PPU_WIDTH];
+} SmxPpuSpan;
+
+/* The front-most visible pixel of one screen at `x`, or the backdrop when there is none. */
+static bool smx_ppu_compose(const SmxPpu *ppu, const SmxPpuSpan *span, Uint8 which, Uint32 x,
+                            Uint16 *color, Uint8 *source) {
+  Uint8 screen = span->screen[which];
+  Uint8 clip = span->clip[which];
+  Uint8 slot = span->order_size;
+
+  while (slot != 0) {
+    Uint8 entry = span->order[slot - 1u];
+    Uint8 layer = (Uint8)(entry >> 4);
+    Uint8 prio = (Uint8)(entry & 0x0F);
+    slot -= 1;
+    if ((screen & (Uint8)(1u << layer)) == 0 ||
+        ((clip & (Uint8)(1u << layer)) != 0 && span->inside[layer][x])) {
+      continue;
+    }
+    if (layer == SMX_PPU_OBJ) {
+      if (ppu->obj_prio[x] == prio) {
+        *color = ppu->obj_color[x];
+        *source = ppu->obj_math[x] ? 5 : 6;
+        return true;
+      }
+    } else if (span->bg[which][layer]->prio[x] == prio) {
+      *color = span->bg[which][layer]->color[x];
+      *source = (Uint8)(layer + 1u);
+      return true;
+    }
+  }
   *color = ppu->cgram[0];
   *source = 0;
-  if (mode == 0) {
-    smx_ppu_paint_bg(ppu, x, y, screen, 3, false, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 2, false, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 0, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 3, true, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 2, true, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 1, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 1, false, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 0, false, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 2, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 1, true, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 0, true, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 3, sub, color, source, &hit);
-  } else if (mode == 1) {
-    smx_ppu_paint_bg(ppu, x, y, screen, 2, false, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 0, sub, color, source, &hit);
-    if (!bg3_high) {
-      smx_ppu_paint_bg(ppu, x, y, screen, 2, true, sub, color, source, &hit);
-    }
-    smx_ppu_paint_sprite(ppu, x, y, screen, 1, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 1, false, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 0, false, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 2, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 1, true, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 0, true, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 3, sub, color, source, &hit);
-    if (bg3_high) {
-      smx_ppu_paint_bg(ppu, x, y, screen, 2, true, sub, color, source, &hit);
-    }
-  } else if (mode == 2 || mode == 3 || mode == 4 || mode == 5 || mode == 6) {
-    smx_ppu_paint_bg(ppu, x, y, screen, 1, false, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 0, false, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 0, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 1, true, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 1, sub, color, source, &hit);
-    smx_ppu_paint_bg(ppu, x, y, screen, 0, true, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 2, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 3, sub, color, source, &hit);
-  } else if (mode == 7) {
-    Uint16 mode7 = 0;
-    smx_ppu_paint_sprite(ppu, x, y, screen, 0, sub, color, source, &hit);
-    if ((screen & 0x01) != 0 &&
-        smx_ppu_sample_mode7(ppu, smx_ppu_mosaic(ppu, 0, x), smx_ppu_mosaic(ppu, 0, y), &mode7) &&
-        !smx_ppu_window_masks(ppu, 0, x, sub ? 0x212F : 0x212E)) {
-      *color = mode7;
-      *source = 1;
-      hit = true;
-    }
-    smx_ppu_paint_sprite(ppu, x, y, screen, 1, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 2, sub, color, source, &hit);
-    smx_ppu_paint_sprite(ppu, x, y, screen, 3, sub, color, source, &hit);
-  }
-  return hit;
+  return false;
 }
 
 static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row, Uint32 x_from, Uint32 x_to) {
   Uint8 inidisp = smx_bus_mmio(ppu->bus, 0x2100);
   bool blank = (inidisp & 0x80) != 0;
   Uint8 brightness = (Uint8)(inidisp & 0x0F);
+  Uint8 bgmode = smx_bus_mmio(ppu->bus, 0x2105);
+  Uint8 mode = (Uint8)(bgmode & 0x07);
+  Uint8 select = smx_bus_mmio(ppu->bus, 0x2130);
+  bool use_sub = (select & 0x02) != 0;
+  SmxPpuLine lines[2][4];
+  SmxPpuSpan span;
+  Uint8 layer = 0;
   Uint32 x = x_from;
 
   if (sample > SMX_PPU_HEIGHT || row >= SMX_PPU_HEIGHT || ppu->pixels == NULL) {
     return;
   }
   smx_ppu_sprite_line(ppu, sample);
-  for (; x < x_to && x < SMX_PPU_WIDTH; x += 1) {
-    Uint16 color = ppu->cgram[0];
+  x_to = x_to < SMX_PPU_WIDTH ? x_to : SMX_PPU_WIDTH;
+  if (x_from >= x_to) {
+    return;
+  }
+  if (blank || brightness == 0) {
+    for (; x < x_to; x += 1) {
+      Uint8 *out = &ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u];
+      out[0] = 0;
+      out[1] = 0;
+      out[2] = 0;
+      out[3] = 255;
+    }
+    return;
+  }
+
+  span.screen[0] = smx_bus_mmio(ppu->bus, 0x212C);
+  span.screen[1] = smx_bus_mmio(ppu->bus, 0x212D);
+  span.clip[0] = smx_bus_mmio(ppu->bus, 0x212E);
+  span.clip[1] = smx_bus_mmio(ppu->bus, 0x212F);
+  if (mode == 0) {
+    span.order = smx_ppu_order_mode0;
+    span.order_size = (Uint8)sizeof(smx_ppu_order_mode0);
+  } else if (mode == 1 && (bgmode & 0x08) != 0) {
+    span.order = smx_ppu_order_mode1_bg3;
+    span.order_size = (Uint8)sizeof(smx_ppu_order_mode1_bg3);
+  } else if (mode == 1) {
+    span.order = smx_ppu_order_mode1;
+    span.order_size = (Uint8)sizeof(smx_ppu_order_mode1);
+  } else if (mode == 7) {
+    span.order = smx_ppu_order_mode7;
+    span.order_size = (Uint8)sizeof(smx_ppu_order_mode7);
+  } else {
+    span.order = smx_ppu_order_mode2;
+    span.order_size = (Uint8)sizeof(smx_ppu_order_mode2);
+  }
+
+  /* Draw each background a screen shows once, and again for the subscreen in hi-res. */
+  for (layer = 0; layer < 4; layer += 1) {
+    Uint8 bit = (Uint8)(1u << layer);
+    bool shown = ((span.screen[0] | (use_sub ? span.screen[1] : 0)) & bit) != 0;
+    bool hires = mode == 5 || mode == 6;
+    span.bg[0][layer] = &lines[0][layer];
+    span.bg[1][layer] = hires ? &lines[1][layer] : &lines[0][layer];
+    if (mode == 7 && layer == 0 && shown) {
+      smx_ppu_mode7_line(ppu, sample, x_from, x_to, &lines[0][0]);
+    } else if (mode == 7 || !shown || smx_ppu_depth(mode, layer) == 0) {
+      SDL_memset(&lines[0][layer].prio[x_from], 0xFF, x_to - x_from);
+      SDL_memset(&lines[1][layer].prio[x_from], 0xFF, x_to - x_from);
+    } else {
+      smx_ppu_bg_line(ppu, mode, layer, false, sample, x_from, x_to, &lines[0][layer]);
+      if (hires) {
+        smx_ppu_bg_line(ppu, mode, layer, true, sample, x_from, x_to, &lines[1][layer]);
+      }
+    }
+  }
+
+  /* Only the layers a screen clips, and the color window when $2130 uses it, need a window. */
+  {
+    Uint8 sel[6];
+    Uint8 logic[6];
+    bool *inside[6];
+    Uint8 clipped = (Uint8)(span.clip[0] | (use_sub ? span.clip[1] : 0));
+    Uint8 window = 0;
+    sel[0] = smx_bus_mmio(ppu->bus, 0x2123);
+    sel[2] = smx_bus_mmio(ppu->bus, 0x2124);
+    sel[4] = smx_bus_mmio(ppu->bus, 0x2125);
+    sel[1] = (Uint8)(sel[0] >> 4);
+    sel[3] = (Uint8)(sel[2] >> 4);
+    sel[5] = (Uint8)(sel[4] >> 4);
+    logic[0] = smx_bus_mmio(ppu->bus, 0x212A);
+    logic[1] = (Uint8)(logic[0] >> 2);
+    logic[2] = (Uint8)(logic[0] >> 4);
+    logic[3] = (Uint8)(logic[0] >> 6);
+    logic[4] = smx_bus_mmio(ppu->bus, 0x212B);
+    logic[5] = (Uint8)(logic[4] >> 2);
+    for (; window < 6; window += 1) {
+      bool needed = window == 5 ? (select & 0xF0) != 0 : (clipped & (Uint8)(1u << window)) != 0;
+      inside[window] = window == 5 ? span.color_inside : span.inside[window];
+      if (needed) {
+        smx_ppu_window_span(ppu, (Uint8)(sel[window] & 0x0F), logic[window], x_from, x_to,
+                            inside[window]);
+      }
+    }
+  }
+
+  for (; x < x_to; x += 1) {
+    Uint16 color = 0;
     Uint16 sub = 0;
     Uint8 source = 0;
-    Uint8 unused_source = 0;
+    Uint8 sub_source = 0;
     bool sub_hit = false;
-    bool clip_math = false;
-    Uint8 blue = 0;
-    Uint8 green = 0;
-    Uint8 red = 0;
+    bool in_window = (select & 0xF0) != 0 && span.color_inside[x];
+    Uint8 *out = &ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u];
 
-    if (!blank && brightness != 0) {
-      Uint8 select = smx_bus_mmio(ppu->bus, 0x2130);
-      bool in_window = smx_ppu_color_window(ppu, x);
-      smx_ppu_screen(ppu, x, sample, smx_bus_mmio(ppu->bus, 0x212C), false, &color, &source);
-      sub_hit = smx_ppu_screen(ppu, x, sample, smx_bus_mmio(ppu->bus, 0x212D), true, &sub,
-                               &unused_source);
-      if (smx_ppu_region((Uint8)(select >> 6), in_window)) {
-        color = 0;
-      }
-      if (smx_ppu_region((Uint8)((select >> 4) & 0x03), in_window)) {
-        clip_math = true;
-      }
+    smx_ppu_compose(ppu, &span, 0, x, &color, &source);
+    if (use_sub) {
+      sub_hit = smx_ppu_compose(ppu, &span, 1, x, &sub, &sub_source);
     }
-    if (blank || brightness == 0) {
-      blue = 0;
-      green = 0;
-      red = 0;
-    } else if (clip_math) {
-      smx_ppu_rgb(color, brightness, &blue, &green, &red);
-    } else {
-      smx_ppu_rgb(smx_ppu_math(ppu, color, source, sub, sub_hit), brightness, &blue, &green, &red);
+    if (smx_ppu_region((Uint8)(select >> 6), in_window)) {
+      color = 0;
     }
-    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u] = blue;
-    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u + 1u] = green;
-    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u + 2u] = red;
-    ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u + 3u] = 255;
+    if (!smx_ppu_region((Uint8)((select >> 4) & 0x03), in_window)) {
+      color = smx_ppu_math(ppu, color, source, sub, sub_hit);
+    }
+    smx_ppu_rgb(color, brightness, &out[0], &out[1], &out[2]);
+    out[3] = 255;
   }
 }
 

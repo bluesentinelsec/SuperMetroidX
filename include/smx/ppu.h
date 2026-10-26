@@ -38,6 +38,7 @@
  * `$2139`/`$213A` read `vram_latch`, which an address write or the read
  * that steps the address refills. `$213B` reads CGRAM low then high, and
  * `$2138` reads OAM.
+ * Character fetches wrap at the end of the 64 KiB VRAM.
  * Five-bit channels round to eight bits. picture_matches_oracle latches
  * once the picture matches the NTSC logo frame.
  * `beam_line`, `beam_dot`, and `beam_field`, when a clock sets them, are

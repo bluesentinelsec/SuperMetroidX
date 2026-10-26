@@ -83,6 +83,32 @@ static void test_sprite_limits(void) {
   smx_bus_quit(&bus);
 }
 
+/* Character fetches past the end of VRAM wrap to its start. */
+static void test_vram_wrap(void) {
+  SmxBus bus;
+  SmxPpu *ppu = (SmxPpu *)SDL_calloc(1, sizeof(SmxPpu));
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_ppu_init(ppu, &bus);
+  /* Mode 3 BG1 is 8bpp with characters at word $7000. Character 200 then starts at byte
+   * $E000 + 200 * 64 = $11200, which is $1200. */
+  smx_bus_write(&bus, 0x002100, 0x0F);
+  smx_bus_write(&bus, 0x002105, 0x03);
+  smx_bus_write(&bus, 0x002107, 0x04);
+  smx_bus_write(&bus, 0x00210B, 0x07);
+  smx_bus_write(&bus, 0x00212C, 0x01);
+  ppu->vram[0x0800] = 200;
+  ppu->vram[0x1200] = 0x80;
+  smx_ppu_write_cgram(ppu, 0, 0x0000);
+  smx_ppu_write_cgram(ppu, 1, 0x001F);
+  smx_ppu_render(ppu);
+  expect_u8("wrapped character r", ppu->pixels[2], 255);
+  expect_u8("wrapped character neighbor r", ppu->pixels[4 + 2], 0);
+  smx_ppu_quit(ppu);
+  smx_bus_quit(&bus);
+  SDL_free(ppu);
+}
+
 int main(void) {
   SmxBus bus;
   SmxPpu ppu;
@@ -599,5 +625,6 @@ int main(void) {
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   test_sprite_limits();
+  test_vram_wrap();
   return g_failed ? 1 : 0;
 }
