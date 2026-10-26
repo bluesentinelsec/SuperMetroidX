@@ -1,8 +1,6 @@
 # SuperMetroidX
 
-A native PC port of Super Metroid. The ROM is supplied by the person building the project and is never committed.
-
-This tree currently builds a static SDL3 window so the project wiring can be checked before the recompiler and the SNES runtime land.
+A static recompilation of Super Metroid for desktop PCs. At build time, the 65816 program in your ROM is translated to C and compiled into the game, which runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA). The ROM is supplied by the person building the project and is never committed.
 
 ## Requirements
 
@@ -15,6 +13,8 @@ This tree currently builds a static SDL3 window so the project wiring can be che
 
 ## Build
 
+Put your Super Metroid ROM (NTSC, headered or not) at `SuperMetroid.sfc` in the repository root, or point CMake at it with `-DSMX_ROM=/path/to/rom.sfc`.
+
 ```sh
 make build     # Debug, -O0, debug symbols
 make test      # Debug build plus unit tests
@@ -25,13 +25,36 @@ make docs      # Doxygen HTML in docs/html
 make clean
 ```
 
+The first build translates the ROM. `smxrecomp` plays the attract demos and the opening of a new game in its interpreter to find code, which takes a few minutes. It caches what it found in `build/<config>/game/trace.txt`, so later builds reuse it. Configure with `-DSMX_RECOMP_TRACE=OFF` to translate from static analysis alone. Without a ROM, the build still succeeds: the shell links an empty translation and interprets everything.
+
 `make build` writes `build/debug/SuperMetroidX`. On macOS the binary is `build/debug/SuperMetroidX.app/Contents/MacOS/SuperMetroidX`. On Windows it is `SuperMetroidX.exe`.
 
 ```sh
-./build/debug/SuperMetroidX
+./build/release/SuperMetroidX               # loads SuperMetroid.sfc from the working directory
+./build/release/SuperMetroidX path/to/rom.sfc
 ./build/debug/SuperMetroidX --smoke
 ```
 
 `--smoke` opens the window, presents a few frames, and exits. CI sets `SDL_VIDEODRIVER=dummy`.
+
+## Controls
+
+| SNES | Keyboard |
+| --- | --- |
+| D-pad | Arrow keys |
+| B / Y | Z / X |
+| A / X | A / S |
+| L / R | Q / W |
+| Start / Select | Return / Right Shift |
+
+## The translator
+
+`smxrecomp` is the command-line front end to the translator library in `include/smx/translate.h`:
+
+```sh
+smxrecomp [--no-trace] [--seeds FILE] ROM OUTDIR
+```
+
+It decodes code from the reset and interrupt vectors, follows branches, calls, and jump tables while tracking the M, X, and E flags, and adds the entry points its trace reached. Each straight-line run of instructions becomes a C function with a label per instruction. The generated code calls the same cycle-timed CPU operations as the interpreter. Code the translator never found, such as code in RAM, still runs in the interpreter, and the shell logs how many instructions ran each way when it exits.
 
 SDL3 `release-3.4.18` is fetched and compiled as a static library by CMake.

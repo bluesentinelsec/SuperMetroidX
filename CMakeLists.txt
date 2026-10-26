@@ -40,8 +40,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(SDL3)
 
-add_library(
-  smx STATIC
+set(SMX_SOURCES
   src/present.c
   src/cart.c
   src/bus.c
@@ -53,13 +52,65 @@ add_library(
   src/translate.c
   src/clock.c
 )
+add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
   smx PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 target_link_libraries(smx PUBLIC SDL3::SDL3)
 
+# The translator runs the ROM in the interpreter to find entry points, so its
+# copy of the runtime is optimized even in Debug builds.
+add_library(smx_tool STATIC ${SMX_SOURCES})
+target_include_directories(smx_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(smx_tool PUBLIC SDL3::SDL3)
+if(MSVC)
+  target_compile_options(smx_tool PRIVATE /O2)
+else()
+  target_compile_options(smx_tool PRIVATE -O2)
+endif()
+
+add_executable(smxrecomp src/recomp_main.c)
+target_link_libraries(smxrecomp PRIVATE smx_tool)
+
+# The C files smxrecomp writes into `dir`.
+function(smx_game_sources dir out)
+  set(sources "${dir}/smx_game.c")
+  foreach(shard RANGE 0 15)
+    string(LENGTH "${shard}" digits)
+    if(digits EQUAL 1)
+      set(shard "0${shard}")
+    endif()
+    list(APPEND sources "${dir}/smx_game_${shard}.c")
+  endforeach()
+  set(${out} ${sources} PARENT_SCOPE)
+endfunction()
+
+# The translation of the user's ROM is generated under the build tree and
+# never committed. Without a ROM the shell links an empty translation.
+set(SMX_ROM "${CMAKE_SOURCE_DIR}/SuperMetroid.sfc" CACHE FILEPATH "ROM translated into the shell")
+option(SMX_RECOMP_TRACE "Trace the ROM in the interpreter to find more code" ON)
+if(EXISTS "${SMX_ROM}")
+  set(SMX_GAME_DIR "${CMAKE_BINARY_DIR}/game")
+  set(SMX_RECOMP_FLAGS "")
+  if(NOT SMX_RECOMP_TRACE)
+    set(SMX_RECOMP_FLAGS "--no-trace")
+  endif()
+  smx_game_sources("${SMX_GAME_DIR}" SMX_GAME_SOURCES)
+  add_custom_command(
+    OUTPUT ${SMX_GAME_SOURCES}
+    COMMAND smxrecomp ${SMX_RECOMP_FLAGS} "${SMX_ROM}" "${SMX_GAME_DIR}"
+    DEPENDS smxrecomp "${SMX_ROM}"
+    COMMENT "Translating ${SMX_ROM}"
+    VERBATIM
+  )
+  add_library(smx_game STATIC ${SMX_GAME_SOURCES})
+else()
+  add_library(smx_game STATIC src/game_stub.c)
+endif()
+target_link_libraries(smx_game PUBLIC smx)
+
 add_executable(SuperMetroidX src/main.c)
-target_link_libraries(SuperMetroidX PRIVATE smx)
+target_link_libraries(SuperMetroidX PRIVATE smx_game smx)
 if(APPLE)
   set_target_properties(
     SuperMetroidX
@@ -108,6 +159,33 @@ set_tests_properties(clock PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 add_executable(smx_test_dsp tests/test_dsp.c)
 target_link_libraries(smx_test_dsp PRIVATE smx)
 add_test(NAME dsp COMMAND smx_test_dsp)
+
+# The translator test translates a synthetic ROM, then checks every opcode
+# against the interpreter.
+set(SMX_TROM_DIR "${CMAKE_BINARY_DIR}/translate_test")
+add_executable(smx_test_translate_rom tests/translate_romgen.c)
+target_link_libraries(smx_test_translate_rom PRIVATE smx)
+target_include_directories(smx_test_translate_rom PRIVATE tests)
+add_custom_command(
+  OUTPUT "${SMX_TROM_DIR}/test.sfc" "${SMX_TROM_DIR}/seeds.txt"
+  COMMAND smx_test_translate_rom "${SMX_TROM_DIR}"
+  DEPENDS smx_test_translate_rom
+  VERBATIM
+)
+smx_game_sources("${SMX_TROM_DIR}/game" SMX_TROM_SOURCES)
+add_custom_command(
+  OUTPUT ${SMX_TROM_SOURCES}
+  COMMAND smxrecomp --no-trace --seeds "${SMX_TROM_DIR}/seeds.txt" "${SMX_TROM_DIR}/test.sfc"
+          "${SMX_TROM_DIR}/game"
+  DEPENDS smxrecomp "${SMX_TROM_DIR}/test.sfc" "${SMX_TROM_DIR}/seeds.txt"
+  VERBATIM
+)
+add_library(smx_test_game STATIC ${SMX_TROM_SOURCES})
+target_link_libraries(smx_test_game PUBLIC smx)
+add_executable(smx_test_translate tests/test_translate.c)
+target_link_libraries(smx_test_translate PRIVATE smx_test_game smx)
+target_include_directories(smx_test_translate PRIVATE tests)
+add_test(NAME translate COMMAND smx_test_translate)
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)
