@@ -433,6 +433,55 @@ static void test_short_line(void) {
   smx_bus_quit(&bus);
 }
 
+/*
+ * Returns how many instructions ran before the NMI handler, with vblank
+ * `into` clocks into a first LDA abs whose four 8-clock cycles start at 0, 8,
+ * 16, and 24. NOPs follow it.
+ */
+static Uint32 nops_before_nmi(Uint32 into) {
+  static Uint8 image[0x8000];
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxClock clock;
+  Uint32 count = 0;
+
+  SDL_memset(image, 0xEA, sizeof(image));
+  image[0x0000] = 0xAD;
+  image[0x0001] = 0x00;
+  image[0x0002] = 0x00;
+  image[0x0100] = 0x40;
+  image[0x7FEA] = 0x00;
+  image[0x7FEB] = 0x81;
+  image[0x7FFC] = 0x00;
+  image[0x7FFD] = 0x80;
+  smx_bus_init(&bus, image, sizeof(image), 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  cpu.e = false;
+  cpu.p = 0x34;
+  cpu.pb = 0;
+  cpu.pc = 0x8000;
+  smx_bus_write(&bus, 0x004200, 0x80);
+  clock.line = SMX_CLOCK_VBLANK_LINE - 1u;
+  clock.dot = SMX_CLOCK_DOTS_PER_LINE - into;
+  clock.dots = (Uint64)clock.line * SMX_CLOCK_DOTS_PER_LINE + clock.dot;
+  clock.prev_vblank = false;
+  while (cpu.pc != 0x8100 && count < 8u) {
+    smx_clock_step(&clock);
+    count += 1;
+  }
+  smx_bus_quit(&bus);
+  return count;
+}
+
+/* An edge after the start of an instruction's second-to-last cycle waits one more instruction. */
+static void test_nmi_latency(void) {
+  expect_true("edge before the third cycle is taken after the load", nops_before_nmi(10) == 1u);
+  expect_true("edge after the third cycle starts waits one more", nops_before_nmi(20) == 2u);
+}
+
 int main(void) {
   test_vblank_poll();
   test_joy_busy();
@@ -443,6 +492,7 @@ int main(void) {
   test_mid_line_write();
   test_apu_port_sync();
   test_short_line();
+  test_nmi_latency();
   test_line_before_hdma();
   test_rom_reaches_dma();
   test_logo_frame();
