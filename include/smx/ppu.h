@@ -40,9 +40,14 @@
  * `$2138` reads OAM.
  * Five-bit channels round to eight bits. picture_matches_oracle latches
  * once the picture matches the NTSC logo frame.
- * `beam_line`, when a clock sets it, is the scanline being drawn. VRAM can
+ * `beam_line`, `beam_dot`, and `beam_field`, when a clock sets them, are
+ * the scanline, master clock in the line, and field being drawn. VRAM can
  * then be written and read only in vblank or forced blank; at other times
  * a write is dropped, a read gets 0, and the address still steps.
+ * `$2137` (with `$4201` bit 7 set) latches the H/V counters for `$213C` and
+ * `$213D`, which return them low byte then high. `$213E` and `$213F` report
+ * sprite time and range overflow this frame, the field, the latch, NTSC,
+ * and the chip versions. Each PPU chip keeps its own open bus.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
@@ -84,6 +89,19 @@ typedef struct SmxPpu {
   Uint8 *pixels;
   bool picture_matches_oracle;
   const Uint32 *beam_line;
+  const Uint32 *beam_dot;
+  const bool *beam_field;
+  Uint8 ppu1_open;
+  Uint8 ppu2_open;
+  bool time_over;
+  bool range_over;
+  /** The line being evaluated has run out of sprite tiles. */
+  bool time_over_line;
+  bool latched;
+  bool h_toggle;
+  bool v_toggle;
+  Uint16 h_latch;
+  Uint16 v_latch;
 } SmxPpu;
 
 void smx_ppu_init(SmxPpu *ppu, SmxBus *bus);
@@ -109,6 +127,9 @@ void smx_ppu_render(SmxPpu *ppu);
 
 /** FNV-1a of the XRGB framebuffer. */
 Uint32 smx_ppu_frame_hash(const SmxPpu *ppu);
+
+/** Latch the H/V counters at the beam, for `$213C` and `$213D`. */
+void smx_ppu_latch_counters(SmxPpu *ppu);
 
 /** Latch picture_matches_oracle when the picture is the NTSC logo frame. */
 void smx_ppu_note_picture(SmxPpu *ppu);

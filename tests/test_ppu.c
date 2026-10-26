@@ -55,12 +55,15 @@ static void test_sprite_limits(void) {
   smx_ppu_render(&ppu);
   expect_u8("32nd sprite shown", ppu.pixels[(31u * 7u) * 4u + 2u], 255);
   expect_u8("33rd sprite dropped", ppu.pixels[(32u * 7u) * 4u + 2u], 0);
+  expect_u8("range over", (Uint8)(smx_bus_read(&bus, 0x00213E) & 0x40), 0x40);
+  expect_u8("ntsc version", (Uint8)(smx_bus_read(&bus, 0x00213F) & 0x1F), 0x03);
 
   /* 18 16x16 sprites need 36 tiles. They are fetched last first, so sprite 0 misses out. */
   place_sprites(&ppu, 18, 8, true, 0);
   smx_ppu_render(&ppu);
   expect_u8("first sprite out of time", ppu.pixels[2], 0);
   expect_u8("second sprite shown", ppu.pixels[8u * 4u + 2u], 255);
+  expect_u8("time over", (Uint8)(smx_bus_read(&bus, 0x00213E) & 0xC0), 0x80);
 
   /* Color math only adds to sprites in palettes 4-7. */
   place_sprites(&ppu, 1, 0, false, 0);

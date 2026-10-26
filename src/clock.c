@@ -210,6 +210,8 @@ static void smx_clock_joy_start(SmxClock *clock) {
 static void smx_clock_line_end(SmxClock *clock) {
   if (clock->ppu != NULL) {
     clock->ppu->beam_line = &clock->line;
+    clock->ppu->beam_dot = &clock->dot;
+    clock->ppu->beam_field = &clock->field;
   }
   Uint32 line_before = clock->line;
 
@@ -522,6 +524,12 @@ static void smx_clock_reg_write(void *user, Uint16 addr, Uint8 value) {
       clock->irq_line = false;
     }
     smx_clock_irq_update(clock);
+    break;
+  case 0x4201:
+    /* Dropping bit 7 latches the H/V counters, as a light gun would. */
+    if ((before & 0x80) != 0 && (value & 0x80) == 0 && clock->ppu != NULL) {
+      smx_ppu_latch_counters(clock->ppu);
+    }
     break;
   case 0x4202:
   case 0x4203:
