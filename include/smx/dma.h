@@ -61,7 +61,9 @@ void smx_dma_request_hdma(SmxDma *dma);
 /** True when a request is waiting for a CPU cycle start. */
 bool smx_dma_pending(const SmxDma *dma);
 
-/** At the start of a CPU cycle: take the delay or run the waiting work. True when a transfer ran.
+/**
+ * At the start of a CPU cycle, take the delay or run the waiting work.
+ * True when a transfer ran.
  */
 bool smx_dma_service(SmxDma *dma);
 
