@@ -89,40 +89,101 @@ void smx_ppu_write_cgram(SmxPpu *ppu, Uint8 index, Uint16 bgr555) {
   ppu->cgram[index] = (Uint16)(bgr555 & 0x7FFF);
 }
 
+/* The PPU dot of a master clock in the line: dots 323 and 327 are 6 clocks long. */
+static Uint16 smx_ppu_dot(Uint32 clock) {
+  if (clock <= 1292u) {
+    return (Uint16)(clock >> 2);
+  }
+  if (clock <= 1310u) {
+    return (Uint16)((clock - 2u) >> 2);
+  }
+  return (Uint16)((clock - 4u) >> 2);
+}
+
+void smx_ppu_latch_counters(SmxPpu *ppu) {
+  if (ppu->beam_line == NULL || ppu->beam_dot == NULL) {
+    return;
+  }
+  ppu->h_latch = smx_ppu_dot(*ppu->beam_dot);
+  ppu->v_latch = (Uint16)*ppu->beam_line;
+  ppu->latched = true;
+}
+
+/* A 9-bit counter, low byte first; the high byte's other bits are PPU2 open bus. */
+static Uint8 smx_ppu_counter_byte(SmxPpu *ppu, Uint16 counter, bool *toggle) {
+  Uint8 value =
+      *toggle ? (Uint8)(((counter >> 8) & 0x01) | (ppu->ppu2_open & 0xFE)) : (Uint8)counter;
+  *toggle = !*toggle;
+  return value;
+}
+
 static Uint8 smx_ppu_on_read(void *user, Uint16 addr, Uint8 open_bus) {
   SmxPpu *ppu = (SmxPpu *)user;
   Sint16 b_high = (Sint16)((Sint16)ppu->m7b >> 8);
   Sint32 product = (Sint32)(Sint16)ppu->m7a * (Sint32)b_high;
+  Uint8 value = open_bus;
 
-  if (addr == 0x2134) {
-    return (Uint8)product;
-  }
-  if (addr == 0x2135) {
-    return (Uint8)(product >> 8);
-  }
-  if (addr == 0x2136) {
-    return (Uint8)(product >> 16);
-  }
-  if (addr == 0x2138) {
-    Uint8 value = ppu->oam_addr < sizeof(ppu->oam) ? ppu->oam[ppu->oam_addr] : 0;
+  switch (addr) {
+  case 0x2134:
+    ppu->ppu1_open = (Uint8)product;
+    return ppu->ppu1_open;
+  case 0x2135:
+    ppu->ppu1_open = (Uint8)(product >> 8);
+    return ppu->ppu1_open;
+  case 0x2136:
+    ppu->ppu1_open = (Uint8)(product >> 16);
+    return ppu->ppu1_open;
+  case 0x2137:
+    if ((smx_bus_mmio(ppu->bus, 0x4201) & 0x80) != 0) {
+      smx_ppu_latch_counters(ppu);
+    }
+    return open_bus;
+  case 0x2138:
+    value = ppu->oam_addr < sizeof(ppu->oam) ? ppu->oam[ppu->oam_addr] : 0;
     ppu->oam_addr = (Uint16)((ppu->oam_addr + 1) & 0x03FF);
+    ppu->ppu1_open = value;
     return value;
-  }
-  if (addr == 0x2139 || addr == 0x213A) {
-    return smx_ppu_load_vram(ppu, addr == 0x213A);
-  }
-  if (addr == 0x213B) {
+  case 0x2139:
+  case 0x213A:
+    ppu->ppu1_open = smx_ppu_load_vram(ppu, addr == 0x213A);
+    return ppu->ppu1_open;
+  case 0x213B: {
     Uint16 color = ppu->cgram[ppu->cgram_addr];
     if (!ppu->cgram_high) {
       ppu->cgram_high = true;
-      return (Uint8)color;
+      value = (Uint8)color;
+    } else {
+      ppu->cgram_high = false;
+      ppu->cgram_addr = (Uint8)(ppu->cgram_addr + 1);
+      value = (Uint8)(((color >> 8) & 0x7F) | (ppu->ppu2_open & 0x80));
     }
-    ppu->cgram_high = false;
-    ppu->cgram_addr = (Uint8)(ppu->cgram_addr + 1);
-    /* Bit 7 of the high byte is PPU2 open bus. */
-    return (Uint8)((color >> 8) | (open_bus & 0x80));
+    ppu->ppu2_open = value;
+    return value;
   }
-  return open_bus;
+  case 0x213C:
+    ppu->ppu2_open = smx_ppu_counter_byte(ppu, ppu->h_latch, &ppu->h_toggle);
+    return ppu->ppu2_open;
+  case 0x213D:
+    ppu->ppu2_open = smx_ppu_counter_byte(ppu, ppu->v_latch, &ppu->v_toggle);
+    return ppu->ppu2_open;
+  case 0x213E:
+    ppu->ppu1_open = (Uint8)((ppu->time_over ? 0x80 : 0) | (ppu->range_over ? 0x40 : 0) |
+                             (ppu->ppu1_open & 0x10) | 0x01);
+    return ppu->ppu1_open;
+  case 0x213F:
+    /* NTSC, PPU2 version 3. Reading resets both counter toggles. */
+    value = (Uint8)((ppu->beam_field != NULL && *ppu->beam_field ? 0x80 : 0) |
+                    (ppu->latched ? 0x40 : 0) | (ppu->ppu2_open & 0x20) | 0x03);
+    if ((smx_bus_mmio(ppu->bus, 0x4201) & 0x80) != 0) {
+      ppu->latched = false;
+    }
+    ppu->h_toggle = false;
+    ppu->v_toggle = false;
+    ppu->ppu2_open = value;
+    return value;
+  default:
+    return open_bus;
+  }
 }
 
 static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
@@ -508,7 +569,13 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
   Uint16 first = ppu->oam_rotate ? (Uint16)((ppu->oam_base >> 1) & 0x7F) : 0;
 
   SDL_memset(ppu->obj_prio, 0xFF, sizeof(ppu->obj_prio));
-  for (; n < 128 && count < SMX_PPU_LINE_SPRITES; n += 1) {
+  ppu->time_over_line = false;
+  /* The overflow flags start clear each frame. */
+  if (y == 1u) {
+    ppu->time_over = false;
+    ppu->range_over = false;
+  }
+  for (; n < 128; n += 1) {
     Uint8 sprite = (Uint8)((first + n) & 0x7F);
     Uint8 pair = (Uint8)((ppu->oam[512u + (sprite >> 2)] >> ((sprite & 3u) * 2u)) & 0x03);
     Sint16 sx = (Sint16)(ppu->oam[sprite * 4u] - ((pair & 0x01) != 0 ? 256 : 0));
@@ -519,11 +586,15 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
       continue;
     }
     if ((Uint16)((y - top) & 0xFF) < height) {
+      if (count == SMX_PPU_LINE_SPRITES) {
+        ppu->range_over = true;
+        break;
+      }
       kept[count] = sprite;
       count += 1;
     }
   }
-  while (count != 0 && tiles < SMX_PPU_LINE_TILES) {
+  while (count != 0 && !ppu->time_over_line) {
     Uint8 sprite = kept[count - 1u];
     Uint8 attr = ppu->oam[sprite * 4u + 3u];
     Uint8 pair = (Uint8)((ppu->oam[512u + (sprite >> 2)] >> ((sprite & 3u) * 2u)) & 0x03);
@@ -544,7 +615,7 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
     if (sx <= -8 && sx != -256) {
       column = (Uint8)(-sx / 8);
     }
-    for (; column < columns && tiles < SMX_PPU_LINE_TILES; column += 1) {
+    for (; column < columns; column += 1) {
       Sint16 tile_x = (Sint16)((sx == -256 ? 0 : sx) + column * 8);
       Sint16 draw_x = (Sint16)(sx + column * 8);
       Uint8 tile_col = (attr & 0x40) != 0 ? (Uint8)(columns - 1u - column) : column;
@@ -552,6 +623,11 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
       Uint16 base = name_base;
       Uint8 px = 0;
 
+      if (tiles == SMX_PPU_LINE_TILES) {
+        ppu->time_over = true;
+        ppu->time_over_line = true;
+        break;
+      }
       tiles += 1;
       /* Larger sprites step through a 16x16 character grid that wraps. */
       tile =
