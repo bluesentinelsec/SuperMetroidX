@@ -398,7 +398,9 @@ static void test_apu_port_sync(void) {
   cpu.clocks = 30;
   smx_bus_read(&bus, 0x002140);
   expect_true("port read paces the spc", clock.apu_at == 1030u);
-  expect_true("spc ran", clock.apu_credit <= 0);
+  /* What is left is less than the next instruction, which would end after the access. */
+  expect_true("spc ran",
+              clock.apu_credit < (Sint64)smx_apu_next_cycles(&apu) * SMX_CLOCK_MASTER_HZ);
   smx_bus_write(&bus, 0x002141, 0x00);
   expect_true("port write paces the spc", clock.apu_at == 1030u);
   smx_bus_quit(&bus);

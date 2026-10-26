@@ -49,6 +49,7 @@ add_library(
   src/dma.c
   src/ppu.c
   src/apu.c
+  src/dsp.c
   src/translate.c
   src/clock.c
 )
@@ -103,6 +104,10 @@ add_executable(smx_test_clock tests/test_clock.c)
 target_link_libraries(smx_test_clock PRIVATE smx)
 add_test(NAME clock COMMAND smx_test_clock)
 set_tests_properties(clock PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(smx_test_dsp tests/test_dsp.c)
+target_link_libraries(smx_test_dsp PRIVATE smx)
+add_test(NAME dsp COMMAND smx_test_dsp)
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)

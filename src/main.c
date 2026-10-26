@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
     SDL_AudioSpec spec;
     spec.format = SDL_AUDIO_S16;
     spec.channels = 2;
-    spec.freq = 32000;
+    spec.freq = 32040;
     audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
     if (audio == NULL) {
       SDL_Log("audio unavailable: %s", SDL_GetError());
@@ -143,17 +143,10 @@ int main(int argc, char **argv) {
         playing = false;
       }
       if (audio != NULL) {
-        /* 32000 Hz over one NTSC frame, rounded. */
-        Sint16 left[532];
-        Sint16 right[532];
-        Sint16 interleaved[532 * 2];
-        Uint32 sample = 0;
-        smx_apu_render(&apu, left, right, 532);
-        for (; sample < 532; sample += 1) {
-          interleaved[sample * 2u] = left[sample];
-          interleaved[sample * 2u + 1u] = right[sample];
-        }
-        SDL_PutAudioStreamData(audio, interleaved, (int)sizeof(interleaved));
+        /* About 533 frames of 32040 Hz stereo per NTSC frame. */
+        Sint16 frames[1024 * 2];
+        Uint32 count = smx_apu_drain(&apu, frames, 1024);
+        SDL_PutAudioStreamData(audio, frames, (int)(count * 2u * sizeof(Sint16)));
       }
       SDL_UpdateTexture(texture, NULL, ppu.pixels, SMX_PPU_WIDTH * 4);
       int win_w = 0;

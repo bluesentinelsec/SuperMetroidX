@@ -139,7 +139,8 @@ static void smx_clock_apu_to(SmxClock *clock, Uint64 now) {
   }
   clock->apu_credit += (Sint64)(now - clock->apu_at) * SMX_CLOCK_SPC_HZ;
   clock->apu_at = now;
-  while (clock->apu_credit > 0) {
+  /* Only instructions that finish by `now`, so no port write shows up early. */
+  while (clock->apu_credit >= (Sint64)smx_apu_next_cycles(apu) * SMX_CLOCK_MASTER_HZ) {
     if (!smx_apu_step(apu)) {
       clock->apu_credit = 0;
       return;
