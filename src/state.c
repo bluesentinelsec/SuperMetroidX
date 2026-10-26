@@ -119,11 +119,13 @@ static void smx_state_restore_dma(SmxDma *dma, const Uint8 *in) {
 static void smx_state_restore_ppu(SmxPpu *ppu, const Uint8 *in) {
   SmxBus *bus = ppu->bus;
   Uint8 *pixels = ppu->pixels;
+  Uint8 *picture = ppu->picture;
   const Uint32 *beam_line = ppu->beam_line;
 
   SDL_memcpy(ppu, in, sizeof(SmxPpu));
   ppu->bus = bus;
   ppu->pixels = pixels;
+  ppu->picture = picture;
   ppu->beam_line = beam_line;
 }
 

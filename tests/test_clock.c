@@ -385,6 +385,55 @@ static void test_mid_line_write(void) {
   smx_bus_quit(&bus);
 }
 
+/* A DMA that runs past the end of a frame does not tear the finished picture. */
+static void test_picture_survives_long_dma(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxPpu ppu;
+  SmxClock clock;
+  /* $1000: BRA $1000. $1002: LDA #$80; STA $2100; LDA #$01; STA $420B; BRA -2. */
+  static const Uint8 code[] = {0x80, 0xFE, 0xA9, 0x80, 0x8D, 0x00, 0x21,
+                               0xA9, 0x01, 0x8D, 0x0B, 0x42, 0x80, 0xFE};
+  Uint32 index = 0;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_cpu_init(&cpu, &bus);
+  smx_dma_init(&dma, &bus);
+  smx_ppu_init(&ppu, &bus);
+  smx_clock_init(&clock, &cpu, &dma);
+  clock.ppu = &ppu;
+  for (; index < sizeof(code); index += 1) {
+    smx_bus_write(&bus, 0x1000u + index, code[index]);
+  }
+  cpu.e = false;
+  cpu.p = 0x30;
+  cpu.pc = 0x1000;
+  smx_ppu_write_cgram(&ppu, 0, 0x7FFF);
+  smx_bus_write(&bus, 0x002100, 0x0F);
+  /* Channel 0 moves 32 KiB of WRAM to VRAM, about 190 lines of DMA. */
+  smx_bus_write(&bus, 0x004300, 0x01);
+  smx_bus_write(&bus, 0x004301, 0x18);
+  smx_bus_write(&bus, 0x004302, 0x00);
+  smx_bus_write(&bus, 0x004303, 0x20);
+  smx_bus_write(&bus, 0x004304, 0x7E);
+  smx_bus_write(&bus, 0x004305, 0x00);
+  smx_bus_write(&bus, 0x004306, 0x80);
+  smx_clock_seek(&clock, 0, 0);
+  while (clock.line != 230u) {
+    smx_clock_step(&clock);
+  }
+  cpu.pc = 0x1002;
+  expect_true("frame ran", smx_clock_frame(&clock));
+  expect_true("dma crossed the frame", clock.line > 100u && clock.line < 225u);
+  expect_u8("drawing went blank", ppu.pixels[2], 0);
+  expect_u8("finished picture top", ppu.picture[2], 255);
+  expect_u8("finished picture bottom",
+            ppu.picture[((SMX_PPU_HEIGHT - 1u) * SMX_PPU_WIDTH) * 4u + 2u], 255);
+  smx_ppu_quit(&ppu);
+  smx_bus_quit(&bus);
+}
+
 static void test_apu_port_sync(void) {
   SmxBus bus;
   SmxCpu cpu;
@@ -494,6 +543,7 @@ static void test_nmi_latency(void) {
 }
 
 int main(void) {
+  test_picture_survives_long_dma();
   test_vblank_poll();
   test_joy_busy();
   test_nmi();

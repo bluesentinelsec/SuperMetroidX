@@ -379,7 +379,7 @@ int main(int argc, char **argv) {
     }
 
     if (playing) {
-      SDL_UpdateTexture(texture, NULL, ppu.pixels, SMX_PPU_WIDTH * 4);
+      SDL_UpdateTexture(texture, NULL, ppu.picture, SMX_PPU_WIDTH * 4);
       int win_w = 0;
       int win_h = 0;
       Sint32 dst_x = 0;

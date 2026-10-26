@@ -169,8 +169,8 @@ int main(int argc, char **argv) {
   SDL_memset(&overrides, 0, sizeof(overrides));
   SDL_memset(have, 0, sizeof(have));
   for (; index < argc; index += 1) {
-    static const char *const fields[9] = {"--area",   "--station",  "--items",
-                                          "--energy", "--reserve",  "--missiles",
+    static const char *const fields[9] = {"--area",   "--station",     "--items",
+                                          "--energy", "--reserve",     "--missiles",
                                           "--supers", "--power-bombs", NULL};
     Uint16 *targets[9];
     const char *arg = argv[index];
@@ -291,8 +291,8 @@ int main(int argc, char **argv) {
     } else if (!smx_reach_play(console)) {
       SDL_Log("smxsave: the game did not reach play from area %u station %u",
               (unsigned)loadout.area, (unsigned)loadout.station);
-    } else if (smx_state_save(&console->machine,
-                              smx_translate_rom_hash(cart.bytes, cart.size), state_path)) {
+    } else if (smx_state_save(&console->machine, smx_translate_rom_hash(cart.bytes, cart.size),
+                              state_path)) {
       SDL_Log("smxsave: wrote %s and %s", sram_path, state_path);
       status = 0;
     }

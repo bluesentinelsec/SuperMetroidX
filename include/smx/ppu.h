@@ -87,7 +87,10 @@ typedef struct SmxPpu {
   Uint8 obj_prio[256];
   /** Sprite pixels from palettes 4-7, the only ones color math applies to. */
   bool obj_math[256];
+  /** The picture being drawn, XRGB8888. */
   Uint8 *pixels;
+  /** The last finished picture: `pixels` as vblank began. Present and hash this one. */
+  Uint8 *picture;
   bool picture_matches_oracle;
   const Uint32 *beam_line;
   const Uint32 *beam_dot;
@@ -123,10 +126,17 @@ void smx_ppu_present_line(SmxPpu *ppu, Uint32 scanline);
 /** Draw pixels `x_from` up to but not including `x_to` of a visible scanline. */
 void smx_ppu_present_span(SmxPpu *ppu, Uint32 scanline, Uint32 x_from, Uint32 x_to);
 
-/** Fill every visible line from the current registers. */
+/** Fill every visible line from the current registers, then finish the picture. */
 void smx_ppu_render(SmxPpu *ppu);
 
-/** FNV-1a of the XRGB framebuffer. */
+/**
+ * Vblank has begun: copy the drawn lines to `picture`. The CPU can run a DMA
+ * past the end of a frame, so the lines drawn after vblank may already belong
+ * to the next picture by the time a frame is presented.
+ */
+void smx_ppu_end_picture(SmxPpu *ppu);
+
+/** FNV-1a of the finished XRGB picture. */
 Uint32 smx_ppu_frame_hash(const SmxPpu *ppu);
 
 /** Latch the H/V counters at the beam, for `$213C` and `$213D`. */
