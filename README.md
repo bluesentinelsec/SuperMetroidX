@@ -47,9 +47,11 @@ The first build translates the ROM. `smxrecomp` plays the attract demos and the 
 | L / R | Q / W | Shoulders or triggers |
 | Start / Select | Return / Right Shift | Start / Back |
 
+F11 or Alt+Enter toggles fullscreen.
+
 ## Saves
 
-The cartridge's battery-backed SRAM is kept as `<rom name>.srm` in your user-data directory: on macOS `~/Library/Application Support/SuperMetroidX/SuperMetroidX/`, on Windows `%APPDATA%\SuperMetroidX\SuperMetroidX\`, and on Linux `~/.local/share/SuperMetroidX/SuperMetroidX/`. The game saves at save stations as it would on a console, and the file is updated within a second.
+The cartridge's battery-backed SRAM is kept as `<rom name>.srm` in your user-data directory: on macOS `~/Library/Application Support/SuperMetroidX/SuperMetroidX/`, on Windows `%APPDATA%\SuperMetroidX\SuperMetroidX\`, and on Linux `~/.local/share/SuperMetroidX/SuperMetroidX/`. Set `SMX_DATA_DIR` to keep saves somewhere else, such as next to a portable install. The game saves at save stations as it would on a console, and the file is updated within a second.
 
 ## The translator
 

@@ -1,14 +1,10 @@
 #include "smx/sram.h"
 
-bool smx_sram_default_path(char *path, Uint32 size, const char *rom_path) {
-  char *dir = SDL_GetPrefPath("SuperMetroidX", "SuperMetroidX");
+void smx_sram_file_name(char *out, Uint32 size, const char *rom_path) {
   const char *name = rom_path;
   const char *at = rom_path;
   Uint32 length = 0;
 
-  if (dir == NULL) {
-    return false;
-  }
   for (; *at != '\0'; at += 1) {
     if (*at == '/' || *at == '\\') {
       name = at + 1;
@@ -21,7 +17,25 @@ bool smx_sram_default_path(char *path, Uint32 size, const char *rom_path) {
       break;
     }
   }
-  SDL_snprintf(path, size, "%s%.*s.srm", dir, (int)length, name);
+  SDL_snprintf(out, size, "%.*s.srm", (int)length, name);
+}
+
+bool smx_sram_default_path(char *path, Uint32 size, const char *rom_path) {
+  const char *override = SDL_getenv("SMX_DATA_DIR");
+  char *dir = NULL;
+  char name[256];
+
+  smx_sram_file_name(name, sizeof(name), rom_path);
+  if (override != NULL && override[0] != '\0') {
+    SDL_CreateDirectory(override);
+    SDL_snprintf(path, size, "%s/%s", override, name);
+    return true;
+  }
+  dir = SDL_GetPrefPath("SuperMetroidX", "SuperMetroidX");
+  if (dir == NULL) {
+    return false;
+  }
+  SDL_snprintf(path, size, "%s%s", dir, name);
   SDL_free(dir);
   return true;
 }

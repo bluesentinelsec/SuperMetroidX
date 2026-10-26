@@ -636,6 +636,63 @@ void smx_translate_explore(SmxTranslator *translator) {
   }
 }
 
+/* ---- Key files ---- */
+
+bool smx_translate_load_keys(SmxTranslator *translator, const char *path, const char *header,
+                             Uint32 *added) {
+  size_t size = 0;
+  char *text = (char *)SDL_LoadFile(path, &size);
+  char *line = text;
+  Uint32 count = 0;
+
+  if (text == NULL) {
+    return false;
+  }
+  if (header != NULL && SDL_strncmp(text, header, SDL_strlen(header)) != 0) {
+    SDL_free(text);
+    return false;
+  }
+  while (line != NULL && *line != '\0') {
+    char *end = SDL_strchr(line, '\n');
+    if (end != NULL) {
+      *end = '\0';
+    }
+    if (line[0] != '#' && line[0] != '\0' && line[0] != '\r' &&
+        smx_translate_add(translator, (Uint32)SDL_strtoul(line, NULL, 16))) {
+      count += 1;
+    }
+    line = end == NULL ? NULL : end + 1;
+  }
+  SDL_free(text);
+  if (added != NULL) {
+    *added = count;
+  }
+  return true;
+}
+
+bool smx_translate_save_keys(const SmxTranslator *translator, const char *path,
+                             const char *header) {
+  SDL_IOStream *out = SDL_IOFromFile(path, "wb");
+  Uint32 index = 0;
+  char line[32];
+
+  if (out == NULL) {
+    SDL_Log("translate: cannot write %s: %s", path, SDL_GetError());
+    return false;
+  }
+  if (header != NULL) {
+    SDL_WriteIO(out, header, SDL_strlen(header));
+  }
+  for (; index < translator->entries.capacity; index += 1) {
+    if (translator->entries.slots[index] != 0) {
+      Sint32 length = SDL_snprintf(line, sizeof(line), "%x\n",
+                                   (unsigned)(translator->entries.slots[index] - 1u));
+      SDL_WriteIO(out, line, (size_t)length);
+    }
+  }
+  return SDL_CloseIO(out);
+}
+
 /* ---- Tracing ---- */
 
 static Uint16 smx_trace_buttons(const SmxTranslatePress *presses, Uint32 count, Uint32 frame) {

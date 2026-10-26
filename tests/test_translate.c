@@ -24,8 +24,19 @@ typedef struct Machine {
 
 static Uint32 g_seed = 0x9E3779B9u;
 
+static Uint32 smx_cpu_key_for(Uint32 addr, bool e, bool m8, bool x8) {
+  return SMX_CPU_KEY(addr, e, m8, x8);
+}
+
 /* Boundaries a block may still pass before it must return. */
 static Uint32 g_budget = 0;
+
+static Uint32 g_missed = 0;
+
+static void count_miss(void *user, Uint32 key) {
+  (void)user;
+  g_missed = key;
+}
 
 static bool allow_next(void *user) {
   (void)user;
@@ -186,6 +197,19 @@ int main(void) {
       compare(slot, trial, interp, native, (trial & 1u) != 0 ? native->cpu.translated : 1u);
     }
   }
+  /* Code in WRAM is never translated: it is interpreted and reported. */
+  randomize(native, 0, wram);
+  native->cpu.pb = 0x7E;
+  native->cpu.pc = 0x1000;
+  native->bus.wram[0x1000] = 0xEA;
+  native->cpu.miss = count_miss;
+  smx_cpu_run(&native->cpu);
+  if (g_missed != smx_cpu_key_for(0x7E1000u, false, false, false) ||
+      native->cpu.interpreted != 1u || native->cpu.pc != 0x1001) {
+    SDL_Log("translate: an untranslated key was not reported and interpreted");
+    g_failed = true;
+  }
+
   /* Most opcodes fall through to the STP after them, or branch back to themselves. */
   if (pairs < SMX_TROM_SLOTS) {
     SDL_Log("translate: only %u blocks ran two instructions", (unsigned)pairs);

@@ -12,12 +12,6 @@ static void expect_true(const char *name, bool value) {
   }
 }
 
-static bool ends_with(const char *text, const char *tail) {
-  size_t a = SDL_strlen(text);
-  size_t b = SDL_strlen(tail);
-  return a >= b && SDL_strcmp(text + a - b, tail) == 0;
-}
-
 int main(void) {
   static const char path[] = "smx_test_sram.srm";
   char name[1024];
@@ -27,13 +21,11 @@ int main(void) {
   Uint8 *file = NULL;
 
   SDL_RemovePath(path);
-  if (smx_sram_default_path(name, sizeof(name), "roms/Super.Metroid.sfc")) {
-    expect_true("name drops the extension", ends_with(name, "Super.Metroid.srm"));
-    expect_true("name drops the directory", !ends_with(name, "roms/Super.Metroid.srm"));
-  }
-  if (smx_sram_default_path(name, sizeof(name), "dir.v2\\\\SuperMetroid")) {
-    expect_true("name without extension", ends_with(name, "SuperMetroid.srm"));
-  }
+  /* The default path is not exercised: it would create the user-data directory. */
+  smx_sram_file_name(name, sizeof(name), "roms/Super.Metroid.sfc");
+  expect_true("name drops the directory and extension", SDL_strcmp(name, "Super.Metroid.srm") == 0);
+  smx_sram_file_name(name, sizeof(name), "dir.v2\\\\SuperMetroid");
+  expect_true("name without extension", SDL_strcmp(name, "SuperMetroid.srm") == 0);
 
   smx_bus_init(&bus, NULL, 0, 0x2000);
   expect_true("open missing", smx_sram_open(&sram, path, &bus));

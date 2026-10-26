@@ -17,9 +17,13 @@ typedef struct SmxSram {
   Uint32 size;
 } SmxSram;
 
+/** Write the ROM's file name, without directory or extension, followed by `.srm`. */
+void smx_sram_file_name(char *name, Uint32 size, const char *rom_path);
+
 /**
- * Write `<user data>/SuperMetroidX/<rom file name>.srm` into `path`, with the
- * ROM's extension replaced. False when SDL has no user-data directory.
+ * Write `<user data>/SuperMetroidX/` plus `smx_sram_file_name` into `path`.
+ * The environment variable `SMX_DATA_DIR`, when set, replaces the user-data
+ * directory. False when SDL has no user-data directory.
  */
 bool smx_sram_default_path(char *path, Uint32 size, const char *rom_path);
 

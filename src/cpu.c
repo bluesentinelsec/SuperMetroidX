@@ -1214,7 +1214,11 @@ bool smx_cpu_run(SmxCpu *cpu) {
   SmxCpuBlock block = NULL;
 
   if (cpu->code != NULL && !cpu->stopped && !cpu->waiting) {
-    block = smx_cpu_find(cpu->code, smx_cpu_key(cpu));
+    Uint32 key = smx_cpu_key(cpu);
+    block = smx_cpu_find(cpu->code, key);
+    if (block == NULL && cpu->miss != NULL) {
+      cpu->miss(cpu->miss_user, key);
+    }
   }
   if (block == NULL) {
     cpu->interpreted += 1;
