@@ -5,6 +5,7 @@
 #include "smx/ppu.h"
 #include "smx/present.h"
 #include "smx/sram.h"
+#include "smx/state.h"
 #include "smx/translate.h"
 
 #include <SDL3/SDL.h>
@@ -74,6 +75,21 @@ static void smx_shell_save_coverage(SmxTranslator *misses, const char *rom_path,
             "-DSMX_RECOMP_SEEDS=<that file> to translate them.",
             (unsigned)found, (unsigned)misses->entries.count, path);
   }
+}
+
+/* `<user data>/<rom name>.state`, the quick-save slot. */
+static bool smx_shell_state_path(char *path, Uint32 size, const char *rom_path) {
+  size_t length = 0;
+
+  if (!smx_sram_default_path(path, size, rom_path)) {
+    return false;
+  }
+  length = SDL_strlen(path);
+  if (length > 4) {
+    path[length - 4] = '\0';
+  }
+  SDL_strlcat(path, ".state", size);
+  return true;
 }
 
 /* Frames between checks for SRAM the game has changed. */
@@ -169,6 +185,8 @@ int main(int argc, char **argv) {
   SmxApu apu;
   SmxClock clock;
   SmxSram sram;
+  SmxMachine console;
+  Uint32 rom_hash = 0;
   SmxTranslator misses;
   SDL_Gamepad *pad = NULL;
   Uint32 sram_clock = 0;
@@ -197,6 +215,13 @@ int main(int argc, char **argv) {
     }
     machine = true;
     playing = true;
+    console.bus = &bus;
+    console.cpu = &cpu;
+    console.dma = &dma;
+    console.ppu = &ppu;
+    console.apu = &apu;
+    console.clock = &clock;
+    rom_hash = smx_translate_rom_hash(cart.bytes, cart.size);
     SDL_Log("loaded %s", cart.title);
   }
   SDL_memset(&sram, 0, sizeof(sram));
@@ -254,6 +279,21 @@ int main(int argc, char **argv) {
                    (event.key.mod & SDL_KMOD_ALT) != 0))) {
         /* F11 or Alt+Enter toggles fullscreen. */
         SDL_SetWindowFullscreen(window, (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) == 0);
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
+                 (event.key.scancode == SDL_SCANCODE_F5 || event.key.scancode == SDL_SCANCODE_F9)) {
+        /* F5 saves the quick-save state and F9 loads it. SRAM is not part of it. */
+        char path[1024];
+        if (smx_shell_state_path(path, sizeof(path), rom_path)) {
+          if (event.key.scancode == SDL_SCANCODE_F5) {
+            if (smx_state_save(&console, rom_hash, path)) {
+              SDL_Log("saved state to %s", path);
+            }
+          } else if (smx_state_load(&console, rom_hash, path)) {
+            SDL_Log("loaded state from %s", path);
+          } else {
+            SDL_Log("no state for this ROM and build in %s", path);
+          }
+        }
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
       } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED && pad != NULL &&

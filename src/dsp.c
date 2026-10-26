@@ -236,7 +236,8 @@ static void smx_dsp_decode(SmxDsp *dsp, SmxDspVoice *voice) {
     Sint32 p2 = voice->buf[pos + i + 10u] >> 1;
 
     nybbles = (Uint16)(nybbles << 4);
-    sample = (sample << shift) >> 1;
+    /* A multiply, since shifting a negative value left is undefined in C. */
+    sample = (sample * ((Sint32)1 << shift)) >> 1;
     if (shift >= 0x0D) {
       sample = sample < 0 ? -2048 : 0;
     }
