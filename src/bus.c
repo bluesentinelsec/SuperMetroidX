@@ -95,6 +95,10 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
     if (off >= 0x4300 && off <= 0x437F && (off & 0x0Fu) <= 0x0Bu) {
       value = bus->mmio[off];
     } else if (off >= 0x2134 && off <= 0x213F && bus->mmio_read != NULL) {
+      /* A CGRAM read while the PPU draws depends on how far it has drawn. */
+      if (bus->ppu_sync != NULL) {
+        bus->ppu_sync(bus->sync_user);
+      }
       value = bus->mmio_read(bus->mmio_user, off, bus->open_bus);
     } else if ((off >= 0x2140 && off <= 0x2143) || (off >= 0x4210 && off <= 0x421F)) {
       if (off <= 0x2143 && bus->apu_sync != NULL) {

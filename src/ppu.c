@@ -68,6 +68,7 @@ void smx_ppu_init(SmxPpu *ppu, SmxBus *bus) {
   ppu->pixels = (Uint8 *)SDL_calloc((Uint32)SMX_PPU_WIDTH * SMX_PPU_HEIGHT, 4);
   ppu->picture = (Uint8 *)SDL_calloc((Uint32)SMX_PPU_WIDTH * SMX_PPU_HEIGHT, 4);
   ppu->picture_matches_oracle = false;
+  ppu->fetch_key = 0xFFFFFFFFu;
   if (bus != NULL) {
     bus->mmio_write = smx_ppu_on_write;
     bus->mmio_read = smx_ppu_on_read;
@@ -119,6 +120,19 @@ static Uint8 smx_ppu_counter_byte(SmxPpu *ppu, Uint16 counter, bool *toggle) {
   return value;
 }
 
+/* The CGRAM entry an access reaches: the address, or what the PPU is reading while it draws. */
+static Uint8 smx_ppu_cgram_target(const SmxPpu *ppu) {
+  if (ppu->beam_line != NULL && ppu->beam_dot != NULL) {
+    Uint32 line = *ppu->beam_line;
+    Uint32 dot = *ppu->beam_dot;
+    if (line >= 1u && line <= SMX_PPU_HEIGHT && (smx_bus_mmio(ppu->bus, 0x2100) & 0x80) == 0 &&
+        dot >= 88u && dot < 1096u) {
+      return ppu->cgram_reading;
+    }
+  }
+  return ppu->cgram_addr;
+}
+
 static Uint8 smx_ppu_on_read(void *user, Uint16 addr, Uint8 open_bus) {
   SmxPpu *ppu = (SmxPpu *)user;
   Sint16 b_high = (Sint16)((Sint16)ppu->m7b >> 8);
@@ -150,7 +164,7 @@ static Uint8 smx_ppu_on_read(void *user, Uint16 addr, Uint8 open_bus) {
     ppu->ppu1_open = smx_ppu_load_vram(ppu, addr == 0x213A);
     return ppu->ppu1_open;
   case 0x213B: {
-    Uint16 color = ppu->cgram[ppu->cgram_addr];
+    Uint16 color = ppu->cgram[smx_ppu_cgram_target(ppu)];
     if (!ppu->cgram_high) {
       ppu->cgram_high = true;
       value = (Uint8)color;
@@ -213,7 +227,8 @@ static void smx_ppu_on_write(void *user, Uint16 addr, Uint8 value) {
       ppu->cgram_latch = value;
       ppu->cgram_high = true;
     } else {
-      smx_ppu_write_cgram(ppu, ppu->cgram_addr, (Uint16)(ppu->cgram_latch | ((Uint16)value << 8)));
+      smx_ppu_write_cgram(ppu, smx_ppu_cgram_target(ppu),
+                          (Uint16)(ppu->cgram_latch | ((Uint16)value << 8)));
       ppu->cgram_addr = (Uint8)(ppu->cgram_addr + 1);
       ppu->cgram_high = false;
     }
@@ -433,7 +448,11 @@ static void smx_ppu_decode_row(const SmxPpu *ppu, Uint16 base_word, Uint16 tile,
 typedef struct SmxPpuLine {
   Uint16 color[SMX_PPU_WIDTH];
   Uint8 prio[SMX_PPU_WIDTH];
+  /** The CGRAM entry of each pixel, or SMX_PPU_NO_ENTRY for direct color. */
+  Uint16 entry[SMX_PPU_WIDTH];
 } SmxPpuLine;
+
+#define SMX_PPU_NO_ENTRY 0x100u
 
 /*
  * Evaluate the sprites on scanline `y` into `obj_color`/`obj_prio`, as the
@@ -542,7 +561,8 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
         if (index != 0) {
           ppu->obj_prio[x] = (Uint8)((attr >> 4) & 0x03);
           ppu->obj_math[x] = (attr & 0x08) != 0;
-          ppu->obj_color[x] = ppu->cgram[128u + ((Uint32)((attr >> 1) & 0x07) * 16u) + index];
+          ppu->obj_index[x] = (Uint8)(128u + ((Uint32)((attr >> 1) & 0x07) * 16u) + index);
+          ppu->obj_color[x] = ppu->cgram[ppu->obj_index[x]];
         }
       }
       /* The rest of the sprite is right of the screen. */
@@ -568,7 +588,8 @@ static Sint32 smx_ppu_m7_clip(Sint32 value) {
   return value & 0x3FF;
 }
 
-static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *color) {
+static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *color,
+                                 Uint8 *entry) {
   Uint8 select = smx_bus_mmio(ppu->bus, 0x211A);
   Sint32 a = (Sint16)ppu->m7a;
   Sint32 b = (Sint16)ppu->m7b;
@@ -620,57 +641,8 @@ static bool smx_ppu_sample_mode7(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint16 *
     return false;
   }
   *color = ppu->cgram[index];
+  *entry = index;
   return true;
-}
-
-/** Replace BG1 or BG2 scroll from the BG3 map in modes 2 and 4. The first column keeps the layer
- * scroll. */
-static void smx_ppu_opt(const SmxPpu *ppu, Uint8 mode, Uint8 bg, Uint32 x, Uint16 *hscroll,
-                        Uint16 *vscroll) {
-  Uint16 h = *hscroll;
-  Uint16 bg3h = 0;
-  Uint16 bg3v = 0;
-  Uint32 col = 0;
-  Uint32 ox = 0;
-  Uint32 oy = 0;
-  Uint16 map = 0;
-  Uint16 hentry = 0;
-  Uint16 mask = 0;
-
-  if ((mode != 2 && mode != 4 && mode != 6) || bg > 1) {
-    return;
-  }
-  if (x < (Uint32)(8u - (h & 7u))) {
-    return;
-  }
-  col = (x - (Uint32)(8u - (h & 7u))) >> 3;
-  bg3h = ppu->bg_h[2];
-  bg3v = ppu->bg_v[2];
-  map = (Uint16)((smx_bus_mmio(ppu->bus, 0x2109) & 0xFC) << 8);
-  ox = ((bg3h & 0x3F8u) >> 3) + col;
-  oy = (bg3v & 0x3F8u) >> 3;
-  hentry = smx_ppu_word(ppu, (Uint16)(map + (oy & 31u) * 32u + (ox & 31u)));
-  mask = bg == 0 ? 0x2000u : 0x4000u;
-  if (mode == 4) {
-    if ((hentry & mask) == 0) {
-      return;
-    }
-    if ((hentry & 0x8000) != 0) {
-      *vscroll = (Uint16)(hentry & 0x03FF);
-    } else {
-      *hscroll = (Uint16)((((x & ~7u) + (hentry & 0x03F8u) + ((x + h) & 7u)) - x) & 0x03FF);
-    }
-    return;
-  }
-  if ((hentry & mask) != 0) {
-    *hscroll = (Uint16)((((x & ~7u) + (hentry & 0x03F8u) + ((x + h) & 7u)) - x) & 0x03FF);
-  }
-  {
-    Uint16 ventry = smx_ppu_word(ppu, (Uint16)(map + ((oy + 1u) & 31u) * 32u + (ox & 31u)));
-    if ((ventry & mask) != 0) {
-      *vscroll = (Uint16)(ventry & 0x03FF);
-    }
-  }
 }
 
 /* Mosaic snaps a coordinate to the top-left of its block for the layers $2106 enables. */
@@ -690,91 +662,258 @@ static Uint8 smx_ppu_depth(Uint8 mode, Uint8 bg) {
 }
 
 /*
- * Draw background `bg` of scanline `y` over pixels `x_from` to `x_to`. In modes 5 and 6 a pixel
- * is two hi-res pixels: `odd` picks the right one, which the subscreen shows.
+ * What the PPU fetches at each dot of an 8-dot column, per mode: a layer's
+ * map entry, a pair of its character planes (of the second character in
+ * hi-res), or an offset-per-tile word from the BG3 map.
  */
-static void smx_ppu_bg_line(const SmxPpu *ppu, Uint8 mode, Uint8 bg, bool odd, Uint32 y,
-                            Uint32 x_from, Uint32 x_to, SmxPpuLine *line) {
-  static const Uint16 map_regs[4] = {0x2107, 0x2108, 0x2109, 0x210A};
-  Uint8 depth = smx_ppu_depth(mode, bg);
-  Uint8 map_reg = smx_bus_mmio(ppu->bus, map_regs[bg]);
-  Uint8 char_reg = smx_bus_mmio(ppu->bus, bg < 2 ? 0x210B : 0x210C);
-  Uint16 chars = (Uint16)(((bg & 1) == 0 ? (char_reg & 0x0F) : (char_reg >> 4)) << 12);
+#define SMX_PPU_F_MAP 1u
+#define SMX_PPU_F_CHR 2u
+#define SMX_PPU_F_OPT_H 3u
+#define SMX_PPU_F_OPT_V 4u
+#define SMX_PPU_F(kind, layer, pair, second)                                                       \
+  (Uint8)(((kind) << 5) | ((layer) << 3) | ((pair) << 1) | (second))
+#define SMX_PPU_MAP(layer) SMX_PPU_F(SMX_PPU_F_MAP, layer, 0, 0)
+#define SMX_PPU_CHR(layer, pair) SMX_PPU_F(SMX_PPU_F_CHR, layer, pair, 0)
+#define SMX_PPU_CHR2(layer, pair) SMX_PPU_F(SMX_PPU_F_CHR, layer, pair, 1)
+#define SMX_PPU_OPT_H SMX_PPU_F(SMX_PPU_F_OPT_H, 2, 0, 0)
+#define SMX_PPU_OPT_V SMX_PPU_F(SMX_PPU_F_OPT_V, 2, 0, 0)
+
+static const Uint8 smx_ppu_fetch_slots[8][8] = {
+    {SMX_PPU_MAP(3), SMX_PPU_MAP(2), SMX_PPU_MAP(1), SMX_PPU_MAP(0), SMX_PPU_CHR(3, 0),
+     SMX_PPU_CHR(2, 0), SMX_PPU_CHR(1, 0), SMX_PPU_CHR(0, 0)},
+    {SMX_PPU_MAP(2), SMX_PPU_MAP(1), SMX_PPU_MAP(0), SMX_PPU_CHR(2, 0), SMX_PPU_CHR(1, 0),
+     SMX_PPU_CHR(1, 1), SMX_PPU_CHR(0, 0), SMX_PPU_CHR(0, 1)},
+    {SMX_PPU_MAP(1), SMX_PPU_MAP(0), SMX_PPU_OPT_H, SMX_PPU_OPT_V, SMX_PPU_CHR(1, 0),
+     SMX_PPU_CHR(1, 1), SMX_PPU_CHR(0, 0), SMX_PPU_CHR(0, 1)},
+    {SMX_PPU_MAP(1), SMX_PPU_MAP(0), SMX_PPU_CHR(1, 0), SMX_PPU_CHR(1, 1), SMX_PPU_CHR(0, 0),
+     SMX_PPU_CHR(0, 1), SMX_PPU_CHR(0, 2), SMX_PPU_CHR(0, 3)},
+    {SMX_PPU_MAP(1), SMX_PPU_MAP(0), SMX_PPU_OPT_H, SMX_PPU_CHR(1, 0), SMX_PPU_CHR(0, 0),
+     SMX_PPU_CHR(0, 1), SMX_PPU_CHR(0, 2), SMX_PPU_CHR(0, 3)},
+    {SMX_PPU_MAP(1), SMX_PPU_MAP(0), SMX_PPU_CHR(1, 0), SMX_PPU_CHR2(1, 0), SMX_PPU_CHR(0, 0),
+     SMX_PPU_CHR(0, 1), SMX_PPU_CHR2(0, 0), SMX_PPU_CHR2(0, 1)},
+    {SMX_PPU_MAP(1), SMX_PPU_MAP(0), SMX_PPU_OPT_H, SMX_PPU_OPT_V, SMX_PPU_CHR(0, 0),
+     SMX_PPU_CHR(0, 1), SMX_PPU_CHR2(0, 0), SMX_PPU_CHR2(0, 1)},
+    {0, 0, 0, 0, 0, 0, 0, 0},
+};
+
+/* The registers a fetch reads, decoded once per call: none change while it runs. */
+typedef struct SmxPpuFetchRegs {
+  Uint8 mode;
+  bool hires;
+  Uint8 map_reg[4];
+  Uint16 map[4];
+  Uint16 chars[4];
+  bool large[4];
+  Uint8 depth[4];
+  Uint32 y[4];
+} SmxPpuFetchRegs;
+
+static void smx_ppu_fetch_regs(const SmxPpu *ppu, Uint32 scanline, SmxPpuFetchRegs *regs) {
+  Uint8 bgmode = smx_bus_mmio(ppu->bus, 0x2105);
   Uint8 mosaic = smx_bus_mmio(ppu->bus, 0x2106);
-  bool large = (smx_bus_mmio(ppu->bus, 0x2105) & (Uint8)(0x10u << bg)) != 0;
+  Uint8 bg = 0;
+
+  regs->mode = (Uint8)(bgmode & 0x07);
+  regs->hires = regs->mode == 5 || regs->mode == 6;
+  for (; bg < 4; bg += 1) {
+    Uint8 char_reg = smx_bus_mmio(ppu->bus, bg < 2 ? 0x210B : 0x210C);
+    regs->map_reg[bg] = smx_bus_mmio(ppu->bus, (Uint16)(0x2107u + bg));
+    regs->map[bg] = (Uint16)((regs->map_reg[bg] & 0xFC) << 8);
+    regs->chars[bg] = (Uint16)(((bg & 1) == 0 ? (char_reg & 0x0F) : (char_reg >> 4)) << 12);
+    regs->large[bg] = (bgmode & (Uint8)(0x10u << bg)) != 0;
+    regs->depth[bg] = smx_ppu_depth(regs->mode, bg);
+    regs->y[bg] = smx_ppu_mosaic(mosaic, bg, scanline);
+  }
+}
+
+/* The BG3 map word that sets column `column + 1`'s scroll; `row` 1 is the vertical word. */
+static Uint16 smx_ppu_opt_word(const SmxPpu *ppu, const SmxPpuFetchRegs *regs, Uint32 column,
+                               Uint32 row) {
+  Uint32 ox = ((ppu->bg_h[2] & 0x3F8u) >> 3) + column;
+  Uint32 oy = ((ppu->bg_v[2] & 0x3F8u) >> 3) + row;
+  return smx_ppu_word(ppu, (Uint16)(regs->map[2] + (oy & 31u) * 32u + (ox & 31u)));
+}
+
+/* Fetch the map entry of column `c` with the scroll as it is now. */
+static void smx_ppu_fetch_map(SmxPpu *ppu, const SmxPpuFetchRegs *regs, Uint8 bg, Uint32 c) {
+  Uint8 map_reg = regs->map_reg[bg];
+  bool large = regs->large[bg];
+  Uint16 hscroll = (Uint16)(ppu->bg_h[bg] & 0x03FF);
+  Uint16 vscroll = (Uint16)(ppu->bg_v[bg] & 0x03FF);
+  Uint16 map = regs->map[bg];
+  Uint32 ex = 0;
+  Uint32 ey = 0;
+
+  /* Offset-per-tile replaces the coarse scroll from the second column on. */
+  if ((regs->mode == 2 || regs->mode == 4 || regs->mode == 6) && bg < 2 && c > 0) {
+    Uint16 enable = bg == 0 ? 0x2000u : 0x4000u;
+    if (regs->mode == 4) {
+      if ((ppu->opt_h & enable) != 0 && (ppu->opt_h & 0x8000) != 0) {
+        vscroll = (Uint16)(ppu->opt_h & 0x03FF);
+      } else if ((ppu->opt_h & enable) != 0) {
+        hscroll = (Uint16)((hscroll & 7u) | (ppu->opt_h & 0x03F8u));
+      }
+    } else {
+      if ((ppu->opt_h & enable) != 0) {
+        hscroll = (Uint16)((hscroll & 7u) | (ppu->opt_h & 0x03F8u));
+      }
+      if ((ppu->opt_v & enable) != 0) {
+        vscroll = (Uint16)(ppu->opt_v & 0x03FF);
+      }
+    }
+  }
+  ex = (c + (hscroll >> 3)) & 0x7Fu;
+  if (large && !regs->hires) {
+    ex >>= 1;
+  }
+  ey = ((regs->y[bg] + vscroll) & 0x03FFu) >> (large ? 4u : 3u);
+  if ((map_reg & 0x01) != 0 && (ex & 32u) != 0) {
+    map = (Uint16)(map + 0x400u);
+  }
+  if ((map_reg & 0x02) != 0 && (ey & 32u) != 0) {
+    map = (Uint16)(map + ((map_reg & 0x01) != 0 ? 0x800u : 0x400u));
+  }
+  ppu->columns[bg][c].entry = smx_ppu_word(ppu, (Uint16)(map + (ey & 31u) * 32u + (ex & 31u)));
+  ppu->columns[bg][c].hscroll = hscroll;
+  ppu->columns[bg][c].vscroll = vscroll;
+}
+
+/* Fetch planes `2 * pair` and `2 * pair + 1` of column `c`'s character row. */
+static void smx_ppu_fetch_chr(SmxPpu *ppu, const SmxPpuFetchRegs *regs, Uint8 bg, Uint32 c,
+                              Uint8 pair, bool second) {
+  SmxPpuColumn *column = &ppu->columns[bg][c];
+  Uint8 depth = regs->depth[bg];
+  bool large = regs->large[bg];
+  Uint8 span_y = large ? 15 : 7;
+  Uint8 row = (Uint8)(((regs->y[bg] + column->vscroll) & 0x03FFu) & span_y);
+  Uint16 tile = (Uint16)(column->entry & 0x03FF);
+  Uint8 *chr = &column->chr[second ? 8 : 0];
+  Uint8 *indices = &column->indices[second ? 8 : 0];
+  Uint32 base = 0;
+  Uint8 col = 0;
+
+  if (depth == 0 || pair * 2u >= depth) {
+    return;
+  }
+  if ((column->entry & 0x8000) != 0) {
+    row = (Uint8)(span_y - row);
+  }
+  if (large) {
+    tile = (Uint16)(tile + (row >> 3) * 16u);
+  }
+  /* Hi-res columns hold both characters in their own order; drawing applies the flip. */
+  if (regs->hires) {
+    tile = (Uint16)(tile + (second ? 1u : 0u));
+  } else if (large) {
+    bool right = ((c * 8u + column->hscroll) & 8u) != 0;
+    if ((column->entry & 0x4000) != 0) {
+      right = !right;
+    }
+    tile = (Uint16)(tile + (right ? 1u : 0u));
+  }
+  base = ((Uint32)(regs->chars[bg] & 0x7FFF) * 2u) + (Uint32)tile * depth * 8u +
+         (Uint32)(row & 7u) * 2u + (Uint32)pair * 16u;
+  chr[pair * 2u] = ppu->vram[base & 0xFFFFu];
+  chr[pair * 2u + 1u] = ppu->vram[(base + 1u) & 0xFFFFu];
+  /* Decode once the last plane pair is in. */
+  if ((pair + 1u) * 2u < depth) {
+    return;
+  }
+  for (; col < 8; col += 1) {
+    Uint8 bit = (Uint8)(7u - col);
+    Uint8 index = 0;
+    Uint8 plane = 0;
+    for (; plane < depth; plane += 1) {
+      index = (Uint8)(index | (((chr[plane] >> bit) & 1u) << plane));
+    }
+    indices[col] = index;
+  }
+}
+
+void smx_ppu_fetch(SmxPpu *ppu, Uint32 scanline, Uint32 dot) {
+  Uint32 key = (ppu->pictures << 9) | scanline;
+  SmxPpuFetchRegs regs;
+  const Uint8 *slots = NULL;
+
+  if (key != ppu->fetch_key) {
+    ppu->fetch_key = key;
+    ppu->fetch_dot = 0;
+    ppu->opt_h = 0;
+    ppu->opt_v = 0;
+  }
+  if (dot > SMX_PPU_COLUMNS * 8u - 1u) {
+    dot = SMX_PPU_COLUMNS * 8u - 1u;
+  }
+  if (ppu->fetch_dot > dot) {
+    return;
+  }
+  /* Forced blank fetches nothing; those columns keep what they held. */
+  if ((smx_bus_mmio(ppu->bus, 0x2100) & 0x80) != 0) {
+    ppu->fetch_dot = (Uint16)(dot + 1u);
+    return;
+  }
+  smx_ppu_fetch_regs(ppu, scanline, &regs);
+  slots = smx_ppu_fetch_slots[regs.mode];
+  for (; ppu->fetch_dot <= dot; ppu->fetch_dot += 1) {
+    Uint8 op = slots[ppu->fetch_dot & 7u];
+    Uint32 c = ppu->fetch_dot >> 3;
+    Uint8 layer = (Uint8)((op >> 3) & 0x03);
+    switch (op >> 5) {
+    case SMX_PPU_F_MAP:
+      smx_ppu_fetch_map(ppu, &regs, layer, c);
+      break;
+    case SMX_PPU_F_CHR:
+      smx_ppu_fetch_chr(ppu, &regs, layer, c, (Uint8)((op >> 1) & 0x03), (op & 1u) != 0);
+      break;
+    case SMX_PPU_F_OPT_H:
+      ppu->opt_h = smx_ppu_opt_word(ppu, &regs, c, 0);
+      break;
+    case SMX_PPU_F_OPT_V:
+      ppu->opt_v = smx_ppu_opt_word(ppu, &regs, c, 1);
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+/*
+ * Draw background `bg` of scanline `y` over pixels `x_from` to `x_to` from the fetched columns.
+ * In modes 5 and 6 a pixel is two hi-res pixels: `odd` picks the right one, which the
+ * subscreen shows.
+ */
+static void smx_ppu_bg_line(const SmxPpu *ppu, Uint8 mode, Uint8 bg, bool odd, Uint32 x_from,
+                            Uint32 x_to, SmxPpuLine *line) {
+  Uint8 depth = smx_ppu_depth(mode, bg);
+  Uint8 mosaic = smx_bus_mmio(ppu->bus, 0x2106);
   bool hires = mode == 5 || mode == 6;
-  bool offset_per_tile = (mode == 2 || mode == 4 || mode == 6) && bg < 2;
   bool direct =
       depth == 8 && (smx_bus_mmio(ppu->bus, 0x2130) & 0x01) != 0 && (mode == 3 || mode == 4);
-  bool wide = (map_reg & 0x01) != 0;
-  bool tall = (map_reg & 0x02) != 0;
-  Uint32 shift_x = (large || hires) ? 4u : 3u;
-  Uint32 shift_y = large ? 4u : 3u;
-  Uint8 span_x = (large || hires) ? 15 : 7;
-  Uint8 span_y = large ? 15 : 7;
-  Uint32 my = smx_ppu_mosaic(mosaic, bg, y);
-  Uint32 cached = 0xFFFFFFFFu;
-  Uint32 cell = 0xFFFFFFFFu;
-  Uint16 entry = 0;
-  Uint8 indices[8];
+  Uint16 hscroll = ppu->bg_h[bg];
+  /* Mode 0 gives each background its own 32 colors. */
+  Uint16 base = mode == 0 ? (Uint16)(bg * 32u) : 0u;
   Uint32 x = x_from;
 
   for (; x < x_to; x += 1) {
     Uint32 mx = smx_ppu_mosaic(mosaic, bg, x);
-    Uint16 hscroll = ppu->bg_h[bg];
-    Uint16 vscroll = ppu->bg_v[bg];
-    Uint32 px = 0;
-    Uint32 py = 0;
-    Uint32 ex = 0;
-    Uint32 ey = 0;
-    Uint16 tile = 0;
-    Uint8 palette = 0;
-    Uint8 local_x = 0;
-    Uint8 local_y = 0;
+    const SmxPpuColumn *column = &ppu->columns[bg][(mx + (hscroll & 7u)) >> 3];
+    Uint16 entry = column->entry;
+    Uint8 palette = (Uint8)((entry >> 10) & 0x07);
     Uint8 index = 0;
-    Uint32 key = 0;
 
-    if (offset_per_tile) {
-      smx_ppu_opt(ppu, mode, bg, mx, &hscroll, &vscroll);
-    }
-    px = (mx + (hscroll & 0x03FFu)) & 0x03FFu;
-    py = (my + (vscroll & 0x03FFu)) & 0x03FFu;
     if (hires) {
-      px = px * 2u + (odd ? 1u : 0u);
-    }
-    ex = px >> shift_x;
-    ey = py >> shift_y;
-    if (((ey << 8) | ex) != cell) {
-      Uint16 map = (Uint16)((map_reg & 0xFC) << 8);
-      if (wide && (ex & 32u) != 0) {
-        map = (Uint16)(map + 0x400u);
+      Uint8 at = (Uint8)(((mx + hscroll) * 2u + (odd ? 1u : 0u)) & 15u);
+      if ((entry & 0x4000) != 0) {
+        at = (Uint8)(15u - at);
       }
-      if (tall && (ey & 32u) != 0) {
-        map = (Uint16)(map + (wide ? 0x800u : 0x400u));
+      index = column->indices[at];
+    } else {
+      Uint8 at = (Uint8)((mx + hscroll) & 7u);
+      if ((entry & 0x4000) != 0) {
+        at = (Uint8)(7u - at);
       }
-      entry = smx_ppu_word(ppu, (Uint16)(map + (ey & 31u) * 32u + (ex & 31u)));
-      cell = (ey << 8) | ex;
+      index = column->indices[at];
     }
-    tile = (Uint16)(entry & 0x03FF);
-    palette = (Uint8)((entry >> 10) & 0x07);
-    local_x = (Uint8)(px & span_x);
-    local_y = (Uint8)(py & span_y);
-    if ((entry & 0x8000) != 0) {
-      local_y = (Uint8)(span_y - local_y);
-    }
-    if ((entry & 0x4000) != 0) {
-      local_x = (Uint8)(span_x - local_x);
-    }
-    if (large || hires) {
-      tile = (Uint16)(tile + (local_x >> 3) + (large ? (Uint16)(local_y >> 3) * 16u : 0u));
-    }
-    /* Neighbouring pixels usually share a character row; decode each row once. */
-    key = ((Uint32)tile << 3) | (local_y & 7u);
-    if (key != cached) {
-      smx_ppu_decode_row(ppu, chars, tile, (Uint8)(local_y & 7u), depth, indices);
-      cached = key;
-    }
-    index = indices[local_x & 7u];
     if (index == 0) {
       line->prio[x] = 0xFF;
       continue;
@@ -790,13 +929,17 @@ static void smx_ppu_bg_line(const SmxPpu *ppu, Uint8 mode, Uint8 bg, bool odd, U
       line->color[x] =
           (Uint16)(((Uint16)((red << 2) | (pr << 1))) | ((Uint16)((green << 2) | (pg << 1)) << 5) |
                    ((Uint16)((blue << 3) | (pb << 2)) << 10));
-    } else if (depth == 8) {
-      line->color[x] = ppu->cgram[index];
-    } else if (depth == 4) {
-      line->color[x] = ppu->cgram[(Uint32)palette * 16u + index];
-    } else {
-      line->color[x] = ppu->cgram[(Uint32)palette * 4u + index];
+      line->entry[x] = SMX_PPU_NO_ENTRY;
+      continue;
     }
+    if (depth == 8) {
+      line->entry[x] = index;
+    } else if (depth == 4) {
+      line->entry[x] = (Uint16)((Uint32)palette * 16u + index);
+    } else {
+      line->entry[x] = (Uint16)(base + (Uint32)palette * 4u + index);
+    }
+    line->color[x] = ppu->cgram[line->entry[x]];
   }
 }
 
@@ -809,8 +952,10 @@ static void smx_ppu_mode7_line(const SmxPpu *ppu, Uint32 y, Uint32 x_from, Uint3
 
   for (; x < x_to; x += 1) {
     Uint16 color = 0;
-    if (smx_ppu_sample_mode7(ppu, smx_ppu_mosaic(mosaic, 0, x), my, &color)) {
+    Uint8 entry = 0;
+    if (smx_ppu_sample_mode7(ppu, smx_ppu_mosaic(mosaic, 0, x), my, &color, &entry)) {
       line->color[x] = color;
+      line->entry[x] = entry;
       line->prio[x] = 0;
     } else {
       line->prio[x] = 0xFF;
@@ -861,17 +1006,20 @@ typedef struct SmxPpuSpan {
   bool color_inside[SMX_PPU_WIDTH];
 } SmxPpuSpan;
 
-/* The front-most visible pixel of one screen at `x`, or the backdrop when there is none. */
+/*
+ * The front-most visible pixel of one screen at `x`, or the backdrop when there is none.
+ * `entry` receives its CGRAM entry, or SMX_PPU_NO_ENTRY for direct color.
+ */
 static bool smx_ppu_compose(const SmxPpu *ppu, const SmxPpuSpan *span, Uint8 which, Uint32 x,
-                            Uint16 *color, Uint8 *source) {
+                            Uint16 *color, Uint8 *source, Uint16 *entry) {
   Uint8 screen = span->screen[which];
   Uint8 clip = span->clip[which];
   Uint8 slot = span->order_size;
 
   while (slot != 0) {
-    Uint8 entry = span->order[slot - 1u];
-    Uint8 layer = (Uint8)(entry >> 4);
-    Uint8 prio = (Uint8)(entry & 0x0F);
+    Uint8 order = span->order[slot - 1u];
+    Uint8 layer = (Uint8)(order >> 4);
+    Uint8 prio = (Uint8)(order & 0x0F);
     slot -= 1;
     if ((screen & (Uint8)(1u << layer)) == 0 ||
         ((clip & (Uint8)(1u << layer)) != 0 && span->inside[layer][x])) {
@@ -881,16 +1029,19 @@ static bool smx_ppu_compose(const SmxPpu *ppu, const SmxPpuSpan *span, Uint8 whi
       if (ppu->obj_prio[x] == prio) {
         *color = ppu->obj_color[x];
         *source = ppu->obj_math[x] ? 5 : 6;
+        *entry = ppu->obj_index[x];
         return true;
       }
     } else if (span->bg[which][layer]->prio[x] == prio) {
       *color = span->bg[which][layer]->color[x];
       *source = (Uint8)(layer + 1u);
+      *entry = span->bg[which][layer]->entry[x];
       return true;
     }
   }
   *color = ppu->cgram[0];
   *source = 0;
+  *entry = 0;
   return false;
 }
 
@@ -912,6 +1063,8 @@ static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row, Uint32 x_f
   }
   smx_ppu_sprite_line(ppu, sample);
   x_to = x_to < SMX_PPU_WIDTH ? x_to : SMX_PPU_WIDTH;
+  /* Pixel x leaves the PPU at dot x + 22; its tiles were fetched by then. */
+  smx_ppu_fetch(ppu, sample, x_to + 21u);
   if (x_from >= x_to) {
     return;
   }
@@ -960,9 +1113,9 @@ static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row, Uint32 x_f
       SDL_memset(&lines[0][layer].prio[x_from], 0xFF, x_to - x_from);
       SDL_memset(&lines[1][layer].prio[x_from], 0xFF, x_to - x_from);
     } else {
-      smx_ppu_bg_line(ppu, mode, layer, false, sample, x_from, x_to, &lines[0][layer]);
+      smx_ppu_bg_line(ppu, mode, layer, false, x_from, x_to, &lines[0][layer]);
       if (hires) {
-        smx_ppu_bg_line(ppu, mode, layer, true, sample, x_from, x_to, &lines[1][layer]);
+        smx_ppu_bg_line(ppu, mode, layer, true, x_from, x_to, &lines[1][layer]);
       }
     }
   }
@@ -1001,13 +1154,18 @@ static void smx_ppu_render_at(SmxPpu *ppu, Uint32 sample, Uint32 row, Uint32 x_f
     Uint16 sub = 0;
     Uint8 source = 0;
     Uint8 sub_source = 0;
+    Uint16 entry = 0;
+    Uint16 sub_entry = 0;
     bool sub_hit = false;
     bool in_window = (select & 0xF0) != 0 && span.color_inside[x];
     Uint8 *out = &ppu->pixels[(row * SMX_PPU_WIDTH + x) * 4u];
 
-    smx_ppu_compose(ppu, &span, 0, x, &color, &source);
+    smx_ppu_compose(ppu, &span, 0, x, &color, &source, &entry);
+    if (entry != SMX_PPU_NO_ENTRY) {
+      ppu->cgram_reading = (Uint8)entry;
+    }
     if (use_sub) {
-      sub_hit = smx_ppu_compose(ppu, &span, 1, x, &sub, &sub_source);
+      sub_hit = smx_ppu_compose(ppu, &span, 1, x, &sub, &sub_source, &sub_entry);
     }
     if (smx_ppu_region((Uint8)(select >> 6), in_window)) {
       color = 0;
@@ -1045,6 +1203,7 @@ void smx_ppu_render(SmxPpu *ppu) {
 }
 
 void smx_ppu_end_picture(SmxPpu *ppu) {
+  ppu->pictures += 1;
   if (ppu->pixels != NULL && ppu->picture != NULL) {
     SDL_memcpy(ppu->picture, ppu->pixels, (size_t)SMX_PPU_WIDTH * SMX_PPU_HEIGHT * 4u);
   }

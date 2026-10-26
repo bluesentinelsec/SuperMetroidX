@@ -379,7 +379,7 @@ static void smx_clock_apu_sync(void *user, bool write) {
   }
 }
 
-/* Draw the current line up to the beam before a PPU register changes. */
+/* Fetch and draw the current line up to the beam before a PPU register changes. */
 static void smx_clock_sync(void *user) {
   SmxClock *clock = (SmxClock *)user;
   Uint32 x = SMX_PPU_WIDTH;
@@ -387,6 +387,8 @@ static void smx_clock_sync(void *user) {
   if (clock->ppu == NULL || clock->line < 1u || clock->line > SMX_PPU_HEIGHT) {
     return;
   }
+  /* The write changes only the background tiles fetched after this dot. */
+  smx_ppu_fetch(clock->ppu, clock->line, clock->dot / 4u);
   x = clock->dot / 4u < SMX_CLOCK_FIRST_PIXEL_DOT ? 0 : clock->dot / 4u - SMX_CLOCK_FIRST_PIXEL_DOT;
   x = x > SMX_PPU_WIDTH ? SMX_PPU_WIDTH : x;
   if (x > clock->drawn_x) {
