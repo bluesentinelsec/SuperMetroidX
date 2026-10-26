@@ -51,6 +51,7 @@ set(SMX_SOURCES
   src/dsp.c
   src/translate.c
   src/clock.c
+  src/sram.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -186,6 +187,10 @@ add_executable(smx_test_translate tests/test_translate.c)
 target_link_libraries(smx_test_translate PRIVATE smx_test_game smx)
 target_include_directories(smx_test_translate PRIVATE tests)
 add_test(NAME translate COMMAND smx_test_translate)
+
+add_executable(smx_test_sram tests/test_sram.c)
+target_link_libraries(smx_test_sram PRIVATE smx)
+add_test(NAME sram COMMAND smx_test_sram)
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)

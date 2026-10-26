@@ -4,6 +4,7 @@
 #include "smx/game.h"
 #include "smx/ppu.h"
 #include "smx/present.h"
+#include "smx/sram.h"
 #include "smx/translate.h"
 
 #include <SDL3/SDL.h>
@@ -28,6 +29,67 @@ static const struct {
     {SDL_SCANCODE_S, 0x0040},      {SDL_SCANCODE_Q, 0x0020},     {SDL_SCANCODE_W, 0x0010},
 };
 
+/* Xbox-style gamepad to joypad, by button position: south is SNES B, east is A. */
+static const struct {
+  SDL_GamepadButton button;
+  Uint16 joy;
+} smx_padmap[] = {
+    {SDL_GAMEPAD_BUTTON_SOUTH, 0x8000},         {SDL_GAMEPAD_BUTTON_WEST, 0x4000},
+    {SDL_GAMEPAD_BUTTON_BACK, 0x2000},          {SDL_GAMEPAD_BUTTON_START, 0x1000},
+    {SDL_GAMEPAD_BUTTON_DPAD_UP, 0x0800},       {SDL_GAMEPAD_BUTTON_DPAD_DOWN, 0x0400},
+    {SDL_GAMEPAD_BUTTON_DPAD_LEFT, 0x0200},     {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, 0x0100},
+    {SDL_GAMEPAD_BUTTON_EAST, 0x0080},          {SDL_GAMEPAD_BUTTON_NORTH, 0x0040},
+    {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, 0x0020}, {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, 0x0010},
+};
+
+/* Half of the stick or trigger range counts as pressed. */
+#define SMX_SHELL_AXIS_PRESS 16384
+
+/* Frames between checks for SRAM the game has changed. */
+#define SMX_SHELL_SRAM_FRAMES 60u
+
+static Uint16 smx_gamepad_joy(SDL_Gamepad *pad) {
+  Uint16 joy = 0;
+  Uint32 index = 0;
+  Sint16 x = 0;
+  Sint16 y = 0;
+
+  if (pad == NULL) {
+    return 0;
+  }
+  for (; index < sizeof(smx_padmap) / sizeof(smx_padmap[0]); index += 1) {
+    if (SDL_GetGamepadButton(pad, smx_padmap[index].button)) {
+      joy = (Uint16)(joy | smx_padmap[index].joy);
+    }
+  }
+  x = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
+  y = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+  if (y < -SMX_SHELL_AXIS_PRESS) {
+    joy = (Uint16)(joy | 0x0800);
+  } else if (y > SMX_SHELL_AXIS_PRESS) {
+    joy = (Uint16)(joy | 0x0400);
+  }
+  if (x < -SMX_SHELL_AXIS_PRESS) {
+    joy = (Uint16)(joy | 0x0200);
+  } else if (x > SMX_SHELL_AXIS_PRESS) {
+    joy = (Uint16)(joy | 0x0100);
+  }
+  if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > SMX_SHELL_AXIS_PRESS) {
+    joy = (Uint16)(joy | 0x0020);
+  }
+  if (SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > SMX_SHELL_AXIS_PRESS) {
+    joy = (Uint16)(joy | 0x0010);
+  }
+  /* The SNES pad cannot press opposite directions at once. */
+  if ((joy & 0x0C00) == 0x0C00) {
+    joy = (Uint16)(joy & ~0x0C00);
+  }
+  if ((joy & 0x0300) == 0x0300) {
+    joy = (Uint16)(joy & ~0x0300);
+  }
+  return joy;
+}
+
 int main(int argc, char **argv) {
   bool smoke = false;
   const char *rom_path = NULL;
@@ -47,7 +109,7 @@ int main(int argc, char **argv) {
     rom_path = "SuperMetroid.sfc";
   }
 
-  if (!SDL_Init(SDL_INIT_VIDEO)) {
+  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     SDL_Log("SDL_Init failed: %s", SDL_GetError());
     return 1;
   }
@@ -75,6 +137,9 @@ int main(int argc, char **argv) {
   SmxPpu ppu;
   SmxApu apu;
   SmxClock clock;
+  SmxSram sram;
+  SDL_Gamepad *pad = NULL;
+  Uint32 sram_clock = 0;
   bool playing = false;
   bool machine = false;
   smx_cart_init(&cart);
@@ -97,6 +162,13 @@ int main(int argc, char **argv) {
     machine = true;
     playing = true;
     SDL_Log("loaded %s", cart.title);
+  }
+  SDL_memset(&sram, 0, sizeof(sram));
+  if (machine && !smoke) {
+    char path[1024];
+    if (smx_sram_default_path(path, sizeof(path), rom_path) && smx_sram_open(&sram, path, &bus)) {
+      SDL_Log("saves in %s", path);
+    }
   }
 
   SDL_Texture *texture = NULL;
@@ -140,6 +212,12 @@ int main(int argc, char **argv) {
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
+      } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
+        pad = SDL_OpenGamepad(event.gdevice.which);
+      } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED && pad != NULL &&
+                 SDL_GetGamepadID(pad) == event.gdevice.which) {
+        SDL_CloseGamepad(pad);
+        pad = NULL;
       }
     }
 
@@ -174,10 +252,16 @@ int main(int argc, char **argv) {
           joy = (Uint16)(joy | smx_keymap[key].button);
         }
       }
+      joy = (Uint16)(joy | smx_gamepad_joy(pad));
       clock.joy = joy;
       if (!smx_clock_frame(&clock)) {
         SDL_Log("cpu stopped at %u:%u", (unsigned)cpu.pb, (unsigned)cpu.pc);
         playing = false;
+      }
+      sram_clock += 1;
+      if (sram_clock == SMX_SHELL_SRAM_FRAMES) {
+        sram_clock = 0;
+        smx_sram_flush(&sram, &bus);
       }
       if (audio != NULL) {
         /* About 533 frames of 32040 Hz stereo per NTSC frame. */
@@ -220,7 +304,12 @@ int main(int argc, char **argv) {
   if (texture != NULL) {
     SDL_DestroyTexture(texture);
   }
+  if (pad != NULL) {
+    SDL_CloseGamepad(pad);
+  }
   if (machine) {
+    smx_sram_flush(&sram, &bus);
+    smx_sram_close(&sram);
     SDL_Log("instructions: %llu translated, %llu interpreted", (unsigned long long)cpu.translated,
             (unsigned long long)cpu.interpreted);
     smx_ppu_quit(&ppu);
