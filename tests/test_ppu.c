@@ -83,6 +83,34 @@ static void test_sprite_limits(void) {
   smx_bus_quit(&bus);
 }
 
+/* Mode 0 gives each background its own 32 colors: BG2 starts at color 32. */
+static void test_mode0_palettes(void) {
+  SmxBus bus;
+  SmxPpu *ppu = (SmxPpu *)SDL_calloc(1, sizeof(SmxPpu));
+  Uint32 row = 0;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_ppu_init(ppu, &bus);
+  smx_bus_write(&bus, 0x002100, 0x0F);
+  smx_bus_write(&bus, 0x002105, 0x00);
+  smx_bus_write(&bus, 0x002108, 0x04);
+  smx_bus_write(&bus, 0x00210B, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x02);
+  for (; row < 8u; row += 1) {
+    ppu->vram[16u + row * 2u] = 0xFF;
+  }
+  ppu->vram[0x0800] = 0x01;
+  smx_ppu_write_cgram(ppu, 0, 0x0000);
+  smx_ppu_write_cgram(ppu, 1, 0x001F);
+  smx_ppu_write_cgram(ppu, 33, 0x7C00);
+  smx_ppu_render(ppu);
+  expect_u8("BG2 color 1 is CGRAM 33, blue", ppu->pixels[0], 255);
+  expect_u8("not CGRAM 1, red", ppu->pixels[2], 0);
+  smx_ppu_quit(ppu);
+  smx_bus_quit(&bus);
+  SDL_free(ppu);
+}
+
 /* Character fetches past the end of VRAM wrap to its start. */
 static void test_vram_wrap(void) {
   SmxBus bus;
@@ -626,5 +654,6 @@ int main(void) {
   smx_bus_quit(&bus);
   test_sprite_limits();
   test_vram_wrap();
+  test_mode0_palettes();
   return g_failed ? 1 : 0;
 }

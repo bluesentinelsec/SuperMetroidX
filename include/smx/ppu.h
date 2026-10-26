@@ -7,6 +7,22 @@
 
 #define SMX_PPU_WIDTH 256
 #define SMX_PPU_HEIGHT 224
+/** Background tile columns fetched per line: 32 on screen plus one for the fine scroll. */
+#define SMX_PPU_COLUMNS 33
+
+/**
+ * One background tile column as the PPU fetched it. The map entry and the
+ * scroll it was fetched with, offset-per-tile included, come from the map fetch; `indices` are the
+ * character row's pixels in the character's own left-to-right order (two characters in hi-res),
+ * decoded from the character fetches.
+ */
+typedef struct SmxPpuColumn {
+  Uint16 entry;
+  Uint16 hscroll;
+  Uint16 vscroll;
+  Uint8 chr[16];
+  Uint8 indices[16];
+} SmxPpuColumn;
 
 /**
  * NTSC picture RAM.
@@ -41,6 +57,13 @@
  * Character fetches wrap at the end of the 64 KiB VRAM.
  * Five-bit channels round to eight bits. picture_matches_oracle latches
  * once the picture matches the NTSC logo frame.
+ * Backgrounds are fetched ahead of drawing, a tile column at a time on a
+ * fixed schedule of dots per mode: a register write changes only the columns
+ * fetched after it, while the fine scroll and the colors apply as each pixel
+ * is drawn. In mode 0 each background has its own 32 colors.
+ * Outside forced blank, lines 1-224 read CGRAM all through the drawing
+ * period (master clocks 88 to 1095), and a CGRAM access then reaches the
+ * entry the PPU is reading instead of the address.
  * `beam_line`, `beam_dot`, and `beam_field`, when a clock sets them, are
  * the scanline, master clock in the line, and field being drawn. VRAM can
  * then be written and read only in vblank or forced blank; at other times
@@ -87,6 +110,19 @@ typedef struct SmxPpu {
   Uint8 obj_prio[256];
   /** Sprite pixels from palettes 4-7, the only ones color math applies to. */
   bool obj_math[256];
+  /** The CGRAM entry of each sprite pixel. */
+  Uint8 obj_index[256];
+  /** Background columns fetched on the line `fetch_key` names, through dot `fetch_dot`. */
+  SmxPpuColumn columns[4][SMX_PPU_COLUMNS];
+  Uint32 fetch_key;
+  Uint16 fetch_dot;
+  /** The latest offset-per-tile words, for the next column's map fetch. */
+  Uint16 opt_h;
+  Uint16 opt_v;
+  /** Finished pictures, which tells one frame's line from the next. */
+  Uint32 pictures;
+  /** The CGRAM entry the PPU read last, where writes land while it draws. */
+  Uint8 cgram_reading;
   /** The picture being drawn, XRGB8888. */
   Uint8 *pixels;
   /** The last finished picture: `pixels` as vblank began. Present and hash this one. */
@@ -122,6 +158,13 @@ void smx_ppu_render_line(SmxPpu *ppu, Uint32 y);
  * Scanline 0 is hidden. Scanlines 1 through 224 fill rows 0 through 223.
  */
 void smx_ppu_present_line(SmxPpu *ppu, Uint32 scanline);
+
+/**
+ * Fetch background tiles of `scanline` through PPU dot `dot` (master clock
+ * divided by 4), as the PPU does ahead of drawing. The clock calls this
+ * before every PPU register write; drawing fetches whatever is still due.
+ */
+void smx_ppu_fetch(SmxPpu *ppu, Uint32 scanline, Uint32 dot);
 
 /** Draw pixels `x_from` up to but not including `x_to` of a visible scanline. */
 void smx_ppu_present_span(SmxPpu *ppu, Uint32 scanline, Uint32 x_from, Uint32 x_to);

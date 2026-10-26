@@ -1,6 +1,7 @@
 #include "smx/apu.h"
 #include "smx/cart.h"
 #include "smx/clock.h"
+#include "smx/ppu.h"
 
 #include <SDL3/SDL.h>
 
@@ -352,6 +353,90 @@ static void test_h_irq_dot(void) {
   smx_bus_quit(&bus);
 }
 
+/*
+ * Mode 1 BG1 over line `line`: map A (word $0400) is character 1 in color 1 everywhere, map B
+ * (word $0800) is clear. The CPU idles at $1000.
+ */
+static void fetch_setup(SmxBus *bus, SmxCpu *cpu, SmxDma *dma, SmxPpu *ppu, SmxClock *clock) {
+  Uint32 i = 0;
+
+  smx_bus_init(bus, NULL, 0, 0);
+  smx_cpu_init(cpu, bus);
+  smx_dma_init(dma, bus);
+  smx_ppu_init(ppu, bus);
+  smx_clock_init(clock, cpu, dma);
+  clock->ppu = ppu;
+  cpu->e = false;
+  cpu->p = 0x30;
+  cpu->pc = 0x1000;
+  smx_bus_write(bus, 0x1000, 0x80);
+  smx_bus_write(bus, 0x1001, 0xFE);
+  for (i = 0; i < 8u; i += 1) {
+    ppu->vram[32u + i * 2u] = 0xFF;
+  }
+  for (i = 0; i < 1024u; i += 1) {
+    ppu->vram[0x0800u + i * 2u] = 0x01;
+  }
+  smx_ppu_write_cgram(ppu, 0, 0x0000);
+  smx_ppu_write_cgram(ppu, 1, 0x7FFF);
+  smx_bus_write(bus, 0x002105, 0x01);
+  smx_bus_write(bus, 0x002107, 0x04);
+  smx_bus_write(bus, 0x00210B, 0x00);
+  smx_bus_write(bus, 0x00212C, 0x01);
+  smx_bus_write(bus, 0x002100, 0x0F);
+}
+
+/* The PPU fetches BG1's first map entry at dot 2: a map change at dot 4 misses column 0. */
+static void test_fetch_ahead(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxPpu ppu;
+  SmxClock clock;
+  Uint32 line = 10;
+
+  fetch_setup(&bus, &cpu, &dma, &ppu, &clock);
+  smx_clock_seek(&clock, line, 16u);
+  smx_bus_write(&bus, 0x002107, 0x08);
+  while (clock.line <= line) {
+    smx_clock_step(&clock);
+  }
+  expect_u8("column 0 keeps the old map", ppu.pixels[((line - 1u) * SMX_PPU_WIDTH + 7u) * 4u], 255);
+  expect_u8("column 1 takes the new map", ppu.pixels[((line - 1u) * SMX_PPU_WIDTH + 8u) * 4u], 0);
+  smx_ppu_quit(&ppu);
+  smx_bus_quit(&bus);
+}
+
+/* While the PPU draws, a CGRAM write lands on the color it is reading; in hblank, at the address.
+ */
+static void test_cgram_while_drawing(void) {
+  SmxBus bus;
+  SmxCpu cpu;
+  SmxDma dma;
+  SmxPpu ppu;
+  SmxClock clock;
+
+  fetch_setup(&bus, &cpu, &dma, &ppu, &clock);
+  smx_clock_seek(&clock, 9, 0u);
+  while (clock.line < 10u || clock.dot < 600u) {
+    smx_clock_step(&clock);
+  }
+  smx_bus_write(&bus, 0x002121, 0x05);
+  smx_bus_write(&bus, 0x002122, 0x1F);
+  smx_bus_write(&bus, 0x002122, 0x00);
+  expect_true("drawing write reached the color in use", ppu.cgram[1] == 0x001F);
+  expect_true("drawing write missed the address", ppu.cgram[5] == 0x0000);
+  while (clock.line < 11u || clock.dot < 1200u) {
+    smx_clock_step(&clock);
+  }
+  smx_bus_write(&bus, 0x002121, 0x05);
+  smx_bus_write(&bus, 0x002122, 0xE0);
+  smx_bus_write(&bus, 0x002122, 0x03);
+  expect_true("hblank write reached the address", ppu.cgram[5] == 0x03E0);
+  smx_ppu_quit(&ppu);
+  smx_bus_quit(&bus);
+}
+
 static void test_mid_line_write(void) {
   SmxBus bus;
   SmxCpu cpu;
@@ -543,6 +628,8 @@ static void test_nmi_latency(void) {
 }
 
 int main(void) {
+  test_fetch_ahead();
+  test_cgram_while_drawing();
   test_picture_survives_long_dma();
   test_vblank_poll();
   test_joy_busy();
