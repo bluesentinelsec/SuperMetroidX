@@ -41,7 +41,7 @@ Do not add any third party libraries by default.
 - `cmake/` — helper modules when a single `CMakeLists.txt` is no longer enough
 - `.github/workflows/` — CI for Windows, macOS, and Linux
 
-The executable target is `SuperMetroidX`. The static library target is `smx`. The translator CLI is `smxrecomp`, built on the `smx_translate_*` API in `include/smx/translate.h`. CMake runs it on `SMX_ROM` (default `SuperMetroid.sfc` at the repository root) and links the generated `smx_game` library into the shell. Without a ROM the shell links `src/game_stub.c` and interprets.
+The executable target is `SuperMetroidX`. The static library target is `smx`. The translator CLI is `smxrecomp`, built on the `smx_translate_*` API in `include/smx/translate.h`. `smxsave` writes play-test saves through the `smx_save_*` API in `include/smx/save.h`; `playtest.sh` wraps it. CMake runs it on `SMX_ROM` (default `SuperMetroid.sfc` at the repository root) and links the generated `smx_game` library into the shell. Without a ROM the shell links `src/game_stub.c` and interprets.
 
 ## Build
 

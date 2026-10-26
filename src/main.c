@@ -83,16 +83,12 @@ static void smx_shell_save_coverage(SmxTranslator *misses, const char *rom_path,
 
 /* `<user data>/<rom name>.state`, the quick-save slot. */
 static bool smx_shell_state_path(char *path, Uint32 size, const char *rom_path) {
-  size_t length = 0;
+  char sram_path[1024];
 
-  if (!smx_sram_default_path(path, size, rom_path)) {
+  if (!smx_sram_default_path(sram_path, sizeof(sram_path), rom_path)) {
     return false;
   }
-  length = SDL_strlen(path);
-  if (length > 4) {
-    path[length - 4] = '\0';
-  }
-  SDL_strlcat(path, ".state", size);
+  smx_state_path(path, size, sram_path);
   return true;
 }
 
@@ -143,12 +139,15 @@ static Uint16 smx_gamepad_joy(SDL_Gamepad *pad) {
 
 int main(int argc, char **argv) {
   bool smoke = false;
+  bool load_state = false;
   const char *rom_path = NULL;
   Sint32 index = 1;
 
   for (; index < argc; index += 1) {
     if (SDL_strcmp(argv[index], "--smoke") == 0) {
       smoke = true;
+    } else if (SDL_strcmp(argv[index], "--load-state") == 0) {
+      load_state = true;
     } else if (rom_path == NULL) {
       rom_path = argv[index];
     }
@@ -233,6 +232,14 @@ int main(int argc, char **argv) {
     char path[1024];
     if (smx_sram_default_path(path, sizeof(path), rom_path) && smx_sram_open(&sram, path, &bus)) {
       SDL_Log("saves in %s", path);
+    }
+    /* --load-state starts from the quick-save, as F9 would. */
+    if (load_state && smx_shell_state_path(path, sizeof(path), rom_path)) {
+      if (smx_state_load(&console, rom_hash, path)) {
+        SDL_Log("loaded state from %s", path);
+      } else {
+        SDL_Log("no state for this ROM and build in %s", path);
+      }
     }
   }
 
