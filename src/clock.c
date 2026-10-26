@@ -230,19 +230,22 @@ static void smx_clock_sync(void *user) {
  * After an instruction, take an interrupt whose edge came no later than
  * `deadline`, 6 clocks before that instruction's last cycle began.
  */
-static void smx_clock_interrupts(SmxClock *clock, Uint64 deadline) {
+static bool smx_clock_interrupts(SmxClock *clock, Uint64 deadline) {
   if (clock->nmi_pending && clock->nmi_edge <= deadline) {
     clock->nmi_pending = false;
     smx_cpu_nmi(clock->cpu);
-    return;
+    return true;
   }
-  if ((clock->bus->mmio[0x4211] & 0x80) != 0 && clock->irq_edge <= deadline) {
+  if ((clock->bus->mmio[0x4211] & 0x80) != 0 && clock->irq_edge <= deadline &&
+      (clock->cpu->p & 0x04) == 0 && !clock->cpu->stopped) {
     smx_cpu_irq(clock->cpu);
+    return true;
   }
+  return false;
 }
 
-bool smx_clock_step(SmxClock *clock) {
-  bool ran = false;
+/* Pay the stall the last instruction left, then start the next one. */
+static void smx_clock_begin(SmxClock *clock) {
   Uint32 dots = 0;
 
   /* The first frame starts on line 0 without crossing into it. */
@@ -255,18 +258,24 @@ bool smx_clock_step(SmxClock *clock) {
     clock->stall = 0;
     smx_clock_spend(clock, dots);
   }
-  {
-    Uint64 start = clock->dots;
-    clock->cpu_done = 0;
-    ran = smx_cpu_step(clock->cpu);
-    dots = smx_clock_owed(clock);
-    clock->cpu->clocks = 0;
-    clock->cpu_done = 0;
-    smx_clock_spend(clock, dots);
-    /* A waiting CPU wakes as soon as the edge arrives. */
-    smx_clock_interrupts(clock,
-                         clock->cpu->waiting ? clock->dots : start + clock->cpu->last_at - 6u);
-  }
+  clock->start = clock->dots;
+  clock->cpu_done = 0;
+}
+
+/*
+ * Spend what the instruction owes, take an interrupt, and run a requested DMA.
+ * True when an interrupt moved the CPU.
+ */
+static bool smx_clock_end(SmxClock *clock) {
+  Uint32 dots = smx_clock_owed(clock);
+  bool taken = false;
+
+  clock->cpu->clocks = 0;
+  clock->cpu_done = 0;
+  smx_clock_spend(clock, dots);
+  /* A waiting CPU wakes as soon as the edge arrives. */
+  taken = smx_clock_interrupts(
+      clock, clock->cpu->waiting ? clock->dots : clock->start + clock->cpu->last_at - 6u);
   if (clock->bus->dma_requested) {
     Uint32 fetch = smx_bus_speed(clock->bus, ((Uint32)clock->cpu->pb << 16) | clock->cpu->pc);
     /*
@@ -284,6 +293,37 @@ bool smx_clock_step(SmxClock *clock) {
     clock->dma_count += 1;
   }
   smx_clock_apu_to(clock, clock->dots);
+  return taken;
+}
+
+/*
+ * Between two translated instructions: finish the first, and start the
+ * second unless an interrupt, a frame boundary, or WAI/STP ends the block.
+ */
+static bool smx_clock_next(void *user) {
+  SmxClock *clock = (SmxClock *)user;
+
+  if (smx_clock_end(clock) || clock->frame != clock->step_frame || clock->cpu->waiting ||
+      clock->cpu->stopped) {
+    clock->ended = true;
+    return false;
+  }
+  smx_clock_begin(clock);
+  return true;
+}
+
+bool smx_clock_step(SmxClock *clock) {
+  bool ran = false;
+
+  clock->cpu->next = smx_clock_next;
+  clock->cpu->next_user = clock;
+  clock->step_frame = clock->frame;
+  clock->ended = false;
+  smx_clock_begin(clock);
+  ran = smx_cpu_run(clock->cpu);
+  if (!clock->ended) {
+    smx_clock_end(clock);
+  }
   return ran;
 }
 
