@@ -51,19 +51,19 @@
  * drawn as the dot counter leaves it, before HDMA for the next line. A PPU
  * register write first draws the line up to the beam, so the write only
  * changes the pixels after it. `drawn_x` is how far the line has been drawn.
- * The SPC700 runs whole instructions to keep pace with the master clock at
- * the ratio of `SMX_CLOCK_SPC_HZ` to `SMX_CLOCK_MASTER_HZ`. `apu_credit` is
- * that lead in units of one master clock times `SMX_CLOCK_SPC_HZ`, and
- * `apu_at` is the master clock it has been paced to. A CPU access to
- * `$2140-$2143` first runs the SPC700 up to the time of that access.
+ * The SPC700 keeps pace with the master clock at the ratio of
+ * `SMX_CLOCK_SPC_HZ` to `SMX_CLOCK_MASTER_HZ`; `apu_at` is the master clock it
+ * has been paced to. A CPU access to `$2140-$2143` first runs the SPC700 up
+ * to the time of that access and gives the APU that time, so each side sees
+ * the other's port writes as of its own access.
  * `line` and `dot` are the beam position, `frame` counts frames since power
  * on, and `field` flips at each new frame. Odd fields drop four master clocks
  * from line 240 unless `$2133` bit 0 selects interlace.
  * A CPU read of `$2137-$213F` or `$4210-$421F` first advances time to that
  * access; `cpu_done` is how much of the instruction has been spent that way.
  * NMI and IRQ edges are timed (`nmi_edge`, `irq_edge`). After each
- * instruction the CPU takes one that rose by the start of that instruction's
- * second-to-last cycle; a later edge waits for the next instruction. IRQ is
+ * instruction the CPU takes one that rose at least 6 clocks before that
+ * instruction's last cycle began; a later edge waits for the next. IRQ is
  * level: TIMEUP in `$4211` holds it until the CPU reads `$4211`.
  */
 typedef struct SmxClock {
@@ -79,7 +79,6 @@ typedef struct SmxClock {
   Uint32 stall;
   Uint32 cpu_done;
   Uint32 drawn_x;
-  Sint64 apu_credit;
   Uint64 apu_at;
   Uint32 dma_count;
   /** Auto-joypad value: low byte to `$4218` (A X L R), high byte to `$4219`. */

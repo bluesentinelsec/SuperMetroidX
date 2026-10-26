@@ -43,9 +43,8 @@ static void apply_p(SmxCpu *cpu, Uint8 p) {
   }
 }
 
-/* Each cycle shifts the start of the last two cycles before it is spent. */
+/* Each cycle records where it starts before it is spent. */
 static void cycle(SmxCpu *cpu, Uint32 clocks) {
-  cpu->penult_at = cpu->last_at;
   cpu->last_at = cpu->clocks;
   cpu->clocks += clocks;
 }

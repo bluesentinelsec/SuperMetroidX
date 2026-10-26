@@ -98,7 +98,7 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
       value = bus->mmio_read(bus->mmio_user, off, bus->open_bus);
     } else if ((off >= 0x2140 && off <= 0x2143) || (off >= 0x4210 && off <= 0x421F)) {
       if (off <= 0x2143 && bus->apu_sync != NULL) {
-        bus->apu_sync(bus->sync_user);
+        bus->apu_sync(bus->sync_user, false);
       }
       value = bus->mmio[off];
       /* Reading $4210 acknowledges the NMI flag, and $4211 the IRQ. */
@@ -135,7 +135,7 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
       bus->ppu_sync(bus->sync_user);
     }
     if (off >= 0x2140 && off <= 0x2143 && bus->apu_sync != NULL) {
-      bus->apu_sync(bus->sync_user);
+      bus->apu_sync(bus->sync_user, true);
     }
     bus->mmio[off] = value;
     if (off == 0x420B && value != 0) {
