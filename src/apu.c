@@ -147,11 +147,21 @@ static Uint64 smx_spc_now(const SmxApu *apu) {
   return (apu->core.cycle * 2u + 5u) * (SMX_CLOCK_MASTER_HZ / 2u);
 }
 
-static void smx_spc_dsp_catch_up(SmxApu *apu) {
-  if (apu->dsp_cycle < apu->core.cycle) {
-    smx_dsp_run(&apu->dsp, (Uint32)(apu->core.cycle - apu->dsp_cycle));
-    apu->dsp_cycle = apu->core.cycle;
+/* Run the DSP up to the start of SPC700 cycle `cycle`. */
+static void smx_spc_dsp_run_to(SmxApu *apu, Uint64 cycle) {
+  if (apu->dsp_cycle < cycle) {
+    smx_dsp_run(&apu->dsp, (Uint32)(cycle - apu->dsp_cycle));
+    apu->dsp_cycle = cycle;
   }
+}
+
+static void smx_spc_dsp_catch_up(SmxApu *apu) {
+  smx_spc_dsp_run_to(apu, apu->core.cycle);
+}
+
+/* The DSP step of the cycle that reaches `$F3` runs before the access. */
+static void smx_spc_dsp_access(SmxApu *apu) {
+  smx_spc_dsp_run_to(apu, apu->core.cycle + 1u);
 }
 
 /*
@@ -206,7 +216,7 @@ static Uint8 smx_spc_bus_read(SmxApu *apu, Uint16 addr) {
     }
     if (addr == 0x00F3) {
       if (!apu->blocked) {
-        smx_spc_dsp_catch_up(apu);
+        smx_spc_dsp_access(apu);
       }
       return smx_dsp_read(&apu->dsp, core->dsp_addr);
     }
@@ -269,7 +279,7 @@ static void smx_spc_bus_write(SmxApu *apu, Uint16 addr, Uint8 value) {
   } else if (addr == 0x00F2) {
     core->dsp_addr = value;
   } else if (addr == 0x00F3) {
-    smx_spc_dsp_catch_up(apu);
+    smx_spc_dsp_access(apu);
     if (core->dsp_addr < 0x80) {
       smx_dsp_write(&apu->dsp, core->dsp_addr, value);
     }
