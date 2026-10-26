@@ -43,14 +43,21 @@ static void apply_p(SmxCpu *cpu, Uint8 p) {
   }
 }
 
+/* Each cycle shifts the start of the last two cycles before it is spent. */
+static void cycle(SmxCpu *cpu, Uint32 clocks) {
+  cpu->penult_at = cpu->last_at;
+  cpu->last_at = cpu->clocks;
+  cpu->clocks += clocks;
+}
+
 static void io(SmxCpu *cpu) {
-  cpu->clocks += 6u;
+  cycle(cpu, 6u);
 }
 
 static Uint8 fetch8(SmxCpu *cpu) {
   Uint32 addr = ((Uint32)cpu->pb << 16) | cpu->pc;
   Uint8 value = smx_bus_read(cpu->bus, addr);
-  cpu->clocks += smx_bus_speed(cpu->bus, addr);
+  cycle(cpu, smx_bus_speed(cpu->bus, addr));
   cpu->pc = (Uint16)(cpu->pc + 1);
   return value;
 }
@@ -62,12 +69,12 @@ static Uint16 fetch16(SmxCpu *cpu) {
 }
 
 static Uint8 read8(SmxCpu *cpu, Uint32 addr) {
-  cpu->clocks += smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu);
+  cycle(cpu, smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu));
   return smx_bus_read(cpu->bus, addr & 0x00FFFFFFu);
 }
 
 static void write8(SmxCpu *cpu, Uint32 addr, Uint8 value) {
-  cpu->clocks += smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu);
+  cycle(cpu, smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu));
   smx_bus_write(cpu->bus, addr & 0x00FFFFFFu, value);
 }
 
@@ -577,6 +584,8 @@ void smx_cpu_reset(SmxCpu *cpu) {
   cpu->y = 0;
   cpu->stopped = false;
   cpu->waiting = false;
+  /* Mesen 2.1.1 fetches the first opcode 186 master clocks after power-on. */
+  cpu->clocks = 170u;
   cpu->pc = read16p(cpu, 0, 0xFFFC);
 }
 

@@ -4,6 +4,7 @@
 
 static void smx_clock_sync(void *user);
 static void smx_clock_apu_sync(void *user);
+static void smx_clock_time_sync(void *user);
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   SDL_memset(clock, 0, sizeof(*clock));
@@ -14,6 +15,7 @@ void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma) {
   if (clock->bus != NULL) {
     clock->bus->ppu_sync = smx_clock_sync;
     clock->bus->apu_sync = smx_clock_apu_sync;
+    clock->bus->time_sync = smx_clock_time_sync;
     clock->bus->sync_user = clock;
   }
   /* The PPU comes out of reset forced blank. */
@@ -32,9 +34,12 @@ static Uint32 smx_clock_line_length(const SmxClock *clock, Uint32 line) {
   return SMX_CLOCK_DOTS_PER_LINE;
 }
 
-static void smx_clock_irq(SmxClock *clock) {
-  clock->bus->mmio[0x4211] = 0x80;
-  smx_cpu_irq(clock->cpu);
+/* TIMEUP holds the IRQ line until `$4211` is read. `at` is when it rose. */
+static void smx_clock_irq(SmxClock *clock, Uint64 at) {
+  if ((clock->bus->mmio[0x4211] & 0x80) == 0) {
+    clock->bus->mmio[0x4211] = 0x80;
+    clock->irq_edge = at;
+  }
 }
 
 /* `dots` must not run past the end of the current line. */
@@ -56,8 +61,12 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
     }
   }
   line_after = clock->line;
-  if (dot_before < SMX_CLOCK_REFRESH_DOT && dot_before + dots >= SMX_CLOCK_REFRESH_DOT) {
-    clock->stall += SMX_CLOCK_REFRESH_DOTS;
+  {
+    /* Refresh follows the CPU's 8-clock phase: dot 538, or 534 when the line starts 4 off. */
+    Uint32 refresh = SMX_CLOCK_REFRESH_DOT - (Uint32)((clock->dots - dots - dot_before) & 7u);
+    if (dot_before < refresh && dot_before + dots >= refresh) {
+      clock->stall += SMX_CLOCK_REFRESH_DOTS;
+    }
   }
   if (line_before != line_after && clock->ppu != NULL && line_before >= 1u &&
       line_before <= SMX_PPU_HEIGHT) {
@@ -93,7 +102,8 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
       clock->bus->mmio[0x4219] = (Uint8)(clock->joy >> 8);
     }
     if ((clock->bus->mmio[0x4200] & 0x80) != 0) {
-      smx_cpu_nmi(clock->cpu);
+      clock->nmi_pending = true;
+      clock->nmi_edge = clock->dots;
     }
   }
   if (line_before != line_after) {
@@ -101,7 +111,7 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
     bool v_irq = (clock->bus->mmio[0x4200] & 0x20) != 0;
     bool h_irq = (clock->bus->mmio[0x4200] & 0x10) != 0;
     if (v_irq && !h_irq && line_after == (vtime & 0x01FFu)) {
-      smx_clock_irq(clock);
+      smx_clock_irq(clock, clock->dots);
     }
   }
   {
@@ -113,7 +123,7 @@ static void smx_clock_span(SmxClock *clock, Uint32 dots) {
     Uint32 at = (Uint32)(htime & 0x01FFu) * 4u;
     if (h_irq && at >= dot_before && at < dot_before + dots &&
         (!v_irq || line_before == (vtime & 0x01FFu))) {
-      smx_clock_irq(clock);
+      smx_clock_irq(clock, clock->dots - dots + (at - dot_before));
     }
   }
   clock->prev_vblank = vblank;
@@ -139,7 +149,7 @@ static void smx_clock_apu_to(SmxClock *clock, Uint64 now) {
   }
   clock->apu_credit += (Sint64)(now - clock->apu_at) * SMX_CLOCK_SPC_HZ;
   clock->apu_at = now;
-  /* Only instructions that finish by `now`, so no port write shows up early. */
+  /* Run only instructions that finish by `now`, so a port write never shows early. */
   while (clock->apu_credit >= (Sint64)smx_apu_next_cycles(apu) * SMX_CLOCK_MASTER_HZ) {
     if (!smx_apu_step(apu)) {
       clock->apu_credit = 0;
@@ -154,16 +164,41 @@ static void smx_clock_spend(SmxClock *clock, Uint32 dots) {
   smx_clock_apu_to(clock, clock->dots);
 }
 
+/* Clocks the current instruction has spent that the clock has not caught up to. */
+static Uint32 smx_clock_owed(const SmxClock *clock) {
+  return clock->cpu->clocks - clock->cpu_done;
+}
+
+/* Spend `dots`, then any refresh or HDMA stall that came due meanwhile. */
+static void smx_clock_pay(SmxClock *clock, Uint32 dots) {
+  smx_clock_spend(clock, dots);
+  while (clock->stall != 0) {
+    dots = clock->stall;
+    clock->stall = 0;
+    smx_clock_spend(clock, dots);
+  }
+}
+
+/* The CPU samples the bus four clocks before an access cycle ends. */
 static void smx_clock_apu_sync(void *user) {
   SmxClock *clock = (SmxClock *)user;
-  smx_clock_apu_to(clock, clock->dots + clock->cpu->clocks);
+  smx_clock_apu_to(clock, clock->dots + smx_clock_owed(clock) - 4u);
+}
+
+/* Bring time up to an access whose result depends on the beam or the timers. */
+static void smx_clock_time_sync(void *user) {
+  SmxClock *clock = (SmxClock *)user;
+  Uint32 owed = smx_clock_owed(clock);
+
+  clock->cpu_done = clock->cpu->clocks;
+  smx_clock_spend(clock, owed);
 }
 
 /* Draw the current line up to the beam before a PPU register changes. */
 static void smx_clock_sync(void *user) {
   SmxClock *clock = (SmxClock *)user;
   Uint32 line = clock->line;
-  Uint32 dot = clock->dot + clock->cpu->clocks;
+  Uint32 dot = clock->dot + smx_clock_owed(clock);
   Uint32 x = SMX_PPU_WIDTH;
 
   if (clock->ppu == NULL || line < 1u || line > SMX_PPU_HEIGHT) {
@@ -176,6 +211,21 @@ static void smx_clock_sync(void *user) {
   if (x > clock->drawn_x) {
     smx_ppu_present_span(clock->ppu, line, clock->drawn_x, x);
     clock->drawn_x = x;
+  }
+}
+
+/*
+ * After an instruction, take an interrupt whose edge came no later than
+ * `deadline`, the start of that instruction's second-to-last cycle.
+ */
+static void smx_clock_interrupts(SmxClock *clock, Uint64 deadline) {
+  if (clock->nmi_pending && clock->nmi_edge <= deadline) {
+    clock->nmi_pending = false;
+    smx_cpu_nmi(clock->cpu);
+    return;
+  }
+  if ((clock->bus->mmio[0x4211] & 0x80) != 0 && clock->irq_edge <= deadline) {
+    smx_cpu_irq(clock->cpu);
   }
 }
 
@@ -193,12 +243,29 @@ bool smx_clock_step(SmxClock *clock) {
     clock->stall = 0;
     smx_clock_spend(clock, dots);
   }
-  ran = smx_cpu_step(clock->cpu);
-  dots = clock->cpu->clocks;
-  clock->cpu->clocks = 0;
-  smx_clock_spend(clock, dots);
+  {
+    Uint64 start = clock->dots;
+    clock->cpu_done = 0;
+    ran = smx_cpu_step(clock->cpu);
+    dots = smx_clock_owed(clock);
+    clock->cpu->clocks = 0;
+    clock->cpu_done = 0;
+    smx_clock_spend(clock, dots);
+    /* A waiting CPU wakes as soon as the edge arrives. */
+    smx_clock_interrupts(clock, clock->cpu->waiting ? clock->dots : start + clock->cpu->penult_at);
+  }
   if (clock->bus->dma_requested) {
-    clock->stall += smx_dma_run(clock->dma, clock->bus->dma_channels);
+    Uint64 begin = clock->dots;
+    Uint32 fetch = smx_bus_speed(clock->bus, ((Uint32)clock->cpu->pb << 16) | clock->cpu->pc);
+    /*
+     * The CPU starts its next opcode fetch before it halts. DMA waits for an
+     * 8-clock boundary after that fetch, transfers, then waits until a whole
+     * number of fetch-length cycles has passed since the fetch's read point,
+     * four clocks before its end. The fetch itself is spent by the next step.
+     */
+    smx_clock_pay(clock, 8u - (Uint32)((clock->dots + fetch) & 7u));
+    smx_clock_pay(clock, smx_dma_run(clock->dma, clock->bus->dma_channels));
+    smx_clock_pay(clock, fetch - (Uint32)((clock->dots - begin + 4u) % fetch));
     clock->bus->mmio[0x420B] = 0;
     clock->bus->dma_requested = false;
     clock->dma_count += 1;

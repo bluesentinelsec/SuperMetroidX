@@ -22,9 +22,12 @@
  * 24.576 MHz, but consoles average 32040 output samples a second, which is
  * 1.02528 MHz at 32 cycles a sample. Mesen and bsnes use the same average.
  */
-#define SMX_CLOCK_MASTER_HZ 21477272u
+#define SMX_CLOCK_MASTER_HZ 21477270u
 #define SMX_CLOCK_SPC_HZ 1025280u
-/** Master clock in the line where DRAM refresh pauses the CPU for 40 clocks. */
+/**
+ * Master clock in the line where DRAM refresh pauses the CPU for 40 clocks,
+ * less the line start's offset from an 8-clock boundary (0 or 4).
+ */
 #define SMX_CLOCK_REFRESH_DOT 538u
 #define SMX_CLOCK_REFRESH_DOTS 40u
 /** At PPU dot `h`, the pixels left of `h - 21` have been drawn. */
@@ -56,6 +59,12 @@
  * `line` and `dot` are the beam position, `frame` counts frames since power
  * on, and `field` flips at each new frame. Odd fields drop four master clocks
  * from line 240 unless `$2133` bit 0 selects interlace.
+ * A CPU read of `$2137-$213F` or `$4210-$421F` first advances time to that
+ * access; `cpu_done` is how much of the instruction has been spent that way.
+ * NMI and IRQ edges are timed (`nmi_edge`, `irq_edge`). After each
+ * instruction the CPU takes one that rose by the start of that instruction's
+ * second-to-last cycle; a later edge waits for the next instruction. IRQ is
+ * level: TIMEUP in `$4211` holds it until the CPU reads `$4211`.
  */
 typedef struct SmxClock {
   SmxBus *bus;
@@ -68,6 +77,7 @@ typedef struct SmxClock {
   Uint32 dot;
   bool field;
   Uint32 stall;
+  Uint32 cpu_done;
   Uint32 drawn_x;
   Sint64 apu_credit;
   Uint64 apu_at;
@@ -75,7 +85,9 @@ typedef struct SmxClock {
   /** Auto-joypad value: low byte to `$4218` (A X L R), high byte to `$4219`. */
   Uint16 joy;
   bool prev_vblank;
-  bool irq_line;
+  bool nmi_pending;
+  Uint64 nmi_edge;
+  Uint64 irq_edge;
 } SmxClock;
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);

@@ -9,6 +9,9 @@
  * 65816. `bus` is borrowed.
  * `clocks` gains the master clocks of every access at the bus speed of its
  * address, plus 6 for each internal cycle. The caller drains it.
+ * `penult_at` is the value `clocks` had when the second-to-last cycle of the
+ * last instruction began. An interrupt asserted after that point waits for
+ * the next instruction.
  */
 typedef struct SmxCpu {
   SmxBus *bus;
@@ -25,6 +28,8 @@ typedef struct SmxCpu {
   bool stopped;
   bool waiting;
   Uint32 clocks;
+  Uint32 last_at;
+  Uint32 penult_at;
 } SmxCpu;
 
 void smx_cpu_init(SmxCpu *cpu, SmxBus *bus);

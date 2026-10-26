@@ -393,16 +393,19 @@ static void test_apu_port_sync(void) {
   smx_dma_init(&dma, &bus);
   smx_apu_init(&apu, &bus);
   smx_clock_init(&clock, &cpu, &dma);
-  /* An instruction 1000 clocks into the frame has spent 30 more on this access. */
+  /*
+   * An instruction 1000 clocks into the frame has spent 30 more on this access.
+   * The CPU samples the bus 4 clocks before the access ends.
+   */
   clock.dots = 1000;
   cpu.clocks = 30;
   smx_bus_read(&bus, 0x002140);
-  expect_true("port read paces the spc", clock.apu_at == 1030u);
+  expect_true("port read paces the spc", clock.apu_at == 1026u);
   /* What is left is less than the next instruction, which would end after the access. */
   expect_true("spc ran",
               clock.apu_credit < (Sint64)smx_apu_next_cycles(&apu) * SMX_CLOCK_MASTER_HZ);
   smx_bus_write(&bus, 0x002141, 0x00);
-  expect_true("port write paces the spc", clock.apu_at == 1030u);
+  expect_true("port write paces the spc", clock.apu_at == 1026u);
   smx_bus_quit(&bus);
 }
 

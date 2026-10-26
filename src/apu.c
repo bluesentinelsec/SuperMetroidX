@@ -28,7 +28,7 @@ void smx_apu_init(SmxApu *apu, SmxBus *bus) {
   apu->pc = 0xFFC0;
   apu->running = true;
   smx_dsp_init(&apu->dsp, apu->ram);
-  /* The reset sequence spends two cycles before the first instruction. */
+  /* The DSP is two cycles into its sample when the first instruction starts. */
   smx_dsp_run(&apu->dsp, 2);
   if (bus != NULL) {
     bus->apu_user = apu;
