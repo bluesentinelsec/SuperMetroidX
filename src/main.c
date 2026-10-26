@@ -212,6 +212,12 @@ int main(int argc, char **argv) {
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                 (event.key.scancode == SDL_SCANCODE_F11 ||
+                  (event.key.scancode == SDL_SCANCODE_RETURN &&
+                   (event.key.mod & SDL_KMOD_ALT) != 0))) {
+        /* F11 or Alt+Enter toggles fullscreen. */
+        SDL_SetWindowFullscreen(window, (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) == 0);
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
       } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED && pad != NULL &&
@@ -248,7 +254,10 @@ int main(int argc, char **argv) {
       Uint16 joy = 0;
       Uint32 key = 0;
       for (; key < sizeof(smx_keymap) / sizeof(smx_keymap[0]); key += 1) {
-        if (keys[smx_keymap[key].scancode]) {
+        /* Return is Start, except as part of Alt+Enter. */
+        bool alt_enter = smx_keymap[key].scancode == SDL_SCANCODE_RETURN &&
+                         (SDL_GetModState() & SDL_KMOD_ALT) != 0;
+        if (keys[smx_keymap[key].scancode] && !alt_enter) {
           joy = (Uint16)(joy | smx_keymap[key].button);
         }
       }
