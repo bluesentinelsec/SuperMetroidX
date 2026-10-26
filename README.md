@@ -39,13 +39,17 @@ The first build translates the ROM. `smxrecomp` plays the attract demos and the 
 
 ## Controls
 
-| SNES | Keyboard |
-| --- | --- |
-| D-pad | Arrow keys |
-| B / Y | Z / X |
-| A / X | A / S |
-| L / R | Q / W |
-| Start / Select | Return / Right Shift |
+| SNES | Keyboard | Xbox-style gamepad |
+| --- | --- | --- |
+| D-pad | Arrow keys | D-pad or left stick |
+| B / Y | Z / X | A / X (south / west) |
+| A / X | A / S | B / Y (east / north) |
+| L / R | Q / W | Shoulders or triggers |
+| Start / Select | Return / Right Shift | Start / Back |
+
+## Saves
+
+The cartridge's battery-backed SRAM is kept in your user-data directory as `SuperMetroidX/<rom name>.srm`. On macOS that is `~/Library/Application Support/SuperMetroidX/SuperMetroidX/`, on Windows `%APPDATA%\SuperMetroidX\SuperMetroidX\`, and on Linux `~/.local/share/SuperMetroidX/SuperMetroidX/`. The game saves at save stations as it would on a console, and the file is updated within a second.
 
 ## The translator
 
