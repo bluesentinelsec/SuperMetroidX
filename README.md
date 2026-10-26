@@ -49,7 +49,7 @@ The first build translates the ROM. `smxrecomp` plays the attract demos and the 
 
 ## Saves
 
-The cartridge's battery-backed SRAM is kept in your user-data directory as `SuperMetroidX/<rom name>.srm`. On macOS that is `~/Library/Application Support/SuperMetroidX/SuperMetroidX/`, on Windows `%APPDATA%\SuperMetroidX\SuperMetroidX\`, and on Linux `~/.local/share/SuperMetroidX/SuperMetroidX/`. The game saves at save stations as it would on a console, and the file is updated within a second.
+The cartridge's battery-backed SRAM is kept as `<rom name>.srm` in your user-data directory: on macOS `~/Library/Application Support/SuperMetroidX/SuperMetroidX/`, on Windows `%APPDATA%\SuperMetroidX\SuperMetroidX\`, and on Linux `~/.local/share/SuperMetroidX/SuperMetroidX/`. The game saves at save stations as it would on a console, and the file is updated within a second.
 
 ## The translator
 
