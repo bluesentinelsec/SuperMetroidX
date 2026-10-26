@@ -52,6 +52,7 @@ set(SMX_SOURCES
   src/translate.c
   src/clock.c
   src/sram.c
+  src/state.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -193,6 +194,10 @@ add_executable(smx_test_translate tests/test_translate.c)
 target_link_libraries(smx_test_translate PRIVATE smx_test_game smx)
 target_include_directories(smx_test_translate PRIVATE tests)
 add_test(NAME translate COMMAND smx_test_translate)
+
+add_executable(smx_test_state tests/test_state.c)
+target_link_libraries(smx_test_state PRIVATE smx)
+add_test(NAME state COMMAND smx_test_state)
 
 add_executable(smx_test_sram tests/test_sram.c)
 target_link_libraries(smx_test_sram PRIVATE smx)
