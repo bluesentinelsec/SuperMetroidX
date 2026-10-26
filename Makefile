@@ -8,18 +8,43 @@ CMAKE ?= cmake
 NINJA ?= ninja
 CLANG_FORMAT ?= clang-format
 DOXYGEN ?= doxygen
+ROM ?= SuperMetroid.sfc
+ARGS ?=
+
+ifeq ($(OS),Windows_NT)
+  DEBUG_BIN := $(DEBUG_DIR)/SuperMetroidX.exe
+else ifeq ($(shell uname -s),Darwin)
+  DEBUG_BIN := $(DEBUG_DIR)/SuperMetroidX.app/Contents/MacOS/SuperMetroidX
+  DEBUGGER ?= lldb
+else
+  DEBUG_BIN := $(DEBUG_DIR)/SuperMetroidX
+  DEBUGGER ?= $(if $(shell command -v gdb),gdb,lldb)
+endif
 
 CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA)
 
 .DEFAULT_GOAL := build
 
-.PHONY: build release fmt test docs clean package configure-debug configure-release
+.PHONY: build release run debug fmt test docs clean package configure-debug configure-release
 
 build: configure-debug
 	$(CMAKE) --build $(DEBUG_DIR)
 
 release: configure-release
 	$(CMAKE) --build $(RELEASE_DIR)
+
+run: build
+	$(DEBUG_BIN) $(ARGS) $(ROM)
+
+# Stops at a crash with every thread's backtrace and stays at the prompt.
+debug: build
+ifeq ($(DEBUGGER),)
+	@echo "make debug needs lldb or gdb on macOS or Linux" >&2; exit 1
+else ifeq ($(notdir $(DEBUGGER)),gdb)
+	$(DEBUGGER) -q -ex 'set pagination off' -ex run -ex 'thread apply all bt' --args $(DEBUG_BIN) $(ARGS) $(ROM)
+else
+	$(DEBUGGER) --batch -o run -k 'thread backtrace all' -- $(DEBUG_BIN) $(ARGS) $(ROM)
+endif
 
 configure-debug:
 	$(CMAKE) -S . -B $(DEBUG_DIR) $(CMAKE_FLAGS) -DCMAKE_BUILD_TYPE=Debug

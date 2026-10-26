@@ -19,6 +19,8 @@ Put your Super Metroid ROM (NTSC, headered or not) at `SuperMetroid.sfc` in the 
 make build     # Debug, -O0, debug symbols
 make test      # Debug build plus unit tests
 make release   # Optimized build
+make run       # Debug build, then play SuperMetroid.sfc (ROM=path, ARGS=flags)
+make debug     # Debug build under lldb (macOS) or gdb (Linux); backtrace on a crash
 make package   # Release archive: .dmg, .zip, or .tar.gz
 make fmt       # clang-format
 make docs      # Doxygen HTML in docs/html
