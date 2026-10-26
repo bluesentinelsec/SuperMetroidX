@@ -402,10 +402,10 @@ static void test_apu_port_sync(void) {
   smx_bus_read(&bus, 0x002140);
   expect_true("port read paces the spc", clock.apu_at == 1026u);
   /* What is left is less than the next instruction, which would end after the access. */
-  expect_true("spc ran",
-              clock.apu_credit < (Sint64)smx_apu_next_cycles(&apu) * SMX_CLOCK_MASTER_HZ);
+  expect_true("spc ran", apu.core.cycle * SMX_CLOCK_MASTER_HZ >= 1026u * (Uint64)SMX_CLOCK_SPC_HZ);
   smx_bus_write(&bus, 0x002141, 0x00);
-  expect_true("port write paces the spc", clock.apu_at == 1026u);
+  /* A port write takes effect when its cycle ends. */
+  expect_true("port write paces the spc", clock.apu_at == 1030u);
   smx_bus_quit(&bus);
 }
 
@@ -476,10 +476,10 @@ static Uint32 nops_before_nmi(Uint32 into) {
   return count;
 }
 
-/* An edge after the start of an instruction's second-to-last cycle waits one more instruction. */
+/* An edge later than 6 clocks before an instruction's last cycle waits one more instruction. */
 static void test_nmi_latency(void) {
-  expect_true("edge before the third cycle is taken after the load", nops_before_nmi(10) == 1u);
-  expect_true("edge after the third cycle starts waits one more", nops_before_nmi(20) == 2u);
+  expect_true("edge 14 clocks before the last cycle is taken", nops_before_nmi(10) == 1u);
+  expect_true("edge 4 clocks before the last cycle waits one more", nops_before_nmi(20) == 2u);
 }
 
 int main(void) {
