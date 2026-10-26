@@ -12,7 +12,11 @@
 
 /** Process entry. `int` is required by the C standard. */
 /** Audio queued ahead, in NTSC frames, before the shell waits. */
-#define SMX_SHELL_QUEUE_FRAMES 3u
+#define SMX_SHELL_QUEUE_FRAMES 4u
+/** Most frames emulated per presented frame while the audio queue refills. */
+#define SMX_SHELL_CATCH_UP_FRAMES 4u
+/** Bytes of queued 32040 Hz stereo S16 audio in `frames` NTSC frames. */
+#define SMX_SHELL_QUEUE_BYTES(frames) ((int)((frames) * 534u * 4u))
 /** One average NTSC frame: 357366 master clocks at 21477270 Hz. */
 #define SMX_SHELL_FRAME_NS 16639266u
 
@@ -309,7 +313,7 @@ int main(int argc, char **argv) {
      */
     if (playing && !smoke) {
       if (audio != NULL) {
-        if (SDL_GetAudioStreamQueued(audio) > (int)(SMX_SHELL_QUEUE_FRAMES * 534u * 4u)) {
+        if (SDL_GetAudioStreamQueued(audio) > SMX_SHELL_QUEUE_BYTES(SMX_SHELL_QUEUE_FRAMES)) {
           SDL_DelayNS(1000000);
           continue;
         }
@@ -325,7 +329,13 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (playing) {
+    /*
+     * Presenting can wait for the display, whose refresh is not the SNES
+     * frame rate. Emulate more than one frame per present while the audio
+     * queue is short so it never runs dry.
+     */
+    Uint32 batch = 0;
+    while (playing) {
       const bool *keys = SDL_GetKeyboardState(NULL);
       Uint16 joy = 0;
       Uint32 key = 0;
@@ -354,6 +364,14 @@ int main(int argc, char **argv) {
         Uint32 count = smx_apu_drain(&apu, frames, 1024);
         SDL_PutAudioStreamData(audio, frames, (int)(count * 2u * sizeof(Sint16)));
       }
+      batch += 1;
+      if (smoke || audio == NULL || batch == SMX_SHELL_CATCH_UP_FRAMES ||
+          SDL_GetAudioStreamQueued(audio) >= SMX_SHELL_QUEUE_BYTES(SMX_SHELL_QUEUE_FRAMES - 1u)) {
+        break;
+      }
+    }
+
+    if (playing) {
       SDL_UpdateTexture(texture, NULL, ppu.pixels, SMX_PPU_WIDTH * 4);
       int win_w = 0;
       int win_h = 0;
