@@ -19,6 +19,67 @@ static void expect_true(const char *name, bool value) {
   }
 }
 
+/* Sprites on line 0, one red pixel at each sprite's left edge. `large` uses 16x16. */
+static void place_sprites(SmxPpu *ppu, Uint32 count, Uint32 spacing, bool large, Uint8 attr) {
+  Uint32 i = 0;
+
+  SDL_memset(ppu->oam, 0, sizeof(ppu->oam));
+  for (; i < 128; i += 1) {
+    ppu->oam[i * 4u + 1u] = 0xE0;
+  }
+  for (i = 0; i < count; i += 1) {
+    ppu->oam[i * 4u] = (Uint8)(i * spacing);
+    ppu->oam[i * 4u + 1u] = 255;
+    ppu->oam[i * 4u + 2u] = 1;
+    ppu->oam[i * 4u + 3u] = attr;
+    if (large) {
+      ppu->oam[512u + i / 4u] = (Uint8)(ppu->oam[512u + i / 4u] | (2u << ((i & 3u) * 2u)));
+    }
+  }
+}
+
+static void test_sprite_limits(void) {
+  SmxBus bus;
+  SmxPpu ppu;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_ppu_init(&ppu, &bus);
+  smx_bus_write(&bus, 0x002100, 0x0F);
+  smx_bus_write(&bus, 0x002101, 0x00);
+  smx_bus_write(&bus, 0x00212C, 0x10);
+  ppu.vram[32] = 0x80;
+  smx_ppu_write_cgram(&ppu, 129, 0x001F);
+
+  /* 33 sprites on a line: only the first 32 in OAM order are kept. */
+  place_sprites(&ppu, 33, 7, false, 0);
+  smx_ppu_render(&ppu);
+  expect_u8("32nd sprite shown", ppu.pixels[(31u * 7u) * 4u + 2u], 255);
+  expect_u8("33rd sprite dropped", ppu.pixels[(32u * 7u) * 4u + 2u], 0);
+
+  /* 18 16x16 sprites need 36 tiles. They are fetched last first, so sprite 0 misses out. */
+  place_sprites(&ppu, 18, 8, true, 0);
+  smx_ppu_render(&ppu);
+  expect_u8("first sprite out of time", ppu.pixels[2], 0);
+  expect_u8("second sprite shown", ppu.pixels[8u * 4u + 2u], 255);
+
+  /* Color math only adds to sprites in palettes 4-7. */
+  place_sprites(&ppu, 1, 0, false, 0);
+  ppu.oam[4] = 8;
+  ppu.oam[5] = 255;
+  ppu.oam[6] = 1;
+  ppu.oam[7] = 0x08;
+  smx_ppu_write_cgram(&ppu, 129, 0x0010);
+  smx_ppu_write_cgram(&ppu, 193, 0x0010);
+  smx_bus_write(&bus, 0x002130, 0x00);
+  smx_bus_write(&bus, 0x002131, 0x10);
+  smx_bus_write(&bus, 0x002132, 0x2F);
+  smx_ppu_render(&ppu);
+  expect_u8("palette 0 sprite skips math", ppu.pixels[2], 132);
+  expect_u8("palette 4 sprite adds", ppu.pixels[8u * 4u + 2u], 255);
+  smx_ppu_quit(&ppu);
+  smx_bus_quit(&bus);
+}
+
 int main(void) {
   SmxBus bus;
   SmxPpu ppu;
@@ -534,5 +595,6 @@ int main(void) {
 
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
+  test_sprite_limits();
   return g_failed ? 1 : 0;
 }
