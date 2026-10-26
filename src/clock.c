@@ -228,6 +228,9 @@ static void smx_clock_line_end(SmxClock *clock) {
   }
   if (clock->line == SMX_CLOCK_VBLANK_LINE) {
     smx_clock_joy_start(clock);
+    if (clock->ppu != NULL) {
+      smx_ppu_end_picture(clock->ppu);
+    }
   }
   smx_clock_line_start(clock);
 }

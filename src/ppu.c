@@ -66,6 +66,7 @@ void smx_ppu_init(SmxPpu *ppu, SmxBus *bus) {
   SDL_memset(ppu, 0, sizeof(*ppu));
   ppu->bus = bus;
   ppu->pixels = (Uint8 *)SDL_calloc((Uint32)SMX_PPU_WIDTH * SMX_PPU_HEIGHT, 4);
+  ppu->picture = (Uint8 *)SDL_calloc((Uint32)SMX_PPU_WIDTH * SMX_PPU_HEIGHT, 4);
   ppu->picture_matches_oracle = false;
   if (bus != NULL) {
     bus->mmio_write = smx_ppu_on_write;
@@ -82,6 +83,7 @@ void smx_ppu_quit(SmxPpu *ppu) {
     ppu->bus->mmio_user = NULL;
   }
   SDL_free(ppu->pixels);
+  SDL_free(ppu->picture);
   SDL_memset(ppu, 0, sizeof(*ppu));
 }
 
@@ -1039,6 +1041,13 @@ void smx_ppu_render(SmxPpu *ppu) {
   for (; y < SMX_PPU_HEIGHT; y += 1) {
     smx_ppu_render_line(ppu, y);
   }
+  smx_ppu_end_picture(ppu);
+}
+
+void smx_ppu_end_picture(SmxPpu *ppu) {
+  if (ppu->pixels != NULL && ppu->picture != NULL) {
+    SDL_memcpy(ppu->picture, ppu->pixels, (size_t)SMX_PPU_WIDTH * SMX_PPU_HEIGHT * 4u);
+  }
 }
 
 /** Mesen 2.1.1 NTSC frame 41, the Nintendo logo. */
@@ -1049,14 +1058,14 @@ Uint32 smx_ppu_frame_hash(const SmxPpu *ppu) {
   Uint32 i = 0;
   Uint32 count = (Uint32)SMX_PPU_WIDTH * SMX_PPU_HEIGHT * 4u;
   for (; i < count; i += 1) {
-    hash ^= ppu->pixels[i];
+    hash ^= ppu->picture[i];
     hash *= 16777619u;
   }
   return hash;
 }
 
 void smx_ppu_note_picture(SmxPpu *ppu) {
-  if (ppu == NULL || ppu->picture_matches_oracle || ppu->pixels == NULL) {
+  if (ppu == NULL || ppu->picture_matches_oracle || ppu->picture == NULL) {
     return;
   }
   if (smx_ppu_frame_hash(ppu) == SMX_PPU_NTSC_LOGO_HASH) {
