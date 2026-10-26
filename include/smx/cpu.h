@@ -28,8 +28,10 @@ typedef struct SmxCpuCode {
  * `last_at` is the value `clocks` had when the last cycle so far began.
  * `code`, when set, holds translated blocks that `smx_cpu_run` prefers over
  * the interpreter. Between two translated instructions a block calls `next`
- * with `next_user`; false ends the block there. `translated` and
- * `interpreted` count instructions run each way.
+ * with `next_user`; false ends the block there. When `code` is set and the
+ * current key has no block, `miss` is called with it before the instruction
+ * is interpreted. `translated` and `interpreted` count instructions run
+ * each way.
  */
 struct SmxCpu {
   SmxBus *bus;
@@ -50,6 +52,8 @@ struct SmxCpu {
   const SmxCpuCode *code;
   bool (*next)(void *user);
   void *next_user;
+  void (*miss)(void *user, Uint32 key);
+  void *miss_user;
   Uint64 translated;
   Uint64 interpreted;
 };

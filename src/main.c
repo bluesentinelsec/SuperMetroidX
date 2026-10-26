@@ -45,6 +45,37 @@ static const struct {
 /* Half of the stick or trigger range counts as pressed. */
 #define SMX_SHELL_AXIS_PRESS 16384
 
+/* Untranslated ROM code the shell ran, kept for the next translation. */
+static void smx_shell_miss(void *user, Uint32 key) {
+  smx_translate_add((SmxTranslator *)user, key);
+}
+
+/* Merge this session's misses into `<user data>/<rom name>.coverage`. */
+static void smx_shell_save_coverage(SmxTranslator *misses, const char *rom_path,
+                                    const SmxCart *cart) {
+  char path[1024];
+  char header[64];
+  Uint32 found = misses->entries.count;
+  size_t length = 0;
+
+  if (found == 0 || !smx_sram_default_path(path, sizeof(path), rom_path)) {
+    return;
+  }
+  length = SDL_strlen(path);
+  if (length > 4) {
+    path[length - 4] = '\0';
+  }
+  SDL_strlcat(path, ".coverage", sizeof(path));
+  SDL_snprintf(header, sizeof(header), "# SuperMetroidX coverage rom %08x\n",
+               (unsigned)smx_translate_rom_hash(cart->bytes, cart->size));
+  smx_translate_load_keys(misses, path, header, NULL);
+  if (smx_translate_save_keys(misses, path, header)) {
+    SDL_Log("%u untranslated entry points ran; %u are recorded in %s. Rebuild with "
+            "-DSMX_RECOMP_SEEDS=<that file> to translate them.",
+            (unsigned)found, (unsigned)misses->entries.count, path);
+  }
+}
+
 /* Frames between checks for SRAM the game has changed. */
 #define SMX_SHELL_SRAM_FRAMES 60u
 
@@ -138,11 +169,13 @@ int main(int argc, char **argv) {
   SmxApu apu;
   SmxClock clock;
   SmxSram sram;
+  SmxTranslator misses;
   SDL_Gamepad *pad = NULL;
   Uint32 sram_clock = 0;
   bool playing = false;
   bool machine = false;
   smx_cart_init(&cart);
+  SDL_memset(&misses, 0, sizeof(misses));
   if (smx_cart_load_path(&cart, rom_path)) {
     smx_bus_init(&bus, cart.bytes, cart.size, smx_cart_sram_bytes(cart.sram_size_code));
     smx_cpu_init(&cpu, &bus);
@@ -155,6 +188,9 @@ int main(int argc, char **argv) {
     if (smx_game.code.count != 0 && smx_game.rom_size == cart.size &&
         smx_game.rom_hash == smx_translate_rom_hash(cart.bytes, cart.size)) {
       cpu.code = &smx_game.code;
+      smx_translate_init(&misses, cart.bytes, cart.size);
+      cpu.miss = smx_shell_miss;
+      cpu.miss_user = &misses;
       SDL_Log("running %u translated entry points", (unsigned)smx_game.code.count);
     } else if (smx_game.code.count != 0) {
       SDL_Log("the translation is of a different ROM; interpreting");
@@ -319,6 +355,10 @@ int main(int argc, char **argv) {
   if (machine) {
     smx_sram_flush(&sram, &bus);
     smx_sram_close(&sram);
+    if (!smoke) {
+      smx_shell_save_coverage(&misses, rom_path, &cart);
+    }
+    smx_translate_free(&misses);
     SDL_Log("instructions: %llu translated, %llu interpreted", (unsigned long long)cpu.translated,
             (unsigned long long)cpu.interpreted);
     smx_ppu_quit(&ppu);

@@ -57,6 +57,18 @@ bool smx_translate_add(SmxTranslator *translator, Uint32 key);
 /** Add the reset vector in emulation mode and NMI and IRQ under every M and X. */
 void smx_translate_add_vectors(SmxTranslator *translator);
 
+/**
+ * Add the keys in `path`, one hexadecimal `SMX_CPU_KEY` per line; lines
+ * starting with `#` are skipped. When `header` is set the file must begin
+ * with it. `added`, when set, receives how many keys were new. False when
+ * the file cannot be read or has another header.
+ */
+bool smx_translate_load_keys(SmxTranslator *translator, const char *path, const char *header,
+                             Uint32 *added);
+
+/** Write `header`, when set, then every entry, in the format `smx_translate_load_keys` reads. */
+bool smx_translate_save_keys(const SmxTranslator *translator, const char *path, const char *header);
+
 /** Follow control flow from every entry not yet explored. */
 void smx_translate_explore(SmxTranslator *translator);
 

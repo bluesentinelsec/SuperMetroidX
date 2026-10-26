@@ -90,17 +90,23 @@ endfunction()
 # never committed. Without a ROM the shell links an empty translation.
 set(SMX_ROM "${CMAKE_SOURCE_DIR}/SuperMetroid.sfc" CACHE FILEPATH "ROM translated into the shell")
 option(SMX_RECOMP_TRACE "Trace the ROM in the interpreter to find more code" ON)
+set(SMX_RECOMP_SEEDS "" CACHE FILEPATH "Coverage file from the shell with more entry points")
 if(EXISTS "${SMX_ROM}")
   set(SMX_GAME_DIR "${CMAKE_BINARY_DIR}/game")
   set(SMX_RECOMP_FLAGS "")
+  set(SMX_RECOMP_DEPENDS smxrecomp "${SMX_ROM}")
   if(NOT SMX_RECOMP_TRACE)
-    set(SMX_RECOMP_FLAGS "--no-trace")
+    list(APPEND SMX_RECOMP_FLAGS "--no-trace")
+  endif()
+  if(SMX_RECOMP_SEEDS)
+    list(APPEND SMX_RECOMP_FLAGS "--seeds" "${SMX_RECOMP_SEEDS}")
+    list(APPEND SMX_RECOMP_DEPENDS "${SMX_RECOMP_SEEDS}")
   endif()
   smx_game_sources("${SMX_GAME_DIR}" SMX_GAME_SOURCES)
   add_custom_command(
     OUTPUT ${SMX_GAME_SOURCES}
     COMMAND smxrecomp ${SMX_RECOMP_FLAGS} "${SMX_ROM}" "${SMX_GAME_DIR}"
-    DEPENDS smxrecomp "${SMX_ROM}"
+    DEPENDS ${SMX_RECOMP_DEPENDS}
     COMMENT "Translating ${SMX_ROM}"
     VERBATIM
   )

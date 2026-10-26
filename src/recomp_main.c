@@ -43,68 +43,6 @@ static void smx_usage(void) {
   SDL_Log("  The trace is cached in OUTDIR/trace.txt for the same ROM.");
 }
 
-static Uint32 smx_parse_u32(const char *text, Sint32 base) {
-  return (Uint32)SDL_strtoul(text, NULL, base);
-}
-
-/*
- * Add each hexadecimal key in `path`. Blank lines and `#` comments are
- * skipped. When `header` is set, the first line must equal it.
- */
-static bool smx_add_seeds(SmxTranslator *translator, const char *path, const char *header) {
-  size_t size = 0;
-  char *text = (char *)SDL_LoadFile(path, &size);
-  char *line = text;
-  Uint32 added = 0;
-
-  if (text == NULL) {
-    if (header == NULL) {
-      SDL_Log("smxrecomp: cannot read %s: %s", path, SDL_GetError());
-    }
-    return false;
-  }
-  if (header != NULL && SDL_strncmp(text, header, SDL_strlen(header)) != 0) {
-    SDL_free(text);
-    return false;
-  }
-  while (line != NULL && *line != '\0') {
-    char *end = SDL_strchr(line, '\n');
-    if (end != NULL) {
-      *end = '\0';
-    }
-    if (line[0] != '#' && line[0] != '\0' && line[0] != '\r') {
-      if (smx_translate_add(translator, smx_parse_u32(line, 16))) {
-        added += 1;
-      }
-    }
-    line = end == NULL ? NULL : end + 1;
-  }
-  SDL_free(text);
-  SDL_Log("smxrecomp: %u new entries from %s", (unsigned)added, path);
-  return true;
-}
-
-/* Save every entry so far after `header`. */
-static bool smx_save_trace(const SmxTranslator *translator, const char *path, const char *header) {
-  SDL_IOStream *out = SDL_IOFromFile(path, "wb");
-  Uint32 index = 0;
-  char line[32];
-
-  if (out == NULL) {
-    SDL_Log("smxrecomp: cannot write %s: %s", path, SDL_GetError());
-    return false;
-  }
-  SDL_WriteIO(out, header, SDL_strlen(header));
-  for (; index < translator->entries.capacity; index += 1) {
-    if (translator->entries.slots[index] != 0) {
-      Sint32 length = SDL_snprintf(line, sizeof(line), "%x\n",
-                                   (unsigned)(translator->entries.slots[index] - 1u));
-      SDL_WriteIO(out, line, (size_t)length);
-    }
-  }
-  return SDL_CloseIO(out);
-}
-
 /* Trace both runs, or reuse the trace cached for this ROM and plan. */
 static bool smx_trace(SmxTranslator *translator, const SmxCart *cart, const char *out_dir) {
   char path[1024];
@@ -114,7 +52,8 @@ static bool smx_trace(SmxTranslator *translator, const SmxCart *cart, const char
   SDL_snprintf(path, sizeof(path), "%s/trace.txt", out_dir);
   SDL_snprintf(header, sizeof(header), "# smxrecomp trace rom %08x plan %u\n",
                (unsigned)smx_translate_rom_hash(cart->bytes, cart->size), (unsigned)SMX_TRACE_PLAN);
-  if (smx_add_seeds(translator, path, header)) {
+  if (smx_translate_load_keys(translator, path, header, NULL)) {
+    SDL_Log("smxrecomp: reusing %s", path);
     return true;
   }
   SDL_Log("smxrecomp: tracing %u idle frames", (unsigned)SMX_TRACE_IDLE_FRAMES);
@@ -126,7 +65,7 @@ static bool smx_trace(SmxTranslator *translator, const SmxCart *cart, const char
     return false;
   }
   SDL_CreateDirectory(out_dir);
-  return smx_save_trace(translator, path, header);
+  return smx_translate_save_keys(translator, path, header);
 }
 
 int main(int argc, char **argv) {
@@ -167,7 +106,13 @@ int main(int argc, char **argv) {
   smx_translate_init(&translator, cart.bytes, cart.size);
   smx_translate_add_vectors(&translator);
   if (seeds != NULL) {
-    ok = smx_add_seeds(&translator, seeds, NULL);
+    Uint32 added = 0;
+    ok = smx_translate_load_keys(&translator, seeds, NULL, &added);
+    if (ok) {
+      SDL_Log("smxrecomp: %u new entries from %s", (unsigned)added, seeds);
+    } else {
+      SDL_Log("smxrecomp: cannot read %s", seeds);
+    }
   }
   if (ok && trace) {
     ok = smx_trace(&translator, &cart, out_dir);
