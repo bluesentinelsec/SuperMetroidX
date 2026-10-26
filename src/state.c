@@ -191,6 +191,17 @@ bool smx_state_save(const SmxMachine *machine, Uint32 rom_hash, const char *path
   return ok;
 }
 
+void smx_state_path(char *path, Uint32 size, const char *sram_path) {
+  size_t length = 0;
+
+  SDL_strlcpy(path, sram_path, size);
+  length = SDL_strlen(path);
+  if (length > 4 && SDL_strcmp(path + length - 4, ".srm") == 0) {
+    path[length - 4] = '\0';
+  }
+  SDL_strlcat(path, ".state", size);
+}
+
 bool smx_state_load(SmxMachine *machine, Uint32 rom_hash, const char *path) {
   size_t size = 0;
   Uint8 *data = (Uint8 *)SDL_LoadFile(path, &size);

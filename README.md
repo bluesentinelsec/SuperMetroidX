@@ -49,11 +49,25 @@ The first build translates the ROM. `smxrecomp` plays the attract demos and the 
 | L / R | Q / W | Shoulders or triggers |
 | Start / Select | Return / Right Shift | Start / Back |
 
-F11 or Alt+Enter toggles fullscreen. F5 saves a quick-save state and F9 loads it.
+F11 or Alt+Enter toggles fullscreen. F5 saves a quick-save state and F9 loads it. `--load-state` on the command line starts from the quick-save.
 
 ## Saves
 
 The cartridge's battery-backed SRAM is kept as `<rom name>.srm` in your user-data directory: on macOS `~/Library/Application Support/SuperMetroidX/SuperMetroidX/`, on Windows `%APPDATA%\SuperMetroidX\SuperMetroidX\`, and on Linux `~/.local/share/SuperMetroidX/SuperMetroidX/`. Quick-save states go next to it as `<rom name>.state`. They hold everything but SRAM, so loading one never undoes the game's own saves. A state only loads into the build and ROM that made it. Set `SMX_DATA_DIR` to keep saves somewhere else, such as next to a portable install. The game saves at save stations as it would on a console, and the file is updated within a second.
+
+## Play testing
+
+`playtest.sh` starts the game in play at a chosen section, skipping the intro and Ceres:
+
+```sh
+./playtest.sh norfair                 # the first Norfair save station, with Varia
+./playtest.sh maridia --items screw   # add items or beams to the section's loadout
+./playtest.sh --debug tourian         # under lldb or gdb, with a backtrace on a crash
+./playtest.sh --keep norfair          # continue the last Norfair session
+./playtest.sh --list                  # sections and loadout options
+```
+
+The sections are `ceres`, `landing`, `crateria`, `brinstar`, `norfair`, `wrecked-ship`, `maridia`, and `tourian`. Each starts with clear progress flags: bosses are alive and the Wrecked Ship is unpowered. The script uses `smxsave`, which plays the ROM headless: the game formats its own SRAM, slot A is written at the section's save station with its loadout, and the tool presses through the title and file select to a quick-save state in play. Saves and states from a play test stay in `build/playtest/<section>/`, apart from your own.
 
 ## The translator
 

@@ -46,4 +46,7 @@ bool smx_state_save(const SmxMachine *machine, Uint32 rom_hash, const char *path
 /** Restore from a file. False when it is missing or does not fit this ROM and build. */
 bool smx_state_load(SmxMachine *machine, Uint32 rom_hash, const char *path);
 
+/** The quick-save state beside an SRAM file: `sram_path` with `.srm` replaced by `.state`. */
+void smx_state_path(char *path, Uint32 size, const char *sram_path);
+
 #endif /* SMX_STATE_H_ */

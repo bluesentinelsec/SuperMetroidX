@@ -53,6 +53,7 @@ set(SMX_SOURCES
   src/clock.c
   src/sram.c
   src/state.c
+  src/save.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -73,6 +74,10 @@ endif()
 
 add_executable(smxrecomp src/recomp_main.c)
 target_link_libraries(smxrecomp PRIVATE smx_tool)
+
+# smxsave plays the ROM headless to write play-test saves; see playtest.sh.
+add_executable(smxsave src/save_main.c)
+target_link_libraries(smxsave PRIVATE smx_tool)
 
 # The C files smxrecomp writes into `dir`.
 function(smx_game_sources dir out)
@@ -194,6 +199,10 @@ add_executable(smx_test_translate tests/test_translate.c)
 target_link_libraries(smx_test_translate PRIVATE smx_test_game smx)
 target_include_directories(smx_test_translate PRIVATE tests)
 add_test(NAME translate COMMAND smx_test_translate)
+
+add_executable(smx_test_save tests/test_save.c)
+target_link_libraries(smx_test_save PRIVATE smx)
+add_test(NAME save COMMAND smx_test_save)
 
 add_executable(smx_test_state tests/test_state.c)
 target_link_libraries(smx_test_state PRIVATE smx)
