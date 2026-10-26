@@ -84,7 +84,8 @@ int main(void) {
   expect_true("counter ran", a->bus.wram[0x10] != 0);
   expect_true("same cpu", a->cpu.pc == b->cpu.pc && a->cpu.a == b->cpu.a && a->cpu.p == b->cpu.p);
   expect_true("same time", a->clock.dots == b->clock.dots && a->clock.frame == b->clock.frame);
-  expect_true("same spc", a->apu.core.cycle == b->apu.core.cycle && a->apu.core.pc == b->apu.core.pc);
+  expect_true("same spc",
+              a->apu.core.cycle == b->apu.core.cycle && a->apu.core.pc == b->apu.core.pc);
   expect_true("same picture", SDL_memcmp(a->ppu.pixels, b->ppu.pixels,
                                          (size_t)SMX_PPU_WIDTH * SMX_PPU_HEIGHT * 4u) == 0);
 
