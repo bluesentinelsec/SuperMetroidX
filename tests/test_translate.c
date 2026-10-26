@@ -127,7 +127,6 @@ static void randomize(Machine *machine, Uint32 slot, const Uint8 *wram) {
   SDL_memcpy(machine->bus.wram, wram, SMX_BUS_WRAM_SIZE);
   SDL_memset(machine->bus.mmio, 0, sizeof(machine->bus.mmio));
   machine->bus.open_bus = 0;
-  machine->bus.dma_requested = false;
   cpu->a = (Uint16)rand32();
   cpu->x = (Uint16)rand32();
   cpu->y = (Uint16)rand32();

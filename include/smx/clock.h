@@ -26,45 +26,46 @@
 #define SMX_CLOCK_SPC_HZ 1025280u
 /**
  * Master clock in the line where DRAM refresh pauses the CPU for 40 clocks,
- * less the line start's offset from an 8-clock boundary (0 or 4).
+ * less the line start's offset from an 8-clock boundary.
  */
 #define SMX_CLOCK_REFRESH_DOT 538u
 #define SMX_CLOCK_REFRESH_DOTS 40u
+/** HDMA reloads on line 0 this many clocks in, plus the line start's offset. */
+#define SMX_CLOCK_HDMA_INIT_DOT 12u
+/** HDMA transfers on lines 0 to 224 at this dot. */
+#define SMX_CLOCK_HDMA_DOT 1104u
 /** At PPU dot `h`, the pixels left of `h - 21` have been drawn. */
 #define SMX_CLOCK_FIRST_PIXEL_DOT 21u
 
 /**
- * Instruction-timed NTSC clock.
- * Each instruction spends the master clocks the CPU counted for it: every
- * access at its bus speed and 6 for each internal cycle. General-purpose DMA,
- * HDMA, and DRAM refresh pause the CPU for the clocks they cost, which
- * `stall` holds until the next step. Time advances one line at a time.
- * `$4212` bit 7 follows vblank.
- * Bit 0 stays set for 4224 master clocks from the start of vblank,
- * and `$4200` bit 7 arms an NMI on the rising edge. A write to `$420B`
- * runs general-purpose DMA before the next instruction. `$4200` bit 4
- * fires an IRQ when the line reaches PPU dot `$4207`/`$4208`, four master
- * clocks per dot. Bit 5
- * still fires at the start of the line in `$4209`/`$420A`. Both bits wait
- * for that dot on that line. HDMA reloads when line 0 starts and runs as
- * each of lines 1 to 224 starts. When `ppu` is set, each visible line is
- * drawn as the dot counter leaves it, before HDMA for the next line. A PPU
- * register write first draws the line up to the beam, so the write only
- * changes the pixels after it. `drawn_x` is how far the line has been drawn.
- * The SPC700 keeps pace with the master clock at the ratio of
- * `SMX_CLOCK_SPC_HZ` to `SMX_CLOCK_MASTER_HZ`; `apu_at` is the master clock it
- * has been paced to. A CPU access to `$2140-$2143` first runs the SPC700 up
- * to the time of that access and gives the APU that time, so each side sees
- * the other's port writes as of its own access.
- * `line` and `dot` are the beam position, `frame` counts frames since power
- * on, and `field` flips at each new frame. Odd fields drop four master clocks
- * from line 240 unless `$2133` bit 0 selects interlace.
- * A CPU read of `$2137-$213F` or `$4210-$421F` first advances time to that
- * access; `cpu_done` is how much of the instruction has been spent that way.
- * NMI and IRQ edges are timed (`nmi_edge`, `irq_edge`). After each
- * instruction the CPU takes one that rose at least 6 clocks before that
- * instruction's last cycle began; a later edge waits for the next. IRQ is
- * level: TIMEUP in `$4211` holds it until the CPU reads `$4211`.
+ * The S-CPU's clock and its internal registers (`$4200-$421F`).
+ *
+ * Time advances as each CPU cycle happens. A read samples the bus 4 clocks
+ * before its cycle ends; a write lands at the end. `dots` is the master
+ * clock, `line` and `dot` the beam position, `frame` counts frames since
+ * power on, and `field` flips at each new frame. Odd fields drop four master
+ * clocks from line 240 unless `$2133` bit 0 selects interlace.
+ *
+ * Each line pauses the CPU 40 clocks for DRAM refresh. HDMA reloads early on
+ * line 0 and transfers late on lines 0 to 224, and general-purpose DMA starts
+ * after a write to `$420B`. Each waits for a CPU cycle start (see `SmxDma`).
+ *
+ * Interrupts: vblank sets `$4210` bit 7 two clocks into line 225, and four
+ * clocks later signals NMI when `$4200` bit 7 is on. The H/V counters tick
+ * every 4 clocks. A match with `$4207-$420A` sets `$4211` bit 7 a tick later
+ * and drives IRQ a tick after that; IRQ stays up until `$4211` is read.
+ * At each CPU cycle start the CPU samples both lines, unless DMA has just
+ * run then. After an instruction it takes a pending NMI, else an IRQ seen
+ * unmasked at its last cycle start.
+ *
+ * Auto-joypad reads `joy` into `$4218-$4219` over 4224 clocks from just
+ * after vblank begins, holding `$4212` bit 0 meanwhile. When `ppu` is set,
+ * each visible line is drawn as the beam leaves it, and a PPU register write
+ * first draws the line up to the beam. The SPC700 is run up to each APU port
+ * access and to the end of each step; `apu_at` is the master clock it has
+ * reached. `start` is when the current instruction began. `step_frame` is
+ * the frame the current step began in. `ended` means a translated block has
+ * already finished its last instruction.
  */
 typedef struct SmxClock {
   SmxBus *bus;
@@ -76,32 +77,59 @@ typedef struct SmxClock {
   Uint32 line;
   Uint32 dot;
   bool field;
-  Uint32 stall;
-  Uint32 cpu_done;
   Uint32 drawn_x;
   Uint64 apu_at;
   Uint32 dma_count;
   /** Auto-joypad value: low byte to `$4218` (A X L R), high byte to `$4219`. */
   Uint16 joy;
-  bool prev_vblank;
-  bool nmi_pending;
-  Uint64 nmi_edge;
-  Uint64 irq_edge;
-  /** When the current instruction started, and the frame the current step started in. */
+  /* Line events: the next at `event_at`, and this line's refresh dot. */
+  Uint8 event;
+  Uint32 event_at;
+  Uint32 refresh_at;
+  /* NMI: `$4210` bit 7, cycle starts until it is recognized, and recognized. */
+  bool nmi_flag;
+  Uint8 nmi_count;
+  bool need_nmi;
+  /* IRQ: `$4211` bit 7, ticks until the flag or line changes, the line, the H/V match. */
+  bool irq_flag;
+  Uint8 irq_delay;
+  bool irq_line;
+  bool irq_match;
+  bool prev_irq;
+  /* Auto-joypad: when this frame's read starts, and the value it reads. */
+  Uint64 joy_start;
+  Uint16 joy_latched;
+  bool joy_enabled;
+  /* Multiply and divide: the operands, the results, and cycles left. */
+  Uint8 mul_a;
+  Uint16 dividend;
+  Uint16 quotient;
+  Uint16 product;
+  Uint32 alu_shift;
+  Uint8 mul_left;
+  Uint8 div_left;
+  Uint64 alu_cycle;
+  /** CPU cycles started, for the multiply and divide unit. */
+  Uint64 cpu_cycles;
   Uint64 start;
   Uint64 step_frame;
-  /** A translated block already finished its last instruction. */
   bool ended;
 } SmxClock;
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);
 
 /**
- * Pay any pending stall, then run one instruction and the dots it consumes.
+ * Run one instruction, then take a pending interrupt.
  * With translated code, one step may run a block of instructions, each timed
  * as if stepped alone; the block ends early at an interrupt or a new frame.
  */
 bool smx_clock_step(SmxClock *clock);
+
+/**
+ * Put the beam at `dot` of `line` in the current frame, as if time had run
+ * there without refresh or HDMA. For tests that start mid-frame.
+ */
+void smx_clock_seek(SmxClock *clock, Uint32 line, Uint32 dot);
 
 /** Run master clocks up to the start of the next NTSC frame. */
 bool smx_clock_frame(SmxClock *clock);

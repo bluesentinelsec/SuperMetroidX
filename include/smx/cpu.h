@@ -26,6 +26,13 @@ typedef struct SmxCpuCode {
  * `clocks` gains the master clocks of every access at the bus speed of its
  * address, plus 6 for each internal cycle. The caller drains it.
  * `last_at` is the value `clocks` had when the last cycle so far began.
+ * When a clock is attached, `cycle_begin` is called as each cycle starts with
+ * its length, and `cycle_advance` as its time passes: a read samples the bus
+ * 4 clocks before its cycle ends, and a write lands at the end.
+ * `interrupt_soon` tells an implied instruction to turn its internal cycle
+ * into a read of the next opcode, as the CPU does when an interrupt is about
+ * to be taken. `wai_over` is set by the clock when an interrupt line rises,
+ * and ends WAI one cycle later.
  * `code`, when set, holds translated blocks that `smx_cpu_run` prefers over
  * the interpreter. Between two translated instructions a block calls `next`
  * with `next_user`; false ends the block there. When `code` is set and the
@@ -51,6 +58,11 @@ struct SmxCpu {
   Uint32 last_at;
   /** Mask for the second byte of a 16-bit operand: direct-page operands wrap in bank 0. */
   Uint32 ea_mask;
+  void (*cycle_begin)(void *user, Uint32 clocks);
+  void (*cycle_advance)(void *user, Uint32 clocks);
+  bool (*interrupt_soon)(void *user);
+  void *cycle_user;
+  bool wai_over;
   const SmxCpuCode *code;
   bool (*next)(void *user);
   void *next_user;

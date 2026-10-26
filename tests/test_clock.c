@@ -25,8 +25,8 @@ static void test_vblank_poll(void) {
   SmxCpu cpu;
   SmxDma dma;
   SmxClock clock;
-  static const Uint8 code[] = {0xA2, 0x01, 0xAD, 0x12, 0x42, 0x10, 0xFB, 0xAD, 0x12,
-                               0x42, 0x30, 0xFB, 0xCA, 0xD0, 0xF3, 0xA9, 0x55};
+  static const Uint8 code[] = {0xA2, 0x01, 0xAD, 0x12, 0x42, 0x10, 0xFB, 0xAD, 0x12, 0x42,
+                               0x30, 0xFB, 0xCA, 0xD0, 0xF3, 0xA9, 0x55, 0x80, 0xFE};
 
   smx_bus_init(&bus, NULL, 0, 0);
   smx_cpu_init(&cpu, &bus);
@@ -65,18 +65,21 @@ static void test_joy_busy(void) {
   cpu.pc = 0x1000;
   smx_bus_write(&bus, 0x1000, 0x80);
   smx_bus_write(&bus, 0x1001, 0xFE);
-  while ((smx_bus_mmio(&bus, 0x4212) & 0x80) == 0 && guard < 40000u) {
+  smx_bus_write(&bus, 0x004200, 0x01);
+  while ((smx_bus_read(&bus, 0x004212) & 0x80) == 0 && guard < 40000u) {
     smx_clock_step(&clock);
     guard += 1;
   }
-  expect_u8("joy busy", (Uint8)(smx_bus_mmio(&bus, 0x4212) & 0x01), 0x01);
-  guard = 0;
-  while (guard < 600u) {
+  /* The read starts a few hundred clocks into vblank, then holds bit 0 for 4224. */
+  for (guard = 0; (smx_bus_read(&bus, 0x004212) & 0x01) == 0 && guard < 40u; guard += 1) {
     smx_clock_step(&clock);
-    guard += 1;
   }
-  expect_u8("joy done", (Uint8)(smx_bus_mmio(&bus, 0x4212) & 0x01), 0x00);
-  expect_u8("still vblank", (Uint8)(smx_bus_mmio(&bus, 0x4212) & 0x80), 0x80);
+  expect_u8("joy busy", (Uint8)(smx_bus_read(&bus, 0x004212) & 0x01), 0x01);
+  for (guard = 0; guard < 600u; guard += 1) {
+    smx_clock_step(&clock);
+  }
+  expect_u8("joy done", (Uint8)(smx_bus_read(&bus, 0x004212) & 0x01), 0x00);
+  expect_u8("still vblank", (Uint8)(smx_bus_read(&bus, 0x004212) & 0x80), 0x80);
   smx_bus_quit(&bus);
 }
 
@@ -269,6 +272,8 @@ static void test_line_before_hdma(void) {
   smx_bus_write(&bus, 0x4303, 0x00);
   smx_bus_write(&bus, 0x4304, 0x7E);
   smx_bus_write(&bus, 0x420C, 0x01);
+  /* HDMA first reloads its tables on line 0 of the second frame. */
+  expect_true("first frame", smx_clock_frame(&clock));
   expect_true("scanline frame", smx_clock_frame(&clock));
   row0 = ppu.pixels[2];
   row1 = ppu.pixels[SMX_PPU_WIDTH * 4u + 2u];
@@ -333,14 +338,17 @@ static void test_h_irq_dot(void) {
   smx_dma_init(&dma, &bus);
   smx_clock_init(&clock, &cpu, &dma);
   smx_cpu_reset(&cpu);
-  while ((smx_bus_mmio(&bus, 0x4211) & 0x80) == 0 && guard < 4000u) {
+  while (!clock.irq_flag && guard < 4000u) {
     smx_clock_step(&clock);
     guard += 1;
   }
-  /* HTIME 100 is PPU dot 100, master clock 400 of the line. */
+  /*
+   * HTIME 100 matches the H counter at master clock 410 and the flag rises a
+   * tick later; the step that sees it also takes the IRQ.
+   */
   dot = clock.dot;
-  expect_true("h-irq fired", (smx_bus_mmio(&bus, 0x4211) & 0x80) != 0);
-  expect_true("h-irq at dot 100", dot >= 400u && dot < 460u);
+  expect_true("h-irq fired", clock.irq_flag);
+  expect_true("h-irq at dot 100", dot >= 414u && dot < 520u);
   smx_bus_quit(&bus);
 }
 
@@ -366,9 +374,7 @@ static void test_mid_line_write(void) {
   smx_ppu_write_cgram(&ppu, 0, 0x7FFF);
   smx_bus_write(&bus, 0x002100, 0x0F);
   /* Master clock 600 is PPU dot 150, so pixels 0 to 128 are already out. */
-  clock.dots = (Uint64)line * SMX_CLOCK_DOTS_PER_LINE + 600u;
-  clock.line = line;
-  clock.dot = 600u;
+  smx_clock_seek(&clock, line, 600u);
   smx_bus_write(&bus, 0x002100, 0x80);
   while (clock.line <= line) {
     smx_clock_step(&clock);
@@ -386,24 +392,31 @@ static void test_apu_port_sync(void) {
   SmxApu apu;
   SmxClock clock;
 
+  static const Uint8 code[] = {0xAD, 0x40, 0x21, 0x8D, 0x41, 0x21};
+  Uint32 index = 0;
+
   smx_bus_init(&bus, NULL, 0, 0);
   smx_cpu_init(&cpu, &bus);
   smx_dma_init(&dma, &bus);
   smx_apu_init(&apu, &bus);
   smx_clock_init(&clock, &cpu, &dma);
+  for (; index < sizeof(code); index += 1) {
+    smx_bus_write(&bus, 0x1000 + index, code[index]);
+  }
+  cpu.e = false;
+  cpu.p = 0x30;
+  cpu.pc = 0x1000;
+  smx_clock_seek(&clock, 0, 1000u);
   /*
-   * An instruction 1000 clocks into the frame has spent 30 more on this access.
-   * The CPU samples the bus 4 clocks before the access ends.
+   * LDA $2140 at 1000: three 8-clock WRAM fetches, then a 6-clock port read
+   * that samples the bus 4 clocks before it ends.
    */
-  clock.dots = 1000;
-  cpu.clocks = 30;
-  smx_bus_read(&bus, 0x002140);
-  expect_true("port read paces the spc", clock.apu_at == 1026u);
-  /* What is left is less than the next instruction, which would end after the access. */
+  smx_clock_step(&clock);
+  expect_true("port read paces the spc", clock.apu_at >= 1026u);
   expect_true("spc ran", apu.core.cycle * SMX_CLOCK_MASTER_HZ >= 1026u * (Uint64)SMX_CLOCK_SPC_HZ);
-  smx_bus_write(&bus, 0x002141, 0x00);
-  /* A port write takes effect when its cycle ends. */
-  expect_true("port write paces the spc", clock.apu_at == 1030u);
+  /* STA $2141 at 1030 lands when its port cycle ends, 30 clocks in. */
+  smx_clock_step(&clock);
+  expect_true("port write paces the spc", clock.apu_at >= 1060u && clock.dots == 1060u);
   smx_bus_quit(&bus);
 }
 
@@ -462,10 +475,7 @@ static Uint32 nops_before_nmi(Uint32 into) {
   cpu.pb = 0;
   cpu.pc = 0x8000;
   smx_bus_write(&bus, 0x004200, 0x80);
-  clock.line = SMX_CLOCK_VBLANK_LINE - 1u;
-  clock.dot = SMX_CLOCK_DOTS_PER_LINE - into;
-  clock.dots = (Uint64)clock.line * SMX_CLOCK_DOTS_PER_LINE + clock.dot;
-  clock.prev_vblank = false;
+  smx_clock_seek(&clock, SMX_CLOCK_VBLANK_LINE - 1u, SMX_CLOCK_DOTS_PER_LINE - into);
   while (cpu.pc != 0x8100 && count < 8u) {
     smx_clock_step(&clock);
     count += 1;
@@ -474,10 +484,13 @@ static Uint32 nops_before_nmi(Uint32 into) {
   return count;
 }
 
-/* An edge later than 6 clocks before an instruction's last cycle waits one more instruction. */
+/*
+ * Vblank signals NMI 6 clocks into line 225; a cycle starting after that
+ * recognizes it, and the instruction ending next takes it.
+ */
 static void test_nmi_latency(void) {
-  expect_true("edge 14 clocks before the last cycle is taken", nops_before_nmi(10) == 1u);
-  expect_true("edge 4 clocks before the last cycle waits one more", nops_before_nmi(20) == 2u);
+  expect_true("signal before the last cycle starts is taken", nops_before_nmi(10) == 1u);
+  expect_true("signal after the last cycle starts waits one more", nops_before_nmi(20) == 2u);
 }
 
 int main(void) {

@@ -43,20 +43,40 @@ static void apply_p(SmxCpu *cpu, Uint8 p) {
   }
 }
 
-/* Each cycle records where it starts before it is spent. */
+/* Each cycle records where it starts, then tells the clock it has begun. */
 static void cycle(SmxCpu *cpu, Uint32 clocks) {
   cpu->last_at = cpu->clocks;
   cpu->clocks += clocks;
+  if (cpu->cycle_begin != NULL) {
+    cpu->cycle_begin(cpu->cycle_user, clocks);
+  }
+}
+
+static void pass(SmxCpu *cpu, Uint32 clocks) {
+  if (cpu->cycle_advance != NULL) {
+    cpu->cycle_advance(cpu->cycle_user, clocks);
+  }
 }
 
 static void io(SmxCpu *cpu) {
   cycle(cpu, 6u);
+  pass(cpu, 6u);
+}
+
+/* A read samples the bus 4 master clocks before its cycle ends. */
+static Uint8 read_cycle(SmxCpu *cpu, Uint32 addr) {
+  Uint32 speed = smx_bus_speed(cpu->bus, addr);
+  Uint8 value = 0;
+
+  cycle(cpu, speed);
+  pass(cpu, speed - 4u);
+  value = smx_bus_read(cpu->bus, addr);
+  pass(cpu, 4u);
+  return value;
 }
 
 static Uint8 fetch8(SmxCpu *cpu) {
-  Uint32 addr = ((Uint32)cpu->pb << 16) | cpu->pc;
-  Uint8 value = smx_bus_read(cpu->bus, addr);
-  cycle(cpu, smx_bus_speed(cpu->bus, addr));
+  Uint8 value = read_cycle(cpu, ((Uint32)cpu->pb << 16) | cpu->pc);
   cpu->pc = (Uint16)(cpu->pc + 1);
   return value;
 }
@@ -68,13 +88,25 @@ static Uint16 fetch16(SmxCpu *cpu) {
 }
 
 static Uint8 read8(SmxCpu *cpu, Uint32 addr) {
-  cycle(cpu, smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu));
-  return smx_bus_read(cpu->bus, addr & 0x00FFFFFFu);
+  return read_cycle(cpu, addr & 0x00FFFFFFu);
 }
 
+/* A write lands when its cycle ends. */
 static void write8(SmxCpu *cpu, Uint32 addr, Uint8 value) {
-  cycle(cpu, smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu));
+  Uint32 speed = smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu);
+
+  cycle(cpu, speed);
+  pass(cpu, speed);
   smx_bus_write(cpu->bus, addr & 0x00FFFFFFu, value);
+}
+
+/* An implied instruction's internal cycle, or a read at PC when an interrupt is coming. */
+static void io_or_read(SmxCpu *cpu) {
+  if (cpu->interrupt_soon != NULL && cpu->interrupt_soon(cpu->cycle_user)) {
+    read8(cpu, ((Uint32)cpu->pb << 16) | cpu->pc);
+  } else {
+    io(cpu);
+  }
 }
 
 static Uint16 read16p(SmxCpu *cpu, Uint8 bank, Uint16 addr) {
@@ -610,6 +642,7 @@ void smx_cpu_reset(SmxCpu *cpu) {
   cpu->waiting = false;
   /* Mesen 2.1.1 fetches the first opcode 186 master clocks after power-on. */
   cpu->clocks = 170u;
+  pass(cpu, 170u);
   cpu->pc = read16p(cpu, 0, 0xFFFC);
 }
 
@@ -696,6 +729,7 @@ static bool run_implied(SmxCpu *cpu, Uint8 op) {
     return true;
   case 0xCB:
     cpu->waiting = true;
+    cpu->wai_over = false;
     return true;
   case 0xDB:
     cpu->stopped = true;
@@ -943,7 +977,12 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return false;
   }
   if (cpu->waiting) {
+    /* An interrupt seen during one waiting cycle ends the wait after the next. */
+    bool over = cpu->wai_over;
     io(cpu);
+    if (over) {
+      cpu->waiting = false;
+    }
     return true;
   }
 
@@ -1081,11 +1120,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return true;
   }
 
-  if (run_implied(cpu, op)) {
-    Uint8 cycles = implied_io(op);
-    for (; cycles != 0; cycles -= 1) {
-      io(cpu);
-    }
+  if (smx_cpu_implied(cpu, op)) {
     return !cpu->stopped;
   }
 
@@ -1371,13 +1406,62 @@ void smx_cpu_shift(SmxCpu *cpu, Uint8 op, Uint32 addr) {
   shift_mem(cpu, op, addr);
 }
 
-bool smx_cpu_implied(SmxCpu *cpu, Uint8 op) {
-  Uint8 cycles = 0;
-
-  if (!run_implied(cpu, op)) {
+/*
+ * One-byte register and flag instructions spend their first internal cycle
+ * before they act, so an interrupt about to be taken sees the old flags.
+ */
+static bool implied_first(Uint8 op) {
+  switch (op) {
+  case 0x0A:
+  case 0x18:
+  case 0x1A:
+  case 0x1B:
+  case 0x2A:
+  case 0x38:
+  case 0x3A:
+  case 0x3B:
+  case 0x4A:
+  case 0x58:
+  case 0x5B:
+  case 0x6A:
+  case 0x78:
+  case 0x7B:
+  case 0x88:
+  case 0x8A:
+  case 0x98:
+  case 0x9A:
+  case 0x9B:
+  case 0xA8:
+  case 0xAA:
+  case 0xB8:
+  case 0xBA:
+  case 0xBB:
+  case 0xC8:
+  case 0xCA:
+  case 0xD8:
+  case 0xDB:
+  case 0xE8:
+  case 0xEA:
+  case 0xEB:
+  case 0xF8:
+  case 0xFB:
+    return true;
+  default:
     return false;
   }
-  for (cycles = implied_io(op); cycles != 0; cycles -= 1) {
+}
+
+bool smx_cpu_implied(SmxCpu *cpu, Uint8 op) {
+  Uint8 cycles = implied_io(op);
+
+  if (implied_first(op)) {
+    io_or_read(cpu);
+    cycles -= 1;
+    run_implied(cpu, op);
+  } else if (!run_implied(cpu, op)) {
+    return false;
+  }
+  for (; cycles != 0; cycles -= 1) {
     io(cpu);
   }
   return true;

@@ -40,6 +40,9 @@
  * `$2138` reads OAM.
  * Five-bit channels round to eight bits. picture_matches_oracle latches
  * once the picture matches the NTSC logo frame.
+ * `beam_line`, when a clock sets it, is the scanline being drawn. VRAM can
+ * then be written and read only in vblank or forced blank; at other times
+ * a write is dropped, a read gets 0, and the address still steps.
  */
 typedef struct SmxPpu {
   SmxBus *bus;
@@ -76,8 +79,11 @@ typedef struct SmxPpu {
   Uint8 fixed_b;
   Uint16 obj_color[256];
   Uint8 obj_prio[256];
+  /** Sprite pixels from palettes 4-7, the only ones color math applies to. */
+  bool obj_math[256];
   Uint8 *pixels;
   bool picture_matches_oracle;
+  const Uint32 *beam_line;
 } SmxPpu;
 
 void smx_ppu_init(SmxPpu *ppu, SmxBus *bus);

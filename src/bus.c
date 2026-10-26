@@ -87,14 +87,14 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
     value = bus->sram[file];
   } else if (smx_bus_rom_offset(bank, off, &file) && file < bus->rom_size) {
     value = bus->rom[file];
+  } else if ((bank & 0x7F) < 0x40 && off >= 0x4200 && off <= 0x421F && bus->reg_read != NULL) {
+    value = bus->reg_read(bus->sync_user, off, bus->open_bus);
   } else if ((bank & 0x7F) < 0x40 && off >= 0x2100 && off < 0x4500) {
-    if (bus->time_sync != NULL &&
-        ((off >= 0x2137 && off <= 0x213F) || (off >= 0x4210 && off <= 0x421F))) {
-      bus->time_sync(bus->sync_user);
-    }
     /* Status registers are readable. Write-only PPU registers read as open bus.
      * The PPU answers `$2134-$213F` and returns open bus for what it does not model. */
-    if (off >= 0x2134 && off <= 0x213F && bus->mmio_read != NULL) {
+    if (off >= 0x4300 && off <= 0x437F && (off & 0x0Fu) <= 0x0Bu) {
+      value = bus->mmio[off];
+    } else if (off >= 0x2134 && off <= 0x213F && bus->mmio_read != NULL) {
       value = bus->mmio_read(bus->mmio_user, off, bus->open_bus);
     } else if ((off >= 0x2140 && off <= 0x2143) || (off >= 0x4210 && off <= 0x421F)) {
       if (off <= 0x2143 && bus->apu_sync != NULL) {
@@ -137,11 +137,11 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
     if (off >= 0x2140 && off <= 0x2143 && bus->apu_sync != NULL) {
       bus->apu_sync(bus->sync_user, true);
     }
-    bus->mmio[off] = value;
-    if (off == 0x420B && value != 0) {
-      bus->dma_requested = true;
-      bus->dma_channels = value;
+    if (off >= 0x4200 && off <= 0x421F && bus->reg_write != NULL) {
+      bus->reg_write(bus->sync_user, off, value);
+      return;
     }
+    bus->mmio[off] = value;
     if (off == 0x4203) {
       Uint16 product = (Uint16)((Uint16)bus->mmio[0x4202] * value);
       bus->mmio[0x4216] = (Uint8)product;
