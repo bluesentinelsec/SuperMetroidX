@@ -1061,7 +1061,8 @@ static bool smx_emit_insn(SmxText *text, const SmxInsn *insn, const SmxMode *mod
       break;
     case 0x60:
       smx_text_put(text, "  smx_cpu_fetch(c);\n  smx_cpu_idle(c);\n  smx_cpu_idle(c);\n"
-                         "  smx_cpu_idle(c);\n  c->pc = (Uint16)(smx_cpu_pull16(c) + 1);\n");
+                         "  c->pc = smx_cpu_pull16(c);\n  smx_cpu_idle(c);\n"
+                         "  c->pc = (Uint16)(c->pc + 1);\n");
       break;
     case 0x6B:
       smx_text_put(text,
@@ -1078,7 +1079,7 @@ static bool smx_emit_insn(SmxText *text, const SmxInsn *insn, const SmxMode *mod
     case 0x22:
       smx_text_put(text,
                    "  smx_cpu_fetch(c);\n  smx_cpu_fetch(c);\n  smx_cpu_fetch(c);\n"
-                   "  smx_cpu_idle(c);\n  smx_cpu_fetch(c);\n  smx_cpu_push8(c, c->pb);\n"
+                   "  smx_cpu_push8(c, c->pb);\n  smx_cpu_idle(c);\n  smx_cpu_fetch(c);\n"
                    "  smx_cpu_push16(c, (Uint16)(c->pc - 1));\n  c->pb = 0x%02X;\n"
                    "  c->pc = 0x%04X;\n",
                    insn->bytes[3], smx_insn_word(insn));
@@ -1116,11 +1117,11 @@ static bool smx_emit_insn(SmxText *text, const SmxInsn *insn, const SmxMode *mod
                    smx_insn_word(insn), (Uint16)(smx_insn_word(insn) + 2u));
       break;
     case 0xFC:
-      smx_emit_fetches(text, 3);
+      /* The return address is pushed between the two operand bytes. */
+      smx_emit_fetches(text, 2);
       smx_text_put(text,
-                   "  smx_cpu_idle(c);\n  {\n    Uint16 at = (Uint16)(0x%04X + %s);\n"
-                   "    smx_cpu_push16(c, (Uint16)(c->pc - 1));\n"
-                   "    c->pc = smx_cpu_read_bank16(c, c->pb, at);\n  }\n",
+                   "  smx_cpu_push16(c, c->pc);\n  smx_cpu_fetch(c);\n  smx_cpu_idle(c);\n"
+                   "  c->pc = smx_cpu_read_bank16(c, c->pb, (Uint16)(0x%04X + %s));\n",
                    smx_insn_word(insn), index_x);
       break;
     default: /* BRL */

@@ -18,8 +18,6 @@ typedef struct SmxBus {
   Uint32 sram_size;
   Uint8 mmio[0x4500];
   Uint8 open_bus;
-  bool dma_requested;
-  Uint8 dma_channels;
   void (*mmio_write)(void *user, Uint16 addr, Uint8 value);
   Uint8 (*mmio_read)(void *user, Uint16 addr, Uint8 open_bus);
   void *mmio_user;
@@ -29,8 +27,13 @@ typedef struct SmxBus {
   void (*ppu_sync)(void *user);
   /** Called before an access to `$2140-$2143` so the SPC700 catches up. */
   void (*apu_sync)(void *user, bool write);
-  /** Called before a read of `$2137-$213F` or `$4210-$421F` so time reaches the access. */
-  void (*time_sync)(void *user);
+  /**
+   * The CPU's internal registers, `$4200-$421F`. A write is also latched in
+   * `mmio`. Without them, `$4210`/`$4211` reads acknowledge their flags and
+   * multiply and divide finish at once.
+   */
+  Uint8 (*reg_read)(void *user, Uint16 addr, Uint8 open_bus);
+  void (*reg_write)(void *user, Uint16 addr, Uint8 value);
   void *sync_user;
 } SmxBus;
 

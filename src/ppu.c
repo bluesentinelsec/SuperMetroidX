@@ -27,9 +27,17 @@ static void smx_ppu_vram_step(SmxPpu *ppu) {
   ppu->vram_addr = (Uint16)((ppu->vram_addr + step) & 0x7FFF);
 }
 
+/* VRAM is open to the CPU only in vblank or forced blank. */
+static bool smx_ppu_vram_open(const SmxPpu *ppu) {
+  return ppu->beam_line == NULL || *ppu->beam_line >= 225u ||
+         (smx_bus_mmio(ppu->bus, 0x2100) & 0x80) != 0;
+}
+
 static void smx_ppu_store_vram(SmxPpu *ppu, bool high, Uint8 value) {
   Uint16 word = smx_ppu_translate(ppu, ppu->vram_addr);
-  ppu->vram[(Uint32)word * 2u + (high ? 1u : 0u)] = value;
+  if (smx_ppu_vram_open(ppu)) {
+    ppu->vram[(Uint32)word * 2u + (high ? 1u : 0u)] = value;
+  }
   if (high == ppu->vram_inc_high) {
     smx_ppu_vram_step(ppu);
   }
@@ -37,6 +45,10 @@ static void smx_ppu_store_vram(SmxPpu *ppu, bool high, Uint8 value) {
 
 static void smx_ppu_prefetch(SmxPpu *ppu) {
   Uint32 word = smx_ppu_translate(ppu, ppu->vram_addr);
+  if (!smx_ppu_vram_open(ppu)) {
+    ppu->vram_latch = 0;
+    return;
+  }
   ppu->vram_latch = (Uint16)(ppu->vram[word * 2u] | ((Uint16)ppu->vram[word * 2u + 1u] << 8));
 }
 
@@ -305,7 +317,11 @@ static bool smx_ppu_region(Uint8 code, bool inside) {
 static Uint16 smx_ppu_math(const SmxPpu *ppu, Uint16 color, Uint8 source, Uint16 sub,
                            bool use_sub) {
   Uint8 addsub = smx_bus_mmio(ppu->bus, 0x2131);
-  Uint8 mask = source == 0 ? 0x20 : source < 5 ? (Uint8)(1u << (source - 1u)) : 0x10;
+  /* Source 6 is a sprite in palettes 0-3, which color math never touches. */
+  Uint8 mask = source == 0   ? 0x20
+               : source < 5  ? (Uint8)(1u << (source - 1u))
+               : source == 5 ? 0x10
+                             : 0;
   Sint16 channels[3];
   Sint16 fixed[3];
   Uint8 i = 0;
@@ -465,10 +481,17 @@ static void smx_ppu_sample_bg(const SmxPpu *ppu, Uint8 map_reg, Uint8 char_nibbl
 }
 
 /*
- * Evaluate the sprites on scanline `y` into `obj_color`/`obj_prio`.
- * The first opaque sprite pixel in OAM order wins, whatever its priority.
- * Its priority then only places it among the backgrounds. 0xFF marks none.
+ * Evaluate the sprites on scanline `y` into `obj_color`/`obj_prio`, as the
+ * PPU does. The first 32 sprites on the line in OAM order are kept (a sprite
+ * at X = -256 counts but never shows). Their tiles on screen are then fetched
+ * last sprite first, left to right, and only 34 fit in the line. A later
+ * fetch overwrites, so the first opaque sprite in OAM order wins, whatever
+ * its priority; the priority only places it among the backgrounds. 0xFF
+ * marks no sprite.
  */
+#define SMX_PPU_LINE_SPRITES 32u
+#define SMX_PPU_LINE_TILES 34u
+
 static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
   Uint8 obsel = smx_bus_mmio(ppu->bus, 0x2101);
   Uint8 size = (Uint8)((obsel >> 5) & 0x07);
@@ -478,57 +501,84 @@ static void smx_ppu_sprite_line(SmxPpu *ppu, Uint32 y) {
   static const Uint8 small_h[8] = {8, 8, 8, 16, 16, 32, 32, 32};
   static const Uint8 large_w[8] = {16, 32, 64, 32, 64, 64, 32, 32};
   static const Uint8 large_h[8] = {16, 32, 64, 32, 64, 64, 64, 32};
+  Uint8 kept[SMX_PPU_LINE_SPRITES];
+  Uint32 count = 0;
+  Uint32 tiles = 0;
   Uint16 n = 0;
   Uint16 first = ppu->oam_rotate ? (Uint16)((ppu->oam_base >> 1) & 0x7F) : 0;
 
   SDL_memset(ppu->obj_prio, 0xFF, sizeof(ppu->obj_prio));
-  for (; n < 128; n += 1) {
-    Uint16 sprite = (Uint16)((first + n) & 0x7F);
-    Uint8 attr = ppu->oam[sprite * 4u + 3u];
+  for (; n < 128 && count < SMX_PPU_LINE_SPRITES; n += 1) {
+    Uint8 sprite = (Uint8)((first + n) & 0x7F);
     Uint8 pair = (Uint8)((ppu->oam[512u + (sprite >> 2)] >> ((sprite & 3u) * 2u)) & 0x03);
-    Sint16 sx = ppu->oam[sprite * 4u];
+    Sint16 sx = (Sint16)(ppu->oam[sprite * 4u] - ((pair & 0x01) != 0 ? 256 : 0));
     Uint8 width = (pair & 0x02) != 0 ? large_w[size] : small_w[size];
     Uint8 height = (pair & 0x02) != 0 ? large_h[size] : small_h[size];
     Uint16 top = (Uint16)((ppu->oam[sprite * 4u + 1u] + 1u) & 0xFF);
-    Uint16 dy = (Uint16)((y - top) & 0xFF);
-    Sint16 dx = 0;
-
-    if ((pair & 0x01) != 0) {
-      sx = (Sint16)(sx - 256);
-    }
-    if (dy >= height) {
+    if (sx != -256 && (sx + width <= 0 || sx > 255)) {
       continue;
     }
-    if ((attr & 0x80) != 0) {
-      dy = (Uint16)(height - 1u - dy);
+    if ((Uint16)((y - top) & 0xFF) < height) {
+      kept[count] = sprite;
+      count += 1;
     }
-    for (dx = 0; dx < (Sint16)width; dx += 1) {
-      Sint16 x = (Sint16)(sx + dx);
-      Sint16 tx = (attr & 0x40) != 0 ? (Sint16)(width - 1 - dx) : dx;
-      Uint16 tile = 0;
-      Uint16 base = name_base;
-      Uint8 col = 0;
-      Uint8 row = 0;
-      Uint8 index = 0;
+  }
+  while (count != 0 && tiles < SMX_PPU_LINE_TILES) {
+    Uint8 sprite = kept[count - 1u];
+    Uint8 attr = ppu->oam[sprite * 4u + 3u];
+    Uint8 pair = (Uint8)((ppu->oam[512u + (sprite >> 2)] >> ((sprite & 3u) * 2u)) & 0x03);
+    Sint16 sx = (Sint16)(ppu->oam[sprite * 4u] - ((pair & 0x01) != 0 ? 256 : 0));
+    Uint8 width = (pair & 0x02) != 0 ? large_w[size] : small_w[size];
+    Uint16 top = (Uint16)((ppu->oam[sprite * 4u + 1u] + 1u) & 0xFF);
+    Uint16 dy = (Uint16)((y - top) & 0xFF);
+    Uint8 columns = (Uint8)(width / 8u);
+    Uint8 column = 0;
+    Uint16 pos = dy;
 
-      if (x < 0 || x >= (Sint16)SMX_PPU_WIDTH || ppu->obj_prio[x] != 0xFF) {
-        continue;
-      }
+    count -= 1;
+    /* Vertical flip mirrors rectangular sprites a square at a time. */
+    if ((attr & 0x80) != 0) {
+      pos = dy < width ? (Uint16)(width - 1u - dy) : (Uint16)(width * 3u - 1u - dy);
+    }
+    /* Tiles wholly left of the screen are skipped; X = -256 is fetched as if at 0. */
+    if (sx <= -8 && sx != -256) {
+      column = (Uint8)(-sx / 8);
+    }
+    for (; column < columns && tiles < SMX_PPU_LINE_TILES; column += 1) {
+      Sint16 tile_x = (Sint16)((sx == -256 ? 0 : sx) + column * 8);
+      Sint16 draw_x = (Sint16)(sx + column * 8);
+      Uint8 tile_col = (attr & 0x40) != 0 ? (Uint8)(columns - 1u - column) : column;
+      Uint16 tile = (Uint16)(ppu->oam[sprite * 4u + 2u] | ((Uint16)(attr & 0x01) << 8));
+      Uint16 base = name_base;
+      Uint8 px = 0;
+
+      tiles += 1;
       /* Larger sprites step through a 16x16 character grid that wraps. */
-      tile = (Uint16)(ppu->oam[sprite * 4u + 2u] | ((Uint16)(attr & 0x01) << 8));
-      col = (Uint8)(((tile & 0x0F) + (Uint16)(tx / 8)) & 0x0F);
-      row = (Uint8)((((tile >> 4) & 0x0F) + (Uint16)(dy / 8)) & 0x0F);
-      tile = (Uint16)((tile & 0x0100) | ((Uint16)row << 4) | col);
+      tile =
+          (Uint16)((tile & 0x0100) | ((Uint16)((((tile >> 4) & 0x0F) + (pos >> 3)) & 0x0F) << 4) |
+                   (((tile & 0x0F) + tile_col) & 0x0F));
       if ((tile & 0x0100) != 0) {
         base = (Uint16)(base + name_gap);
         tile = (Uint16)(tile & 0x00FF);
       }
-      index = smx_ppu_plane(ppu, base, tile, (Uint8)(dy & 7u), (Uint8)(tx & 7u), 4);
-      if (index == 0) {
-        continue;
+      for (px = 0; px < 8u; px += 1) {
+        Sint16 x = (Sint16)(draw_x + px);
+        Uint8 index = 0;
+        if (x < 0 || x >= (Sint16)SMX_PPU_WIDTH) {
+          continue;
+        }
+        index = smx_ppu_plane(ppu, base, tile, (Uint8)(pos & 7u),
+                              (Uint8)((attr & 0x40) != 0 ? 7u - px : px), 4);
+        if (index != 0) {
+          ppu->obj_prio[x] = (Uint8)((attr >> 4) & 0x03);
+          ppu->obj_math[x] = (attr & 0x08) != 0;
+          ppu->obj_color[x] = ppu->cgram[128u + ((Uint32)((attr >> 1) & 0x07) * 16u) + index];
+        }
       }
-      ppu->obj_prio[x] = (Uint8)((attr >> 4) & 0x03);
-      ppu->obj_color[x] = ppu->cgram[128u + ((Uint32)((attr >> 1) & 0x07) * 16u) + index];
+      /* The rest of the sprite is right of the screen. */
+      if (tile_x + 8 >= (Sint16)SMX_PPU_WIDTH) {
+        break;
+      }
     }
   }
 }
@@ -704,7 +754,7 @@ static void smx_ppu_paint_sprite(const SmxPpu *ppu, Uint32 x, Uint32 y, Uint8 sc
   }
   if (!smx_ppu_window_masks(ppu, 4, x, sub ? 0x212F : 0x212E)) {
     *color = ppu->obj_color[x];
-    *source = 5;
+    *source = ppu->obj_math[x] ? 5 : 6;
     *hit = true;
   }
 }

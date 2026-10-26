@@ -43,20 +43,40 @@ static void apply_p(SmxCpu *cpu, Uint8 p) {
   }
 }
 
-/* Each cycle records where it starts before it is spent. */
+/* Each cycle records where it starts, then tells the clock it has begun. */
 static void cycle(SmxCpu *cpu, Uint32 clocks) {
   cpu->last_at = cpu->clocks;
   cpu->clocks += clocks;
+  if (cpu->cycle_begin != NULL) {
+    cpu->cycle_begin(cpu->cycle_user, clocks);
+  }
+}
+
+static void pass(SmxCpu *cpu, Uint32 clocks) {
+  if (cpu->cycle_advance != NULL) {
+    cpu->cycle_advance(cpu->cycle_user, clocks);
+  }
 }
 
 static void io(SmxCpu *cpu) {
   cycle(cpu, 6u);
+  pass(cpu, 6u);
+}
+
+/* A read samples the bus 4 master clocks before its cycle ends. */
+static Uint8 read_cycle(SmxCpu *cpu, Uint32 addr) {
+  Uint32 speed = smx_bus_speed(cpu->bus, addr);
+  Uint8 value = 0;
+
+  cycle(cpu, speed);
+  pass(cpu, speed - 4u);
+  value = smx_bus_read(cpu->bus, addr);
+  pass(cpu, 4u);
+  return value;
 }
 
 static Uint8 fetch8(SmxCpu *cpu) {
-  Uint32 addr = ((Uint32)cpu->pb << 16) | cpu->pc;
-  Uint8 value = smx_bus_read(cpu->bus, addr);
-  cycle(cpu, smx_bus_speed(cpu->bus, addr));
+  Uint8 value = read_cycle(cpu, ((Uint32)cpu->pb << 16) | cpu->pc);
   cpu->pc = (Uint16)(cpu->pc + 1);
   return value;
 }
@@ -68,13 +88,25 @@ static Uint16 fetch16(SmxCpu *cpu) {
 }
 
 static Uint8 read8(SmxCpu *cpu, Uint32 addr) {
-  cycle(cpu, smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu));
-  return smx_bus_read(cpu->bus, addr & 0x00FFFFFFu);
+  return read_cycle(cpu, addr & 0x00FFFFFFu);
 }
 
+/* A write lands when its cycle ends. */
 static void write8(SmxCpu *cpu, Uint32 addr, Uint8 value) {
-  cycle(cpu, smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu));
+  Uint32 speed = smx_bus_speed(cpu->bus, addr & 0x00FFFFFFu);
+
+  cycle(cpu, speed);
+  pass(cpu, speed);
   smx_bus_write(cpu->bus, addr & 0x00FFFFFFu, value);
+}
+
+/* An implied instruction's internal cycle, or a read at PC when an interrupt is coming. */
+static void io_or_read(SmxCpu *cpu) {
+  if (cpu->interrupt_soon != NULL && cpu->interrupt_soon(cpu->cycle_user)) {
+    read8(cpu, ((Uint32)cpu->pb << 16) | cpu->pc);
+  } else {
+    io(cpu);
+  }
 }
 
 static Uint16 read16p(SmxCpu *cpu, Uint8 bank, Uint16 addr) {
@@ -86,17 +118,6 @@ static Uint16 read16p(SmxCpu *cpu, Uint8 bank, Uint16 addr) {
 static void write16p(SmxCpu *cpu, Uint8 bank, Uint16 addr, Uint16 value) {
   write8(cpu, ((Uint32)bank << 16) | addr, (Uint8)value);
   write8(cpu, ((Uint32)bank << 16) | (Uint16)(addr + 1), (Uint8)(value >> 8));
-}
-
-static Uint16 read16_24(SmxCpu *cpu, Uint32 addr) {
-  Uint8 lo = read8(cpu, addr);
-  Uint8 hi = read8(cpu, addr + 1);
-  return (Uint16)(lo | ((Uint16)hi << 8));
-}
-
-static void write16_24(SmxCpu *cpu, Uint32 addr, Uint16 value) {
-  write8(cpu, addr, (Uint8)value);
-  write8(cpu, addr + 1, (Uint8)(value >> 8));
 }
 
 static Uint32 read24p(SmxCpu *cpu, Uint16 addr) {
@@ -199,7 +220,9 @@ Uint32 smx_cpu_address(SmxCpu *cpu, Uint8 op, Uint32 operand) {
   Uint16 ptr = 0;
   bool dp_index = op == 0x34 || op == 0x74 || op == 0x94 || op == 0xB4;
   bool abs_index = op == 0x3C || op == 0xBC;
+  Uint32 base = 0;
 
+  cpu->ea_mask = 0x00FFFFFFu;
   switch (mode) {
   case 0x01: /* (dp,X) */
     io_dp(cpu);
@@ -209,21 +232,23 @@ Uint32 smx_cpu_address(SmxCpu *cpu, Uint8 op, Uint32 operand) {
   case 0x11: /* (dp),Y */
     io_dp(cpu);
     ptr = read16p(cpu, 0, dp_wrap(cpu, dp));
-    io_index(cpu, ptr, (Uint16)(ptr + idx_y(cpu)), writes_indexed(op));
-    return ea_bank(cpu, (Uint16)(ptr + idx_y(cpu)));
+    base = ea_bank(cpu, ptr);
+    io_index(cpu, (Uint16)base, (Uint16)(base + idx_y(cpu)), writes_indexed(op));
+    return (base + idx_y(cpu)) & 0x00FFFFFFu;
   case 0x03: /* sr,S */
     io(cpu);
     return (Uint16)(cpu->s + dp);
   case 0x13: /* (sr,S),Y */
     io(cpu);
-    io(cpu);
     ptr = read16p(cpu, 0, (Uint16)(cpu->s + dp));
-    return ea_bank(cpu, (Uint16)(ptr + idx_y(cpu)));
+    io(cpu);
+    return (ea_bank(cpu, ptr) + idx_y(cpu)) & 0x00FFFFFFu;
   case 0x05: /* dp */
   case 0x06:
   case 0x04:
   case 0x14:
     io_dp(cpu);
+    cpu->ea_mask = 0x0000FFFFu;
     if (dp_index) {
       io(cpu);
       return dp_wrap(cpu, (Uint16)(dp + idx_x(cpu)));
@@ -240,6 +265,7 @@ Uint32 smx_cpu_address(SmxCpu *cpu, Uint8 op, Uint32 operand) {
   case 0x16:
     io_dp(cpu);
     io(cpu);
+    cpu->ea_mask = 0x0000FFFFu;
     if (op == 0x96 || op == 0xB6) {
       return dp_wrap(cpu, (Uint16)(dp + idx_y(cpu)));
     }
@@ -253,22 +279,22 @@ Uint32 smx_cpu_address(SmxCpu *cpu, Uint8 op, Uint32 operand) {
   case 0x1C:
     if (abs_index) {
       io_index(cpu, abs, (Uint16)(abs + idx_x(cpu)), false);
-      return ea_bank(cpu, (Uint16)(abs + idx_x(cpu)));
+      return (ea_bank(cpu, abs) + idx_x(cpu)) & 0x00FFFFFFu;
     }
     return ea_bank(cpu, abs);
   case 0x0F: /* long */
     return operand & 0x00FFFFFFu;
   case 0x19: /* abs,Y */
     io_index(cpu, abs, (Uint16)(abs + idx_y(cpu)), writes_indexed(op));
-    return ea_bank(cpu, (Uint16)(abs + idx_y(cpu)));
+    return (ea_bank(cpu, abs) + idx_y(cpu)) & 0x00FFFFFFu;
   case 0x1D: /* abs,X */
   case 0x1E:
     if (op == 0xBE) {
       io_index(cpu, abs, (Uint16)(abs + idx_y(cpu)), false);
-      return ea_bank(cpu, (Uint16)(abs + idx_y(cpu)));
+      return (ea_bank(cpu, abs) + idx_y(cpu)) & 0x00FFFFFFu;
     }
     io_index(cpu, abs, (Uint16)(abs + idx_x(cpu)), writes_indexed(op));
-    return ea_bank(cpu, (Uint16)(abs + idx_x(cpu)));
+    return (ea_bank(cpu, abs) + idx_x(cpu)) & 0x00FFFFFFu;
   case 0x1F: /* long,X */
     return (operand + idx_x(cpu)) & 0x00FFFFFFu;
   default:
@@ -290,26 +316,38 @@ static Uint32 address_for(SmxCpu *cpu, Uint8 op) {
   return smx_cpu_address(cpu, op, operand);
 }
 
+/* The address of the operand byte after `addr`: direct-page operands wrap in bank 0. */
+static Uint32 next_ea(const SmxCpu *cpu, Uint32 addr) {
+  return (addr + 1u) & cpu->ea_mask;
+}
+
+static Uint16 read_word_ea(SmxCpu *cpu, Uint32 addr) {
+  Uint8 lo = read8(cpu, addr);
+  Uint8 hi = read8(cpu, next_ea(cpu, addr));
+  return (Uint16)(lo | ((Uint16)hi << 8));
+}
+
+static void write_word_ea(SmxCpu *cpu, Uint32 addr, Uint16 value) {
+  write8(cpu, addr, (Uint8)value);
+  write8(cpu, next_ea(cpu, addr), (Uint8)(value >> 8));
+}
+
+/* Read-modify-write instructions write the high byte first. */
+static void write_word_rmw(SmxCpu *cpu, Uint32 addr, Uint16 value) {
+  write8(cpu, next_ea(cpu, addr), (Uint8)(value >> 8));
+  write8(cpu, addr, (Uint8)value);
+}
+
 static Uint16 read_ea(SmxCpu *cpu, Uint32 addr) {
-  if (m8(cpu)) {
-    return read8(cpu, addr);
-  }
-  if ((addr & 0x0000FFFFu) == 0x0000FFFFu && (addr & 0x00FF0000u) == ((Uint32)cpu->db << 16)) {
-    return read16p(cpu, cpu->db, 0xFFFF);
-  }
-  return read16_24(cpu, addr);
+  return m8(cpu) ? read8(cpu, addr) : read_word_ea(cpu, addr);
 }
 
 static void write_ea(SmxCpu *cpu, Uint32 addr, Uint16 value) {
   if (m8(cpu)) {
     write8(cpu, addr, (Uint8)value);
-    return;
+  } else {
+    write_word_ea(cpu, addr, value);
   }
-  if ((addr & 0x0000FFFFu) == 0x0000FFFFu && (addr & 0x00FF0000u) == ((Uint32)cpu->db << 16)) {
-    write16p(cpu, cpu->db, 0xFFFF, value);
-    return;
-  }
-  write16_24(cpu, addr, value);
 }
 
 static Uint16 fetch_imm(SmxCpu *cpu, bool wide) {
@@ -512,7 +550,7 @@ static void shift_mem(SmxCpu *cpu, Uint8 op, Uint32 addr) {
   bool left = (op & 0xE0) == 0x00 || (op & 0xE0) == 0x20;
   bool rotate = (op & 0xE0) == 0x20 || (op & 0xE0) == 0x60;
   bool eight = m8(cpu);
-  Uint16 value = eight ? read8(cpu, addr) : read16_24(cpu, addr);
+  Uint16 value = eight ? read8(cpu, addr) : read_word_ea(cpu, addr);
   Uint16 result = value;
 
   io(cpu);
@@ -542,7 +580,7 @@ static void shift_mem(SmxCpu *cpu, Uint8 op, Uint32 addr) {
     write8(cpu, addr, (Uint8)result);
     nz8(cpu, (Uint8)result);
   } else {
-    write16_24(cpu, addr, result);
+    write_word_rmw(cpu, addr, result);
     nz16(cpu, result);
   }
 }
@@ -557,33 +595,37 @@ static void interrupt(SmxCpu *cpu, Uint16 native_vector, Uint16 emu_vector, bool
   }
   push16(cpu, cpu->pc);
   push8(cpu, cpu->p);
-  cpu->p = (Uint8)(cpu->p | SMX_I);
+  cpu->p = (Uint8)((cpu->p | SMX_I) & (Uint8)~SMX_D);
   cpu->pb = 0;
   cpu->pc = read16p(cpu, 0, vector);
   cpu->waiting = false;
+}
+
+/* A hardware interrupt spends a read of the next opcode and an internal cycle first. */
+static void hardware_interrupt(SmxCpu *cpu, Uint16 native_vector, Uint16 emu_vector) {
+  read8(cpu, ((Uint32)cpu->pb << 16) | cpu->pc);
+  io(cpu);
+  interrupt(cpu, native_vector, emu_vector, false);
 }
 
 void smx_cpu_nmi(SmxCpu *cpu) {
   if (cpu->stopped) {
     return;
   }
-  io(cpu);
-  io(cpu);
-  interrupt(cpu, 0xFFEA, 0xFFFA, false);
+  hardware_interrupt(cpu, 0xFFEA, 0xFFFA);
 }
 
 void smx_cpu_irq(SmxCpu *cpu) {
-  if (cpu->stopped || (cpu->p & SMX_I) != 0) {
+  if (cpu->stopped) {
     return;
   }
-  io(cpu);
-  io(cpu);
-  interrupt(cpu, 0xFFEE, 0xFFFE, false);
+  hardware_interrupt(cpu, 0xFFEE, 0xFFFE);
 }
 
 void smx_cpu_init(SmxCpu *cpu, SmxBus *bus) {
   SDL_memset(cpu, 0, sizeof(*cpu));
   cpu->bus = bus;
+  cpu->ea_mask = 0x00FFFFFFu;
 }
 
 void smx_cpu_reset(SmxCpu *cpu) {
@@ -600,25 +642,35 @@ void smx_cpu_reset(SmxCpu *cpu) {
   cpu->waiting = false;
   /* Mesen 2.1.1 fetches the first opcode 186 master clocks after power-on. */
   cpu->clocks = 170u;
+  pass(cpu, 170u);
   cpu->pc = read16p(cpu, 0, 0xFFFC);
 }
 
 /* Internal cycles of the one-byte, stack, and flag instructions in `run_implied`. */
 static Uint8 implied_io(Uint8 op) {
   switch (op) {
+  /* Stack instructions spend their internal cycles before the stack access. */
+  case 0x08:
+  case 0x0B:
+  case 0x28:
+  case 0x2B:
+  case 0x48:
+  case 0x4B:
+  case 0x5A:
+  case 0x62:
+  case 0x68:
+  case 0x7A:
+  case 0x8B:
+  case 0xAB:
+  case 0xDA:
+  case 0xFA:
   case 0x42:
   case 0xD4:
   case 0xF4:
-    return 0;
-  case 0x28:
-  case 0x2B:
-  case 0x68:
-  case 0x7A:
-  case 0xAB:
+  /* WAI spends its internal cycles waiting. */
   case 0xCB:
-  case 0xDB:
+    return 0;
   case 0xEB:
-  case 0xFA:
     return 2;
   default:
     return 1;
@@ -677,17 +729,22 @@ static bool run_implied(SmxCpu *cpu, Uint8 op) {
     return true;
   case 0xCB:
     cpu->waiting = true;
+    cpu->wai_over = false;
     return true;
   case 0xDB:
     cpu->stopped = true;
     return true;
   case 0x08:
+    io(cpu);
     push8(cpu, cpu->p);
     return true;
   case 0x28:
+    io(cpu);
+    io(cpu);
     apply_p(cpu, pull8(cpu));
     return true;
   case 0x48:
+    io(cpu);
     if (m8(cpu)) {
       push8(cpu, (Uint8)cpu->a);
     } else {
@@ -695,9 +752,12 @@ static bool run_implied(SmxCpu *cpu, Uint8 op) {
     }
     return true;
   case 0x68:
+    io(cpu);
+    io(cpu);
     set_a(cpu, m8(cpu) ? pull8(cpu) : pull16(cpu));
     return true;
   case 0x5A:
+    io(cpu);
     if (x8(cpu)) {
       push8(cpu, (Uint8)cpu->y);
     } else {
@@ -705,9 +765,12 @@ static bool run_implied(SmxCpu *cpu, Uint8 op) {
     }
     return true;
   case 0x7A:
+    io(cpu);
+    io(cpu);
     set_y(cpu, x8(cpu) ? pull8(cpu) : pull16(cpu));
     return true;
   case 0xDA:
+    io(cpu);
     if (x8(cpu)) {
       push8(cpu, (Uint8)cpu->x);
     } else {
@@ -715,22 +778,31 @@ static bool run_implied(SmxCpu *cpu, Uint8 op) {
     }
     return true;
   case 0xFA:
+    io(cpu);
+    io(cpu);
     set_x(cpu, x8(cpu) ? pull8(cpu) : pull16(cpu));
     return true;
   case 0x0B:
+    io(cpu);
     push16(cpu, cpu->d);
     return true;
   case 0x2B:
+    io(cpu);
+    io(cpu);
     cpu->d = pull16(cpu);
     nz16(cpu, cpu->d);
     return true;
   case 0x4B:
+    io(cpu);
     push8(cpu, cpu->pb);
     return true;
   case 0x8B:
+    io(cpu);
     push8(cpu, cpu->db);
     return true;
   case 0xAB:
+    io(cpu);
+    io(cpu);
     cpu->db = pull8(cpu);
     nz8(cpu, cpu->db);
     return true;
@@ -744,6 +816,7 @@ static bool run_implied(SmxCpu *cpu, Uint8 op) {
     return true;
   case 0x62:
     value = fetch16(cpu);
+    io(cpu);
     push16(cpu, (Uint16)(cpu->pc + value));
     return true;
   case 0xAA:
@@ -891,7 +964,7 @@ void smx_cpu_test_bits(SmxCpu *cpu, Uint32 addr, Uint16 mem, bool set) {
   if (m8(cpu)) {
     write8(cpu, addr, (Uint8)mem);
   } else {
-    write16_24(cpu, addr, mem);
+    write_word_rmw(cpu, addr, mem);
   }
 }
 
@@ -904,7 +977,12 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return false;
   }
   if (cpu->waiting) {
+    /* An interrupt seen during one waiting cycle ends the wait after the next. */
+    bool over = cpu->wai_over;
     io(cpu);
+    if (over) {
+      cpu->waiting = false;
+    }
     return true;
   }
 
@@ -931,8 +1009,9 @@ bool smx_cpu_step(SmxCpu *cpu) {
   if (op == 0x60) {
     io(cpu);
     io(cpu);
+    cpu->pc = pull16(cpu);
     io(cpu);
-    cpu->pc = (Uint16)(pull16(cpu) + 1);
+    cpu->pc = (Uint16)(cpu->pc + 1);
     return true;
   }
   if (op == 0x6B) {
@@ -951,9 +1030,9 @@ bool smx_cpu_step(SmxCpu *cpu) {
   }
   if (op == 0x22) {
     addr = fetch16(cpu);
+    push8(cpu, cpu->pb);
     io(cpu);
     addr |= (Uint32)fetch8(cpu) << 16;
-    push8(cpu, cpu->pb);
     push16(cpu, (Uint16)(cpu->pc - 1));
     cpu->pb = (Uint8)(addr >> 16);
     cpu->pc = (Uint16)addr;
@@ -989,10 +1068,12 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return true;
   }
   if (op == 0xFC) {
-    addr = fetch16(cpu);
+    /* The return address is pushed between the two operand bytes. */
+    addr = fetch8(cpu);
+    push16(cpu, cpu->pc);
+    addr |= (Uint32)fetch8(cpu) << 8;
     io(cpu);
     addr = (Uint16)(addr + idx_x(cpu));
-    push16(cpu, (Uint16)(cpu->pc - 1));
     cpu->pc = read16p(cpu, cpu->pb, (Uint16)addr);
     return true;
   }
@@ -1039,11 +1120,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return true;
   }
 
-  if (run_implied(cpu, op)) {
-    Uint8 cycles = implied_io(op);
-    for (; cycles != 0; cycles -= 1) {
-      io(cpu);
-    }
+  if (smx_cpu_implied(cpu, op)) {
     return !cpu->stopped;
   }
 
@@ -1065,7 +1142,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
     value = fetch_imm(cpu, wide);
   } else if (op == 0x1C || op == 0x0C || op == 0x14 || op == 0x04) {
     addr = address_for(cpu, op);
-    value = m8(cpu) ? read8(cpu, addr) : read16_24(cpu, addr);
+    value = m8(cpu) ? read8(cpu, addr) : read_word_ea(cpu, addr);
   } else if (op == 0x06 || op == 0x0E || op == 0x16 || op == 0x1E || op == 0x26 || op == 0x2E ||
              op == 0x36 || op == 0x3E || op == 0x46 || op == 0x4E || op == 0x56 || op == 0x5E ||
              op == 0x66 || op == 0x6E || op == 0x76 || op == 0x7E || op == 0xC6 || op == 0xCE ||
@@ -1082,7 +1159,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
       } else if (op == 0xA0 || op == 0xA4 || op == 0xAC || op == 0xB4 || op == 0xBC || op == 0xA2 ||
                  op == 0xA6 || op == 0xAE || op == 0xB6 || op == 0xBE || op == 0xC0 || op == 0xC4 ||
                  op == 0xCC || op == 0xE0 || op == 0xE4 || op == 0xEC) {
-        value = x8(cpu) ? read8(cpu, addr) : read16_24(cpu, addr);
+        value = x8(cpu) ? read8(cpu, addr) : read_word_ea(cpu, addr);
       } else {
         value = read_ea(cpu, addr);
       }
@@ -1096,7 +1173,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
       if (x8(cpu)) {
         write8(cpu, addr, (Uint8)stored);
       } else {
-        write16_24(cpu, addr, stored);
+        write_word_ea(cpu, addr, stored);
       }
       return true;
     }
@@ -1105,7 +1182,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
       if (x8(cpu)) {
         write8(cpu, addr, (Uint8)stored);
       } else {
-        write16_24(cpu, addr, stored);
+        write_word_ea(cpu, addr, stored);
       }
       return true;
     }
@@ -1113,7 +1190,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
       if (m8(cpu)) {
         write8(cpu, addr, 0);
       } else {
-        write16_24(cpu, addr, 0);
+        write_word_ea(cpu, addr, 0);
       }
       return true;
     }
@@ -1147,7 +1224,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
     if (m8(cpu)) {
       write8(cpu, addr, 0);
     } else {
-      write16_24(cpu, addr, 0);
+      write_word_ea(cpu, addr, 0);
     }
     return true;
   }
@@ -1254,11 +1331,11 @@ void smx_cpu_write8(SmxCpu *cpu, Uint32 addr, Uint8 value) {
 }
 
 Uint16 smx_cpu_read16(SmxCpu *cpu, Uint32 addr) {
-  return read16_24(cpu, addr);
+  return read_word_ea(cpu, addr);
 }
 
 void smx_cpu_write16(SmxCpu *cpu, Uint32 addr, Uint16 value) {
-  write16_24(cpu, addr, value);
+  write_word_ea(cpu, addr, value);
 }
 
 Uint16 smx_cpu_read_bank16(SmxCpu *cpu, Uint8 bank, Uint16 addr) {
@@ -1274,7 +1351,7 @@ void smx_cpu_write_m(SmxCpu *cpu, Uint32 addr, Uint16 value) {
 }
 
 Uint16 smx_cpu_read_x(SmxCpu *cpu, Uint32 addr) {
-  return x8(cpu) ? read8(cpu, addr) : read16_24(cpu, addr);
+  return x8(cpu) ? read8(cpu, addr) : read_word_ea(cpu, addr);
 }
 
 void smx_cpu_push8(SmxCpu *cpu, Uint8 value) {
@@ -1329,13 +1406,62 @@ void smx_cpu_shift(SmxCpu *cpu, Uint8 op, Uint32 addr) {
   shift_mem(cpu, op, addr);
 }
 
-bool smx_cpu_implied(SmxCpu *cpu, Uint8 op) {
-  Uint8 cycles = 0;
-
-  if (!run_implied(cpu, op)) {
+/*
+ * One-byte register and flag instructions spend their first internal cycle
+ * before they act, so an interrupt about to be taken sees the old flags.
+ */
+static bool implied_first(Uint8 op) {
+  switch (op) {
+  case 0x0A:
+  case 0x18:
+  case 0x1A:
+  case 0x1B:
+  case 0x2A:
+  case 0x38:
+  case 0x3A:
+  case 0x3B:
+  case 0x4A:
+  case 0x58:
+  case 0x5B:
+  case 0x6A:
+  case 0x78:
+  case 0x7B:
+  case 0x88:
+  case 0x8A:
+  case 0x98:
+  case 0x9A:
+  case 0x9B:
+  case 0xA8:
+  case 0xAA:
+  case 0xB8:
+  case 0xBA:
+  case 0xBB:
+  case 0xC8:
+  case 0xCA:
+  case 0xD8:
+  case 0xDB:
+  case 0xE8:
+  case 0xEA:
+  case 0xEB:
+  case 0xF8:
+  case 0xFB:
+    return true;
+  default:
     return false;
   }
-  for (cycles = implied_io(op); cycles != 0; cycles -= 1) {
+}
+
+bool smx_cpu_implied(SmxCpu *cpu, Uint8 op) {
+  Uint8 cycles = implied_io(op);
+
+  if (implied_first(op)) {
+    io_or_read(cpu);
+    cycles -= 1;
+    run_implied(cpu, op);
+  } else if (!run_implied(cpu, op)) {
+    return false;
+  }
+  for (; cycles != 0; cycles -= 1) {
     io(cpu);
   }
   return true;
@@ -1354,10 +1480,10 @@ void smx_cpu_move(SmxCpu *cpu, Uint8 op) {
   Uint8 src_bank = fetch8(cpu);
   Uint8 value = 0;
 
-  io(cpu);
-  io(cpu);
   value = read8(cpu, ((Uint32)src_bank << 16) | cpu->x);
   write8(cpu, ((Uint32)dest_bank << 16) | cpu->y, value);
+  io(cpu);
+  io(cpu);
   if (x8(cpu)) {
     if (op == 0x54) {
       cpu->x = (Uint16)((cpu->x + 1) & 0x00FF);
