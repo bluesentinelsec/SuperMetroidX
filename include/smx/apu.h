@@ -2,31 +2,24 @@
 #define SMX_APU_H_
 
 #include "smx/bus.h"
+#include "smx/dsp.h"
 
 #include <SDL3/SDL.h>
 
 /**
- * APU as seen from the 65816, plus the SPC700.
+ * APU as seen from the 65816, plus the SPC700 and its S-DSP.
  * Reset starts the IPL ROM at `$FFC0`. The IPL writes `$AA`/`$BB`, accepts a
- * block on `$2140-$2143`, and jumps to it. DSP writes are stored. `smx_apu_brr_decode` expands
- * one BRR block. Voice 0 renders those samples when `$4C` bit 0 is set.
- * `$02`/`$03` set its pitch, where `$1000` consumes one sample per output.
- * All eight voices mix into the left and right outputs, then `$0C` and
- * `$1C` scale those outputs. `$5C` keys a voice off. A GAIN write with
- * bit 7 clear sets that voice's level. ADSR bit 7 attacks, decays to the
- * sustain level, and releases on key-off. `$3D` replaces a voice's sample
- * with the noise generator. `$7D` delays the `$4D` voices through the
- * FIR coefficients and `$2C`/`$3C` add that delay back. The echo buffer
- * is not stored in SPC RAM. `$6C` bit 7 silences the output.
+ * block on `$2140-$2143`, and jumps to it. `$F2`/`$F3` reach `dsp`.
  * One `smx_apu_step` is one SPC700 instruction. `cycles` is what it spent:
- * the opcode's cycle count, plus two when a branch is taken.
+ * the opcode's cycle count, plus two when a branch is taken. The DSP runs
+ * the same cycles. A `$F3` access first runs it to the instruction's last
+ * cycle; `op_cycles` and `dsp_done` track that within the instruction.
  */
 typedef struct SmxApu {
   SmxBus *bus;
   Uint8 ram[65536];
   Uint8 in[4];
   Uint8 out[4];
-  Uint8 dsp[128];
   Uint8 dsp_addr;
   Uint8 control;
   Uint8 timer_out[3];
@@ -41,22 +34,11 @@ typedef struct SmxApu {
   Uint8 sp;
   Uint8 psw;
   Uint8 cycles;
+  Uint8 op_cycles;
+  Uint8 dsp_done;
   bool program_ready;
   bool running;
-  bool voice_on[8];
-  Uint8 voice_i[8];
-  Uint16 voice_addr[8];
-  Uint16 voice_loop[8];
-  Sint16 voice_p1[8];
-  Sint16 voice_p2[8];
-  Uint16 voice_phase[8];
-  Uint16 voice_env[8];
-  Uint8 voice_state[8];
-  Uint16 noise;
-  Uint16 echo_pos;
-  Sint16 echo_l[7680];
-  Sint16 echo_r[7680];
-  Sint16 voice_buf[8][16];
+  SmxDsp dsp;
 } SmxApu;
 
 void smx_apu_init(SmxApu *apu, SmxBus *bus);
@@ -65,13 +47,13 @@ Uint8 smx_apu_read_port(const SmxApu *apu, Uint8 index);
 Uint8 smx_apu_ram(const SmxApu *apu, Uint16 addr);
 bool smx_apu_core_running(const SmxApu *apu);
 
+/** Cycles the next instruction takes, not counting a taken branch. */
+Uint8 smx_apu_next_cycles(const SmxApu *apu);
+
 /** Execute one SPC700 instruction. False when the core is stopped. */
 bool smx_apu_step(SmxApu *apu);
 
-/** Expand one 9-byte BRR block into 16 samples. Updates the two history samples. */
-void smx_apu_brr_decode(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2);
-
-/** Write `count` mixed samples. `right` may be null. */
-void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count);
+/** Move up to `max` stereo frames of DSP output into `frames`. Returns the count. */
+Uint32 smx_apu_drain(SmxApu *apu, Sint16 *frames, Uint32 max);
 
 #endif /* SMX_APU_H_ */

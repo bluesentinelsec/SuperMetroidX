@@ -74,6 +74,8 @@ typedef struct SmxPpu {
   Uint8 fixed_r;
   Uint8 fixed_g;
   Uint8 fixed_b;
+  Uint16 obj_color[256];
+  Uint8 obj_prio[256];
   Uint8 *pixels;
   bool picture_matches_oracle;
 } SmxPpu;

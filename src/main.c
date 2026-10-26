@@ -7,6 +7,11 @@
 #include <SDL3/SDL.h>
 
 /** Process entry. `int` is required by the C standard. */
+/** Audio queued ahead, in NTSC frames, before the shell waits. */
+#define SMX_SHELL_QUEUE_FRAMES 3u
+/** One average NTSC frame: 357366 master clocks at 21477270 Hz. */
+#define SMX_SHELL_FRAME_NS 16639266u
+
 /*
  * Keyboard to joypad, in the bit order of a 16-bit read of `$4218`:
  * B Y Select Start Up Down Left Right in the high byte, A X L R in the low.
@@ -107,7 +112,7 @@ int main(int argc, char **argv) {
     SDL_AudioSpec spec;
     spec.format = SDL_AUDIO_S16;
     spec.channels = 2;
-    spec.freq = 32000;
+    spec.freq = 32040;
     audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
     if (audio == NULL) {
       SDL_Log("audio unavailable: %s", SDL_GetError());
@@ -120,11 +125,34 @@ int main(int argc, char **argv) {
 
   bool running = true;
   Uint64 started = SDL_GetTicks();
+  Uint64 next_frame = SDL_GetTicksNS();
   while (running) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
+      }
+    }
+
+    /*
+     * Pace emulation by the audio queue when there is one, else by the
+     * average NTSC frame of 357366 master clocks.
+     */
+    if (playing && !smoke) {
+      if (audio != NULL) {
+        if (SDL_GetAudioStreamQueued(audio) > (int)(SMX_SHELL_QUEUE_FRAMES * 534u * 4u)) {
+          SDL_DelayNS(1000000);
+          continue;
+        }
+      } else {
+        Uint64 now = SDL_GetTicksNS();
+        if (now < next_frame) {
+          SDL_DelayNS(next_frame - now);
+        }
+        next_frame += SMX_SHELL_FRAME_NS;
+        if (SDL_GetTicksNS() > next_frame + 4u * SMX_SHELL_FRAME_NS) {
+          next_frame = SDL_GetTicksNS();
+        }
       }
     }
 
@@ -143,17 +171,10 @@ int main(int argc, char **argv) {
         playing = false;
       }
       if (audio != NULL) {
-        /* 32000 Hz over one NTSC frame, rounded. */
-        Sint16 left[532];
-        Sint16 right[532];
-        Sint16 interleaved[532 * 2];
-        Uint32 sample = 0;
-        smx_apu_render(&apu, left, right, 532);
-        for (; sample < 532; sample += 1) {
-          interleaved[sample * 2u] = left[sample];
-          interleaved[sample * 2u + 1u] = right[sample];
-        }
-        SDL_PutAudioStreamData(audio, interleaved, (int)sizeof(interleaved));
+        /* About 533 frames of 32040 Hz stereo per NTSC frame. */
+        Sint16 frames[1024 * 2];
+        Uint32 count = smx_apu_drain(&apu, frames, 1024);
+        SDL_PutAudioStreamData(audio, frames, (int)(count * 2u * sizeof(Sint16)));
       }
       SDL_UpdateTexture(texture, NULL, ppu.pixels, SMX_PPU_WIDTH * 4);
       int win_w = 0;

@@ -27,7 +27,9 @@ void smx_apu_init(SmxApu *apu, SmxBus *bus) {
   apu->control = 0x80;
   apu->pc = 0xFFC0;
   apu->running = true;
-  apu->noise = 0x4000;
+  smx_dsp_init(&apu->dsp, apu->ram);
+  /* The DSP is two cycles into its sample when the first instruction starts. */
+  smx_dsp_run(&apu->dsp, 2);
   if (bus != NULL) {
     bus->apu_user = apu;
     bus->apu_write = smx_apu_cpu_write;
@@ -63,6 +65,19 @@ static Uint16 smx_spc_page(const SmxApu *apu) {
 
 static Uint8 smx_spc_read(SmxApu *apu, Uint16 addr);
 
+/*
+ * Run the DSP to the last cycle of the current instruction, where its
+ * $F3 access lands, before the access happens.
+ */
+static void smx_apu_dsp_sync(SmxApu *apu) {
+  Uint8 target = apu->op_cycles == 0 ? 0 : (Uint8)(apu->op_cycles - 1u);
+
+  if (apu->dsp_done < target) {
+    smx_dsp_run(&apu->dsp, (Uint32)(target - apu->dsp_done));
+    apu->dsp_done = target;
+  }
+}
+
 static Uint8 smx_spc_fetch(SmxApu *apu) {
   Uint8 value = smx_spc_read(apu, apu->pc);
   apu->pc = (Uint16)(apu->pc + 1);
@@ -70,6 +85,10 @@ static Uint8 smx_spc_fetch(SmxApu *apu) {
 }
 
 static Uint8 smx_spc_read(SmxApu *apu, Uint16 addr) {
+  /* TEST, CONTROL, and the timer targets are write-only. */
+  if (addr == 0x00F0 || addr == 0x00F1 || (addr >= 0x00FA && addr <= 0x00FC)) {
+    return 0;
+  }
   if (addr >= 0x00F4 && addr <= 0x00F7) {
     return apu->in[addr - 0x00F4];
   }
@@ -77,7 +96,8 @@ static Uint8 smx_spc_read(SmxApu *apu, Uint16 addr) {
     return apu->dsp_addr;
   }
   if (addr == 0x00F3) {
-    return apu->dsp[apu->dsp_addr & 0x7F];
+    smx_apu_dsp_sync(apu);
+    return smx_dsp_read(&apu->dsp, apu->dsp_addr);
   }
   if (addr >= 0x00FD && addr <= 0x00FF) {
     Uint8 value = apu->timer_out[addr - 0x00FD];
@@ -97,6 +117,10 @@ static Uint8 smx_spc_read(SmxApu *apu, Uint16 addr) {
 }
 
 static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
+  /* Register writes also land in the RAM underneath. */
+  if (addr >= 0x00F0 && addr <= 0x00FF) {
+    apu->ram[addr] = value;
+  }
   if (addr >= 0x00F4 && addr <= 0x00F7) {
     apu->out[addr - 0x00F4] = value;
     smx_apu_publish(apu);
@@ -128,50 +152,9 @@ static void smx_spc_write(SmxApu *apu, Uint16 addr, Uint8 value) {
     return;
   }
   if (addr == 0x00F3) {
-    apu->dsp[apu->dsp_addr & 0x7F] = value;
-    if ((apu->dsp_addr & 0x7F) == 0x4C) {
-      Uint8 voice = 0;
-      Uint16 dir = (Uint16)((Uint16)apu->dsp[0x5D] << 8);
-      for (; voice < 8; voice += 1) {
-        Uint16 entry = 0;
-        if ((value & (Uint8)(1u << voice)) == 0) {
-          continue;
-        }
-        entry = (Uint16)(dir + (Uint16)apu->dsp[(Uint8)(voice * 0x10u + 0x04u)] * 4u);
-        apu->voice_addr[voice] = (Uint16)(apu->ram[entry] | ((Uint16)apu->ram[entry + 1u] << 8));
-        apu->voice_loop[voice] =
-            (Uint16)(apu->ram[entry + 2u] | ((Uint16)apu->ram[entry + 3u] << 8));
-        apu->voice_p1[voice] = 0;
-        apu->voice_p2[voice] = 0;
-        apu->voice_phase[voice] = 0;
-        if ((apu->dsp[(Uint8)(voice * 0x10u + 0x05u)] & 0x80) != 0) {
-          apu->voice_env[voice] = 0;
-          apu->voice_state[voice] = 1;
-        } else {
-          apu->voice_env[voice] = 0x07FF;
-          apu->voice_state[voice] = 0;
-        }
-        apu->voice_i[voice] = 16;
-        apu->voice_on[voice] = true;
-      }
-    }
-    if ((apu->dsp_addr & 0x7F) == 0x5C) {
-      Uint8 voice = 0;
-      for (; voice < 8; voice += 1) {
-        if ((value & (Uint8)(1u << voice)) == 0) {
-          continue;
-        }
-        if ((apu->dsp[(Uint8)(voice * 0x10u + 0x05u)] & 0x80) != 0 &&
-            apu->voice_state[voice] != 0) {
-          apu->voice_state[voice] = 4;
-        } else {
-          apu->voice_on[voice] = false;
-          apu->voice_i[voice] = 16;
-        }
-      }
-    }
-    if ((apu->dsp_addr & 0x0F) == 0x07 && (apu->dsp_addr & 0x70) < 0x80 && (value & 0x80) == 0) {
-      apu->voice_env[apu->dsp_addr >> 4] = (Uint16)((value & 0x7F) << 4);
+    smx_apu_dsp_sync(apu);
+    if (apu->dsp_addr < 0x80) {
+      smx_dsp_write(&apu->dsp, apu->dsp_addr, value);
     }
     return;
   }
@@ -303,6 +286,9 @@ static void smx_spc_spend(SmxApu *apu, Uint8 op, bool take) {
   Uint8 index = 0;
 
   apu->cycles = (Uint8)(smx_spc_cycles[op] + (take ? 2u : 0u));
+  smx_dsp_run(&apu->dsp, (Uint32)(apu->cycles - apu->dsp_done));
+  apu->dsp_done = 0;
+  apu->op_cycles = 0;
   for (; index < 3; index += 1) {
     Uint16 limit = 0;
     apu->timer_div[index] = (Uint16)(apu->timer_div[index] + apu->cycles);
@@ -372,6 +358,15 @@ static bool smx_spc_move_a(SmxApu *apu, Uint8 op) {
   return false;
 }
 
+Uint8 smx_apu_next_cycles(const SmxApu *apu) {
+  Uint8 op = apu->ram[apu->pc];
+
+  if (apu->pc >= 0xFFC0 && (apu->control & 0x80) != 0) {
+    op = smx_spc_read((SmxApu *)apu, apu->pc);
+  }
+  return smx_spc_cycles[op];
+}
+
 bool smx_apu_step(SmxApu *apu) {
   Uint8 op = 0;
   Uint8 left = 0;
@@ -385,6 +380,8 @@ bool smx_apu_step(SmxApu *apu) {
     return false;
   }
   op = smx_spc_fetch(apu);
+  apu->op_cycles = smx_spc_cycles[op];
+  apu->dsp_done = 0;
   if ((op & 0x1F) == 0x18 && op < 0xC0) {
     right = smx_spc_fetch(apu);
     addr = (Uint16)(smx_spc_page(apu) | smx_spc_fetch(apu));
@@ -976,218 +973,6 @@ bool smx_apu_step(SmxApu *apu) {
   return true;
 }
 
-static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2);
-
-static void smx_apu_echo(SmxApu *apu, Sint32 input_l, Sint32 input_r, Sint32 *mixed_l,
-                         Sint32 *mixed_r) {
-  Uint8 delay = (Uint8)(apu->dsp[0x7D] & 0x0F);
-  Uint16 length = 0;
-  Sint32 fir_l = 0;
-  Sint32 fir_r = 0;
-  Sint32 write_l = 0;
-  Sint32 write_r = 0;
-  Uint8 tap = 0;
-
-  if (delay == 0) {
-    return;
-  }
-  length = (Uint16)((Uint16)delay * 512u);
-  if (apu->echo_pos >= length) {
-    apu->echo_pos = 0;
-  }
-  for (; tap < 8; tap += 1) {
-    Uint16 index = (Uint16)((apu->echo_pos + length - tap) % length);
-    Sint8 coeff = (Sint8)apu->dsp[(Uint8)(0x0Fu + (Uint8)(tap * 0x10u))];
-    fir_l += (Sint32)apu->echo_l[index] * coeff;
-    fir_r += (Sint32)apu->echo_r[index] * coeff;
-  }
-  fir_l >>= 7;
-  fir_r >>= 7;
-  *mixed_l += (fir_l * (Sint8)apu->dsp[0x2C]) >> 7;
-  *mixed_r += (fir_r * (Sint8)apu->dsp[0x3C]) >> 7;
-  write_l = input_l + ((fir_l * (Sint8)apu->dsp[0x0D]) >> 7);
-  write_r = input_r + ((fir_r * (Sint8)apu->dsp[0x0D]) >> 7);
-  if (write_l > 32767) {
-    write_l = 32767;
-  }
-  if (write_l < -32768) {
-    write_l = -32768;
-  }
-  if (write_r > 32767) {
-    write_r = 32767;
-  }
-  if (write_r < -32768) {
-    write_r = -32768;
-  }
-  apu->echo_l[apu->echo_pos] = (Sint16)write_l;
-  apu->echo_r[apu->echo_pos] = (Sint16)write_r;
-  apu->echo_pos = (Uint16)((apu->echo_pos + 1u) % length);
-}
-
-static void smx_apu_envelope(SmxApu *apu, Uint8 voice) {
-  Uint8 base = (Uint8)(voice * 0x10u);
-  Uint8 adsr1 = apu->dsp[base + 5u];
-  Uint8 adsr2 = apu->dsp[base + 6u];
-  Sint32 env = apu->voice_env[voice];
-  Uint16 sustain = (Uint16)((((adsr2 >> 5) + 1u) * 0x100u) - 1u);
-
-  if ((adsr1 & 0x80) == 0 || apu->voice_state[voice] == 0) {
-    return;
-  }
-  if (apu->voice_state[voice] == 1) {
-    if ((adsr1 & 0x0F) == 15) {
-      env = 0x07FF;
-    } else {
-      env += (Sint32)(1u << (adsr1 & 0x0F));
-    }
-    if (env >= 0x07FF) {
-      env = 0x07FF;
-      apu->voice_state[voice] = 2;
-    }
-  }
-  if (apu->voice_state[voice] == 2) {
-    env -= 32;
-    if (env <= (Sint32)sustain) {
-      env = sustain;
-      apu->voice_state[voice] = 3;
-    }
-  } else if (apu->voice_state[voice] == 3) {
-    if ((adsr2 & 0x1F) != 0) {
-      env -= 1;
-    }
-  } else if (apu->voice_state[voice] == 4) {
-    env -= 0x40;
-    if (env <= 0) {
-      env = 0;
-      apu->voice_on[voice] = false;
-      apu->voice_i[voice] = 16;
-    }
-  }
-  if (env < 0) {
-    env = 0;
-  }
-  if (env > 0x07FF) {
-    env = 0x07FF;
-  }
-  apu->voice_env[voice] = (Uint16)env;
-}
-
-void smx_apu_render(SmxApu *apu, Sint16 *left, Sint16 *right, Uint32 count) {
-  Uint32 i = 0;
-
-  for (; i < count; i += 1) {
-    Sint32 mixed_l = 0;
-    Sint32 echo_l = 0;
-    Sint32 echo_r = 0;
-    Uint16 noise_bit = (Uint16)((apu->noise ^ (Uint16)(apu->noise >> 1)) & 1u);
-    apu->noise = (Uint16)((apu->noise >> 1) | (noise_bit << 14));
-    Sint32 mixed_r = 0;
-    Uint8 voice = 0;
-    for (; voice < 8; voice += 1) {
-      Uint8 base = (Uint8)(voice * 0x10u);
-      Sint32 sample = 0;
-      Sint8 volume_l = (Sint8)apu->dsp[base];
-      Sint8 volume_r = (Sint8)apu->dsp[base + 1u];
-      if (apu->voice_on[voice]) {
-        smx_apu_envelope(apu, voice);
-      }
-      if (apu->voice_on[voice] && apu->voice_i[voice] >= 16) {
-        Uint8 header = apu->ram[apu->voice_addr[voice]];
-        smx_apu_brr_decode_impl(&apu->ram[apu->voice_addr[voice]], apu->voice_buf[voice],
-                                &apu->voice_p1[voice], &apu->voice_p2[voice]);
-        apu->voice_i[voice] = 0;
-        if ((header & 0x01) != 0) {
-          if ((header & 0x02) != 0) {
-            apu->voice_addr[voice] = apu->voice_loop[voice];
-          } else {
-            apu->voice_on[voice] = false;
-          }
-        } else {
-          apu->voice_addr[voice] = (Uint16)(apu->voice_addr[voice] + 9u);
-        }
-      }
-      if (apu->voice_i[voice] < 16) {
-        Uint16 pitch = (Uint16)(apu->dsp[base + 2u] | ((Uint16)apu->dsp[base + 3u] << 8));
-        sample = apu->voice_buf[voice][apu->voice_i[voice]];
-        if ((apu->dsp[0x3D] & (Uint8)(1u << voice)) != 0) {
-          sample = (Sint16)apu->noise;
-        }
-        sample = (sample * (Sint32)apu->voice_env[voice]) >> 11;
-        apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] + pitch);
-        while (apu->voice_phase[voice] >= 0x1000) {
-          apu->voice_phase[voice] = (Uint16)(apu->voice_phase[voice] - 0x1000);
-          apu->voice_i[voice] = (Uint8)(apu->voice_i[voice] + 1u);
-          if (apu->voice_i[voice] >= 16) {
-            break;
-          }
-        }
-      }
-      mixed_l += (sample * volume_l) >> 7;
-      mixed_r += (sample * volume_r) >> 7;
-      if ((apu->dsp[0x4D] & (Uint8)(1u << voice)) != 0) {
-        echo_l += (sample * volume_l) >> 7;
-        echo_r += (sample * volume_r) >> 7;
-      }
-    }
-    mixed_l = (mixed_l * (Sint8)apu->dsp[0x0C]) >> 7;
-    mixed_r = (mixed_r * (Sint8)apu->dsp[0x1C]) >> 7;
-    smx_apu_echo(apu, echo_l, echo_r, &mixed_l, &mixed_r);
-    if ((apu->dsp[0x6C] & 0x80) != 0) {
-      mixed_l = 0;
-      mixed_r = 0;
-    }
-    if (mixed_l > 32767) {
-      mixed_l = 32767;
-    }
-    if (mixed_l < -32768) {
-      mixed_l = -32768;
-    }
-    if (mixed_r > 32767) {
-      mixed_r = 32767;
-    }
-    if (mixed_r < -32768) {
-      mixed_r = -32768;
-    }
-    left[i] = (Sint16)mixed_l;
-    if (right != NULL) {
-      right[i] = (Sint16)mixed_r;
-    }
-  }
-}
-
-static void smx_apu_brr_decode_impl(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2) {
-  Uint8 header = block[0];
-  Uint8 shift = (Uint8)(header >> 4);
-  Uint8 filter = (Uint8)((header >> 2) & 0x03);
-  Sint16 older = *prev2;
-  Sint16 newer = *prev1;
-  Uint8 i = 0;
-
-  for (; i < 16; i += 1) {
-    Uint8 packed = block[1u + (i >> 1)];
-    Sint8 nibble = (Sint8)((Sint8)(((i & 1u) == 0 ? (packed >> 4) : (packed & 0x0F)) << 4) >> 4);
-    Sint32 sample = ((Sint32)nibble << shift) >> 1;
-    if (filter == 1) {
-      sample += (Sint32)newer - ((Sint32)newer >> 4);
-    } else if (filter == 2) {
-      sample += ((Sint32)newer * 61 >> 5) - ((Sint32)older * 15 >> 4);
-    } else if (filter == 3) {
-      sample += ((Sint32)newer * 115 >> 6) - ((Sint32)older * 13 >> 4);
-    }
-    if (sample > 32767) {
-      sample = 32767;
-    }
-    if (sample < -32768) {
-      sample = -32768;
-    }
-    out[i] = (Sint16)sample;
-    older = newer;
-    newer = (Sint16)sample;
-  }
-  *prev1 = newer;
-  *prev2 = older;
-}
-
-void smx_apu_brr_decode(const Uint8 *block, Sint16 *out, Sint16 *prev1, Sint16 *prev2) {
-  smx_apu_brr_decode_impl(block, out, prev1, prev2);
+Uint32 smx_apu_drain(SmxApu *apu, Sint16 *frames, Uint32 max) {
+  return smx_dsp_drain(&apu->dsp, frames, max);
 }

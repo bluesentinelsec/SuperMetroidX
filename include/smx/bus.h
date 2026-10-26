@@ -29,6 +29,8 @@ typedef struct SmxBus {
   void (*ppu_sync)(void *user);
   /** Called before an access to `$2140-$2143` so the SPC700 catches up. */
   void (*apu_sync)(void *user);
+  /** Called before a read of `$2137-$213F` or `$4210-$421F` so time reaches the access. */
+  void (*time_sync)(void *user);
   void *sync_user;
 } SmxBus;
 

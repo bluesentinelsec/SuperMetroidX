@@ -88,6 +88,10 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
   } else if (smx_bus_rom_offset(bank, off, &file) && file < bus->rom_size) {
     value = bus->rom[file];
   } else if ((bank & 0x7F) < 0x40 && off >= 0x2100 && off < 0x4500) {
+    if (bus->time_sync != NULL &&
+        ((off >= 0x2137 && off <= 0x213F) || (off >= 0x4210 && off <= 0x421F))) {
+      bus->time_sync(bus->sync_user);
+    }
     /* Status registers are readable. Write-only PPU registers read as open bus.
      * The PPU answers `$2134-$213F` and returns open bus for what it does not model. */
     if (off >= 0x2134 && off <= 0x213F && bus->mmio_read != NULL) {
@@ -97,8 +101,8 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
         bus->apu_sync(bus->sync_user);
       }
       value = bus->mmio[off];
-      /* Reading $4210 acknowledges the NMI flag. */
-      if (off == 0x4210) {
+      /* Reading $4210 acknowledges the NMI flag, and $4211 the IRQ. */
+      if (off == 0x4210 || off == 0x4211) {
         bus->mmio[off] = (Uint8)(bus->mmio[off] & 0x7F);
       }
     }
