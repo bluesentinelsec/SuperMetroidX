@@ -49,6 +49,8 @@ CMake is the build description. The Makefile is the only interface people should
 
 - `make build` — Debug: no optimization, debug symbols
 - `make release` — optimized, `NDEBUG`
+- `make run` — Debug build, then run it on `ROM` (default `SuperMetroid.sfc`) with extra `ARGS`
+- `make debug` — the same under lldb on macOS or gdb on Linux, printing every thread's backtrace on a crash
 - `make test` — Debug build, then CTest
 - `make fmt` — `clang-format` on tracked C and headers
 - `make docs` — Doxygen HTML under `docs/html`
