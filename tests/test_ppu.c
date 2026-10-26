@@ -1,6 +1,5 @@
 #include "smx/bus.h"
 #include "smx/ppu.h"
-#include "smx/translate.h"
 
 #include <SDL3/SDL.h>
 
@@ -58,7 +57,6 @@ int main(void) {
   expect_u8("dim r", ppu.pixels[2], 115);
   smx_bus_write(&bus, 0x002100, 0x0F);
   expect_true("no oracle match", !ppu.picture_matches_oracle);
-  expect_true("translator blocked", !smx_translate_ready(&ppu));
 
   /* Mode 1 BG1: one 4bpp pixel at (0, 0), map at word $0400, tiles at word 0. */
   smx_bus_write(&bus, 0x002105, 0x01);

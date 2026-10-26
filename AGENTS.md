@@ -4,7 +4,7 @@ This file is the convention source for people and coding agents working in this 
 
 ## Product
 
-SuperMetroidX is a static recompilation of the SNES game Super Metroid. The 65816 program will be translated to C. This repository owns the SNES runtime and the desktop shell. It does not vendor `snesrecomp` or any other emulator tree.
+SuperMetroidX is a static recompilation of the SNES game Super Metroid. The 65816 program is translated to C at build time. This repository owns the SNES runtime, the translator, and the desktop shell. It does not vendor `snesrecomp` or any other emulator tree.
 
 The ROM, SRAM, save states, and generated translation of the ROM are user-supplied build inputs. Never commit them. Never commit a header, source file, or test fixture that contains ROM bytes.
 
@@ -41,7 +41,7 @@ Do not add any third party libraries by default.
 - `cmake/` — helper modules when a single `CMakeLists.txt` is no longer enough
 - `.github/workflows/` — CI for Windows, macOS, and Linux
 
-The executable target is `SuperMetroidX`. The static library target is `smx`.
+The executable target is `SuperMetroidX`. The static library target is `smx`. The translator CLI is `smxrecomp`, built on the `smx_translate_*` API in `include/smx/translate.h`. CMake runs it on `SMX_ROM` (default `SuperMetroid.sfc` at the repository root) and links the generated `smx_game` library into the shell. Without a ROM the shell links `src/game_stub.c` and interprets.
 
 ## Build
 
@@ -55,7 +55,7 @@ CMake is the build description. The Makefile is the only interface people should
 - `make clean` — delete `build/` and `docs/html`
 - `make package` — Release build and a CPack archive (dmg, zip, or tar.gz)
 
-Generated files stay under `build/`. Do not commit them.
+Generated files stay under `build/`. Do not commit them. That includes `build/*/game/`, the translation of the ROM, and its `trace.txt`.
 
 ## Style
 
@@ -71,4 +71,4 @@ GitHub Actions builds and tests Debug on `ubuntu-latest`, `macos-latest`, and `w
 
 ## What comes next
 
-The SNES runtime (CPU bus, PPU, APU, DMA, HDMA) is written here, in C, against frame hashes from an NTSC reference log. The translator that emits C from the ROM is a separate tool. The shell then presents the framebuffer through OpenGL, with scanline shaders embedded in headers, an Xbox-style gamepad and keyboard mapped through SDL, SRAM in the OS user-data directory, and save states that are independent of SRAM.
+The SNES runtime (CPU bus, PPU, APU, DMA, HDMA) is written here, in C, against frame hashes from an NTSC reference log. The translator emits C that calls the same cycle-timed CPU operations as the interpreter, so translated and interpreted runs produce identical frames; `tests/test_translate.c` checks every opcode under every flag set against the interpreter. The shell then presents the framebuffer through OpenGL, with scanline shaders embedded in headers, an Xbox-style gamepad and keyboard mapped through SDL, SRAM in the OS user-data directory, and save states that are independent of SRAM.

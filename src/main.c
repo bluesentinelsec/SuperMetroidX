@@ -1,8 +1,10 @@
 #include "smx/apu.h"
 #include "smx/cart.h"
 #include "smx/clock.h"
+#include "smx/game.h"
 #include "smx/ppu.h"
 #include "smx/present.h"
+#include "smx/translate.h"
 
 #include <SDL3/SDL.h>
 
@@ -85,6 +87,13 @@ int main(int argc, char **argv) {
     smx_clock_init(&clock, &cpu, &dma);
     clock.ppu = &ppu;
     smx_cpu_reset(&cpu);
+    if (smx_game.code.count != 0 && smx_game.rom_size == cart.size &&
+        smx_game.rom_hash == smx_translate_rom_hash(cart.bytes, cart.size)) {
+      cpu.code = &smx_game.code;
+      SDL_Log("running %u translated entry points", (unsigned)smx_game.code.count);
+    } else if (smx_game.code.count != 0) {
+      SDL_Log("the translation is of a different ROM; interpreting");
+    }
     machine = true;
     playing = true;
     SDL_Log("loaded %s", cart.title);
@@ -212,6 +221,8 @@ int main(int argc, char **argv) {
     SDL_DestroyTexture(texture);
   }
   if (machine) {
+    SDL_Log("instructions: %llu translated, %llu interpreted", (unsigned long long)cpu.translated,
+            (unsigned long long)cpu.interpreted);
     smx_ppu_quit(&ppu);
     smx_bus_quit(&bus);
   }

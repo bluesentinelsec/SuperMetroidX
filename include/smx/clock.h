@@ -87,11 +87,20 @@ typedef struct SmxClock {
   bool nmi_pending;
   Uint64 nmi_edge;
   Uint64 irq_edge;
+  /** When the current instruction started, and the frame the current step started in. */
+  Uint64 start;
+  Uint64 step_frame;
+  /** A translated block already finished its last instruction. */
+  bool ended;
 } SmxClock;
 
 void smx_clock_init(SmxClock *clock, SmxCpu *cpu, SmxDma *dma);
 
-/** Pay any pending stall, then run one instruction and the dots it consumes. */
+/**
+ * Pay any pending stall, then run one instruction and the dots it consumes.
+ * With translated code, one step may run a block of instructions, each timed
+ * as if stepped alone; the block ends early at an interrupt or a new frame.
+ */
 bool smx_clock_step(SmxClock *clock);
 
 /** Run master clocks up to the start of the next NTSC frame. */

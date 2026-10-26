@@ -1,7 +1,6 @@
 #include "smx/apu.h"
 #include "smx/cart.h"
 #include "smx/clock.h"
-#include "smx/translate.h"
 
 #include <SDL3/SDL.h>
 
@@ -200,7 +199,6 @@ static void test_logo_frame(void) {
   expect_true("logo pixels", lit_pixels(&ppu) == 1121u);
   expect_true("logo hash", smx_ppu_frame_hash(&ppu) == 0xd155b93bu);
   expect_true("logo matches the oracle", ppu.picture_matches_oracle);
-  expect_true("translator ready", smx_translate_ready(&ppu));
   smx_ppu_quit(&ppu);
   smx_bus_quit(&bus);
   smx_cart_free(&cart);

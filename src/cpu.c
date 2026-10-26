@@ -173,35 +173,48 @@ static bool writes_indexed(Uint8 op) {
          op == 0x5E || op == 0x7E || op == 0xDE || op == 0xFE;
 }
 
-/** Resolve a non-immediate effective address from the opcode's low five bits. */
-static Uint32 address_for(SmxCpu *cpu, Uint8 op) {
+/* Operand bytes after the opcode for the modes `smx_cpu_address` resolves. */
+static Uint8 operand_bytes(Uint8 op) {
+  switch (op & 0x1F) {
+  case 0x0D:
+  case 0x0E:
+  case 0x0C:
+  case 0x1C:
+  case 0x19:
+  case 0x1D:
+  case 0x1E:
+    return 2;
+  case 0x0F:
+  case 0x1F:
+    return 3;
+  default:
+    return 1;
+  }
+}
+
+Uint32 smx_cpu_address(SmxCpu *cpu, Uint8 op, Uint32 operand) {
   Uint8 mode = (Uint8)(op & 0x1F);
-  Uint8 dp = 0;
-  Uint16 abs = 0;
+  Uint8 dp = (Uint8)operand;
+  Uint16 abs = (Uint16)operand;
   Uint16 ptr = 0;
-  Uint32 long_addr = 0;
   bool dp_index = op == 0x34 || op == 0x74 || op == 0x94 || op == 0xB4;
   bool abs_index = op == 0x3C || op == 0xBC;
 
   switch (mode) {
   case 0x01: /* (dp,X) */
-    dp = fetch8(cpu);
     io_dp(cpu);
     io(cpu);
     ptr = read16p(cpu, 0, dp_wrap(cpu, (Uint16)(dp + idx_x(cpu))));
     return ea_bank(cpu, ptr);
   case 0x11: /* (dp),Y */
-    dp = fetch8(cpu);
     io_dp(cpu);
     ptr = read16p(cpu, 0, dp_wrap(cpu, dp));
     io_index(cpu, ptr, (Uint16)(ptr + idx_y(cpu)), writes_indexed(op));
     return ea_bank(cpu, (Uint16)(ptr + idx_y(cpu)));
   case 0x03: /* sr,S */
-    dp = fetch8(cpu);
     io(cpu);
     return (Uint16)(cpu->s + dp);
   case 0x13: /* (sr,S),Y */
-    dp = fetch8(cpu);
     io(cpu);
     io(cpu);
     ptr = read16p(cpu, 0, (Uint16)(cpu->s + dp));
@@ -210,7 +223,6 @@ static Uint32 address_for(SmxCpu *cpu, Uint8 op) {
   case 0x06:
   case 0x04:
   case 0x14:
-    dp = fetch8(cpu);
     io_dp(cpu);
     if (dp_index) {
       io(cpu);
@@ -218,17 +230,14 @@ static Uint32 address_for(SmxCpu *cpu, Uint8 op) {
     }
     return dp_wrap(cpu, dp);
   case 0x07: /* [dp] */
-    dp = fetch8(cpu);
     io_dp(cpu);
     return read24p(cpu, dp_wrap(cpu, dp));
   case 0x12: /* (dp) */
-    dp = fetch8(cpu);
     io_dp(cpu);
     ptr = read16p(cpu, 0, dp_wrap(cpu, dp));
     return ea_bank(cpu, ptr);
   case 0x15: /* dp,X */
   case 0x16:
-    dp = fetch8(cpu);
     io_dp(cpu);
     io(cpu);
     if (op == 0x96 || op == 0xB6) {
@@ -236,30 +245,24 @@ static Uint32 address_for(SmxCpu *cpu, Uint8 op) {
     }
     return dp_wrap(cpu, (Uint16)(dp + idx_x(cpu)));
   case 0x17: /* [dp],Y */
-    dp = fetch8(cpu);
     io_dp(cpu);
     return (read24p(cpu, dp_wrap(cpu, dp)) + idx_y(cpu)) & 0x00FFFFFFu;
   case 0x0D: /* abs */
   case 0x0E:
   case 0x0C:
   case 0x1C:
-    abs = fetch16(cpu);
     if (abs_index) {
       io_index(cpu, abs, (Uint16)(abs + idx_x(cpu)), false);
       return ea_bank(cpu, (Uint16)(abs + idx_x(cpu)));
     }
     return ea_bank(cpu, abs);
   case 0x0F: /* long */
-    long_addr = fetch16(cpu);
-    long_addr |= (Uint32)fetch8(cpu) << 16;
-    return long_addr;
+    return operand & 0x00FFFFFFu;
   case 0x19: /* abs,Y */
-    abs = fetch16(cpu);
     io_index(cpu, abs, (Uint16)(abs + idx_y(cpu)), writes_indexed(op));
     return ea_bank(cpu, (Uint16)(abs + idx_y(cpu)));
   case 0x1D: /* abs,X */
   case 0x1E:
-    abs = fetch16(cpu);
     if (op == 0xBE) {
       io_index(cpu, abs, (Uint16)(abs + idx_y(cpu)), false);
       return ea_bank(cpu, (Uint16)(abs + idx_y(cpu)));
@@ -267,12 +270,24 @@ static Uint32 address_for(SmxCpu *cpu, Uint8 op) {
     io_index(cpu, abs, (Uint16)(abs + idx_x(cpu)), writes_indexed(op));
     return ea_bank(cpu, (Uint16)(abs + idx_x(cpu)));
   case 0x1F: /* long,X */
-    long_addr = fetch16(cpu);
-    long_addr |= (Uint32)fetch8(cpu) << 16;
-    return (long_addr + idx_x(cpu)) & 0x00FFFFFFu;
+    return (operand + idx_x(cpu)) & 0x00FFFFFFu;
   default:
     return 0;
   }
+}
+
+/** Fetch the operand of a non-immediate mode, then resolve its effective address. */
+static Uint32 address_for(SmxCpu *cpu, Uint8 op) {
+  Uint8 bytes = operand_bytes(op);
+  Uint32 operand = fetch8(cpu);
+
+  if (bytes > 1) {
+    operand |= (Uint32)fetch8(cpu) << 8;
+  }
+  if (bytes > 2) {
+    operand |= (Uint32)fetch8(cpu) << 16;
+  }
+  return smx_cpu_address(cpu, op, operand);
 }
 
 static Uint16 read_ea(SmxCpu *cpu, Uint32 addr) {
@@ -839,6 +854,47 @@ static bool run_implied(SmxCpu *cpu, Uint8 op) {
   }
 }
 
+void smx_cpu_bit(SmxCpu *cpu, Uint8 op, Uint16 value) {
+  Uint16 a = m8(cpu) ? (Uint16)(cpu->a & 0xFF) : cpu->a;
+  Uint16 tested = (Uint16)(a & value);
+
+  if (m8(cpu)) {
+    nz8(cpu, (Uint8)tested);
+    if (op != 0x89) {
+      cpu->p = (Uint8)((cpu->p & (Uint8) ~(SMX_N | SMX_V)) | (value & (SMX_N | SMX_V)));
+      if (tested == 0) {
+        cpu->p = (Uint8)(cpu->p | SMX_Z);
+      }
+    }
+  } else {
+    nz16(cpu, tested);
+    if (op != 0x89) {
+      set_overflow(cpu, (value & 0x4000) != 0);
+      cpu->p = (Uint8)((cpu->p & (Uint8)~SMX_N) | ((value >> 8) & SMX_N));
+      if (tested == 0) {
+        cpu->p = (Uint8)(cpu->p | SMX_Z);
+      }
+    }
+  }
+}
+
+void smx_cpu_test_bits(SmxCpu *cpu, Uint32 addr, Uint16 mem, bool set) {
+  Uint16 a = m8(cpu) ? (Uint16)(cpu->a & 0xFF) : cpu->a;
+
+  if ((a & mem) == 0) {
+    cpu->p = (Uint8)(cpu->p | SMX_Z);
+  } else {
+    cpu->p = (Uint8)(cpu->p & (Uint8)~SMX_Z);
+  }
+  mem = set ? (Uint16)(mem | a) : (Uint16)(mem & (Uint16)~a);
+  io(cpu);
+  if (m8(cpu)) {
+    write8(cpu, addr, (Uint8)mem);
+  } else {
+    write16_24(cpu, addr, mem);
+  }
+}
+
 bool smx_cpu_step(SmxCpu *cpu) {
   Uint8 op = 0;
   Uint32 addr = 0;
@@ -992,32 +1048,7 @@ bool smx_cpu_step(SmxCpu *cpu) {
   }
 
   if (op == 0x54 || op == 0x44) {
-    Uint8 dest_bank = fetch8(cpu);
-    Uint8 src_bank = fetch8(cpu);
-    io(cpu);
-    io(cpu);
-    value = read8(cpu, ((Uint32)src_bank << 16) | cpu->x);
-    write8(cpu, ((Uint32)dest_bank << 16) | cpu->y, value);
-    if (x8(cpu)) {
-      if (op == 0x54) {
-        cpu->x = (Uint16)((cpu->x + 1) & 0x00FF);
-        cpu->y = (Uint16)((cpu->y + 1) & 0x00FF);
-      } else {
-        cpu->x = (Uint16)((cpu->x - 1) & 0x00FF);
-        cpu->y = (Uint16)((cpu->y - 1) & 0x00FF);
-      }
-    } else if (op == 0x54) {
-      cpu->x = (Uint16)(cpu->x + 1);
-      cpu->y = (Uint16)(cpu->y + 1);
-    } else {
-      cpu->x = (Uint16)(cpu->x - 1);
-      cpu->y = (Uint16)(cpu->y - 1);
-    }
-    cpu->a = (Uint16)(cpu->a - 1);
-    cpu->db = dest_bank;
-    if (cpu->a != 0xFFFF) {
-      cpu->pc = (Uint16)(cpu->pc - 3);
-    }
+    smx_cpu_move(cpu, op);
     return true;
   }
 
@@ -1129,60 +1160,15 @@ bool smx_cpu_step(SmxCpu *cpu) {
     return true;
   }
   if (op == 0x24 || op == 0x2C || op == 0x34 || op == 0x3C || op == 0x89) {
-    Uint16 a = m8(cpu) ? (Uint16)(cpu->a & 0xFF) : cpu->a;
-    Uint16 tested = (Uint16)(a & value);
-    if (m8(cpu)) {
-      nz8(cpu, (Uint8)tested);
-      if (op != 0x89) {
-        cpu->p = (Uint8)((cpu->p & (Uint8) ~(SMX_N | SMX_V)) | (value & (SMX_N | SMX_V)));
-        if (tested == 0) {
-          cpu->p = (Uint8)(cpu->p | SMX_Z);
-        }
-      }
-    } else {
-      nz16(cpu, tested);
-      if (op != 0x89) {
-        set_overflow(cpu, (value & 0x4000) != 0);
-        cpu->p = (Uint8)((cpu->p & (Uint8)~SMX_N) | ((value >> 8) & SMX_N));
-        if (tested == 0) {
-          cpu->p = (Uint8)(cpu->p | SMX_Z);
-        }
-      }
-    }
+    smx_cpu_bit(cpu, op, value);
     return true;
   }
   if (op == 0x04 || op == 0x0C) {
-    Uint16 mem = value;
-    Uint16 a = m8(cpu) ? (Uint16)(cpu->a & 0xFF) : cpu->a;
-    if ((a & mem) == 0) {
-      cpu->p = (Uint8)(cpu->p | SMX_Z);
-    } else {
-      cpu->p = (Uint8)(cpu->p & (Uint8)~SMX_Z);
-    }
-    mem = (Uint16)(mem | a);
-    io(cpu);
-    if (m8(cpu)) {
-      write8(cpu, addr, (Uint8)mem);
-    } else {
-      write16_24(cpu, addr, mem);
-    }
+    smx_cpu_test_bits(cpu, addr, value, true);
     return true;
   }
   if (op == 0x14 || op == 0x1C) {
-    Uint16 mem = value;
-    Uint16 a = m8(cpu) ? (Uint16)(cpu->a & 0xFF) : cpu->a;
-    if ((a & mem) == 0) {
-      cpu->p = (Uint8)(cpu->p | SMX_Z);
-    } else {
-      cpu->p = (Uint8)(cpu->p & (Uint8)~SMX_Z);
-    }
-    mem = (Uint16)(mem & (Uint16)~a);
-    io(cpu);
-    if (m8(cpu)) {
-      write8(cpu, addr, (Uint8)mem);
-    } else {
-      write16_24(cpu, addr, mem);
-    }
+    smx_cpu_test_bits(cpu, addr, value, false);
     return true;
   }
   if ((op & 0xE0) == 0x00 || (op & 0xE0) == 0x20 || (op & 0xE0) == 0x40 || (op & 0xE0) == 0xC0) {
@@ -1198,4 +1184,194 @@ bool smx_cpu_step(SmxCpu *cpu) {
           (unsigned)cpu->pc);
   cpu->stopped = true;
   return false;
+}
+
+Uint32 smx_cpu_key(const SmxCpu *cpu) {
+  Uint32 addr = ((Uint32)cpu->pb << 16) | cpu->pc;
+
+  return SMX_CPU_KEY(addr, cpu->e, (cpu->p & SMX_M) != 0, (cpu->p & SMX_X) != 0);
+}
+
+static SmxCpuBlock smx_cpu_find(const SmxCpuCode *code, Uint32 key) {
+  Uint32 lo = 0;
+  Uint32 hi = code->count;
+
+  while (lo < hi) {
+    Uint32 mid = lo + (hi - lo) / 2u;
+    if (code->keys[mid] < key) {
+      lo = mid + 1u;
+    } else {
+      hi = mid;
+    }
+  }
+  if (lo < code->count && code->keys[lo] == key) {
+    return code->blocks[lo];
+  }
+  return NULL;
+}
+
+bool smx_cpu_run(SmxCpu *cpu) {
+  SmxCpuBlock block = NULL;
+
+  if (cpu->code != NULL && !cpu->stopped && !cpu->waiting) {
+    block = smx_cpu_find(cpu->code, smx_cpu_key(cpu));
+  }
+  if (block == NULL) {
+    cpu->interpreted += 1;
+    return smx_cpu_step(cpu);
+  }
+  block(cpu);
+  cpu->translated += 1;
+  return !cpu->stopped;
+}
+
+bool smx_cpu_next(SmxCpu *cpu) {
+  if (cpu->next == NULL || !cpu->next(cpu->next_user)) {
+    return false;
+  }
+  cpu->translated += 1;
+  return true;
+}
+
+Uint8 smx_cpu_fetch(SmxCpu *cpu) {
+  return fetch8(cpu);
+}
+
+void smx_cpu_idle(SmxCpu *cpu) {
+  io(cpu);
+}
+
+Uint8 smx_cpu_read8(SmxCpu *cpu, Uint32 addr) {
+  return read8(cpu, addr);
+}
+
+void smx_cpu_write8(SmxCpu *cpu, Uint32 addr, Uint8 value) {
+  write8(cpu, addr, value);
+}
+
+Uint16 smx_cpu_read16(SmxCpu *cpu, Uint32 addr) {
+  return read16_24(cpu, addr);
+}
+
+void smx_cpu_write16(SmxCpu *cpu, Uint32 addr, Uint16 value) {
+  write16_24(cpu, addr, value);
+}
+
+Uint16 smx_cpu_read_bank16(SmxCpu *cpu, Uint8 bank, Uint16 addr) {
+  return read16p(cpu, bank, addr);
+}
+
+Uint16 smx_cpu_read_m(SmxCpu *cpu, Uint32 addr) {
+  return read_ea(cpu, addr);
+}
+
+void smx_cpu_write_m(SmxCpu *cpu, Uint32 addr, Uint16 value) {
+  write_ea(cpu, addr, value);
+}
+
+Uint16 smx_cpu_read_x(SmxCpu *cpu, Uint32 addr) {
+  return x8(cpu) ? read8(cpu, addr) : read16_24(cpu, addr);
+}
+
+void smx_cpu_push8(SmxCpu *cpu, Uint8 value) {
+  push8(cpu, value);
+}
+
+void smx_cpu_push16(SmxCpu *cpu, Uint16 value) {
+  push16(cpu, value);
+}
+
+Uint8 smx_cpu_pull8(SmxCpu *cpu) {
+  return pull8(cpu);
+}
+
+Uint16 smx_cpu_pull16(SmxCpu *cpu) {
+  return pull16(cpu);
+}
+
+void smx_cpu_set_a(SmxCpu *cpu, Uint16 value) {
+  set_a(cpu, value);
+}
+
+void smx_cpu_set_x(SmxCpu *cpu, Uint16 value) {
+  set_x(cpu, value);
+}
+
+void smx_cpu_set_y(SmxCpu *cpu, Uint16 value) {
+  set_y(cpu, value);
+}
+
+void smx_cpu_set_p(SmxCpu *cpu, Uint8 p) {
+  apply_p(cpu, p);
+}
+
+void smx_cpu_adc(SmxCpu *cpu, Uint16 value) {
+  adc(cpu, value);
+}
+
+void smx_cpu_sbc(SmxCpu *cpu, Uint16 value) {
+  sbc(cpu, value);
+}
+
+void smx_cpu_compare(SmxCpu *cpu, Uint16 left, Uint16 right, bool eight) {
+  cmp_value(cpu, left, right, eight);
+}
+
+Uint16 smx_cpu_logic(SmxCpu *cpu, Uint8 op, Uint16 value) {
+  return logic(cpu, op, value);
+}
+
+void smx_cpu_shift(SmxCpu *cpu, Uint8 op, Uint32 addr) {
+  shift_mem(cpu, op, addr);
+}
+
+bool smx_cpu_implied(SmxCpu *cpu, Uint8 op) {
+  Uint8 cycles = 0;
+
+  if (!run_implied(cpu, op)) {
+    return false;
+  }
+  for (cycles = implied_io(op); cycles != 0; cycles -= 1) {
+    io(cpu);
+  }
+  return true;
+}
+
+void smx_cpu_interrupt(SmxCpu *cpu, Uint16 native_vector, Uint16 emu_vector) {
+  interrupt(cpu, native_vector, emu_vector, true);
+}
+
+void smx_cpu_branch(SmxCpu *cpu, bool take) {
+  branch8(cpu, take);
+}
+
+void smx_cpu_move(SmxCpu *cpu, Uint8 op) {
+  Uint8 dest_bank = fetch8(cpu);
+  Uint8 src_bank = fetch8(cpu);
+  Uint8 value = 0;
+
+  io(cpu);
+  io(cpu);
+  value = read8(cpu, ((Uint32)src_bank << 16) | cpu->x);
+  write8(cpu, ((Uint32)dest_bank << 16) | cpu->y, value);
+  if (x8(cpu)) {
+    if (op == 0x54) {
+      cpu->x = (Uint16)((cpu->x + 1) & 0x00FF);
+      cpu->y = (Uint16)((cpu->y + 1) & 0x00FF);
+    } else {
+      cpu->x = (Uint16)((cpu->x - 1) & 0x00FF);
+      cpu->y = (Uint16)((cpu->y - 1) & 0x00FF);
+    }
+  } else if (op == 0x54) {
+    cpu->x = (Uint16)(cpu->x + 1);
+    cpu->y = (Uint16)(cpu->y + 1);
+  } else {
+    cpu->x = (Uint16)(cpu->x - 1);
+    cpu->y = (Uint16)(cpu->y - 1);
+  }
+  cpu->a = (Uint16)(cpu->a - 1);
+  cpu->db = dest_bank;
+  if (cpu->a != 0xFFFF) {
+    cpu->pc = (Uint16)(cpu->pc - 3);
+  }
 }
