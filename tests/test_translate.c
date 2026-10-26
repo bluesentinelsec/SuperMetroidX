@@ -43,8 +43,8 @@ static Uint32 rand32(void) {
 static void fail(Uint32 slot, Uint32 trial, const char *what, Uint32 interp, Uint32 native) {
   if (g_failures < 40u) {
     SDL_Log("translate: slot %u (op %02X mode %u) trial %u: %s interpreted %x translated %x",
-            (unsigned)slot, (unsigned)(slot & 0xFFu), (unsigned)(slot / 256u), (unsigned)trial, what,
-            (unsigned)interp, (unsigned)native);
+            (unsigned)slot, (unsigned)(slot & 0xFFu), (unsigned)(slot / 256u), (unsigned)trial,
+            what, (unsigned)interp, (unsigned)native);
   }
   g_failures += 1;
   g_failed = true;
@@ -80,7 +80,8 @@ static void compare(Uint32 slot, Uint32 trial, const Machine *a, const Machine *
     fail(slot, trial, "p", x->p | (x->e ? 0x100u : 0u), y->p | (y->e ? 0x100u : 0u));
   }
   if (x->stopped != y->stopped || x->waiting != y->waiting) {
-    fail(slot, trial, "stopped/waiting", x->stopped * 2u + x->waiting, y->stopped * 2u + y->waiting);
+    fail(slot, trial, "stopped/waiting", x->stopped * 2u + x->waiting,
+         y->stopped * 2u + y->waiting);
   }
   if (x->clocks != y->clocks) {
     fail(slot, trial, "clocks", x->clocks, y->clocks);
