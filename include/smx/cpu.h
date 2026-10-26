@@ -49,6 +49,8 @@ struct SmxCpu {
   bool waiting;
   Uint32 clocks;
   Uint32 last_at;
+  /** Mask for the second byte of a 16-bit operand: direct-page operands wrap in bank 0. */
+  Uint32 ea_mask;
   const SmxCpuCode *code;
   bool (*next)(void *user);
   void *next_user;
