@@ -14,7 +14,7 @@ The ROM is supplied by the person building the project. It is never committed, a
    make play
    ```
 
-The first build translates the ROM, which takes a few minutes. Release builds start fullscreen; press F11 for a window, and close the window or press Cmd+Q / Alt+F4 to quit.
+The first build translates the ROM, which takes a few minutes. Release builds start fullscreen; press F11 for a window and Escape to quit.
 
 ## The ROM
 
@@ -118,6 +118,7 @@ The gamepad follows the SNES layout by position, so the buttons' letters differ 
 
 | Key | Action |
 | --- | --- |
+| Escape | Quit (release builds ask first) |
 | F11 or Alt+Return | Toggle fullscreen |
 | F5 | Quick-save |
 | F9 | Quick-load (`--load-state` starts from the quick-save) |

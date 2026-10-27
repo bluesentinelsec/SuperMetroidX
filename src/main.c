@@ -156,6 +156,37 @@ static const char *smx_shell_find_rom(char *path, Uint32 size) {
   return SDL_GetPathInfo(path, NULL) ? path : "SuperMetroid.sfc";
 }
 
+/*
+ * Escape quits at once in debug builds. Release builds ask first, since the
+ * key is easy to hit by accident in play.
+ */
+static bool smx_shell_confirm_quit(SDL_Window *window) {
+#ifdef NDEBUG
+  static const SDL_MessageBoxButtonData buttons[] = {
+      {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel"},
+      {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Quit"},
+  };
+  SDL_MessageBoxData box;
+  int chosen = 0;
+
+  SDL_memset(&box, 0, sizeof(box));
+  box.flags = SDL_MESSAGEBOX_WARNING;
+  box.window = window;
+  box.title = "SuperMetroidX";
+  box.message = "Are you sure you want to quit? Progress since your last save will be lost.";
+  box.numbuttons = (int)(sizeof(buttons) / sizeof(buttons[0]));
+  box.buttons = buttons;
+  if (!SDL_ShowMessageBox(&box, &chosen)) {
+    SDL_Log("cannot ask before quitting: %s", SDL_GetError());
+    return true;
+  }
+  return chosen == 1;
+#else
+  (void)window;
+  return true;
+#endif
+}
+
 static void smx_shell_usage(void) {
   SDL_Log("usage: SuperMetroidX [options] [ROM]");
   SDL_Log("  ROM defaults to $SMX_ROM, then SuperMetroid.sfc in the working directory or the");
@@ -317,6 +348,9 @@ int main(int argc, char **argv) {
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                 event.key.scancode == SDL_SCANCODE_ESCAPE) {
+        running = !smx_shell_confirm_quit(presenter.window);
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                  (event.key.scancode == SDL_SCANCODE_F11 ||
                   (event.key.scancode == SDL_SCANCODE_RETURN &&
