@@ -90,6 +90,7 @@ void smx_ppu_quit(SmxPpu *ppu) {
 
 void smx_ppu_write_cgram(SmxPpu *ppu, Uint8 index, Uint16 bgr555) {
   ppu->cgram[index] = (Uint16)(bgr555 & 0x7FFF);
+  ppu->cgram_serial += 1;
 }
 
 /* The PPU dot of a master clock in the line: dots 323 and 327 are 6 clocks long. */
@@ -1186,6 +1187,9 @@ void smx_ppu_present_span(SmxPpu *ppu, Uint32 scanline, Uint32 x_from, Uint32 x_
   if (scanline < 1u) {
     return;
   }
+  if (x_from == 0 && ppu->line_hook != NULL && scanline <= SMX_PPU_HEIGHT) {
+    ppu->line_hook(ppu->hook_user, ppu, scanline);
+  }
   smx_ppu_render_at(ppu, scanline, scanline - 1u, x_from, x_to);
 }
 
@@ -1206,6 +1210,9 @@ void smx_ppu_end_picture(SmxPpu *ppu) {
   ppu->pictures += 1;
   if (ppu->pixels != NULL && ppu->picture != NULL) {
     SDL_memcpy(ppu->picture, ppu->pixels, (size_t)SMX_PPU_WIDTH * SMX_PPU_HEIGHT * 4u);
+  }
+  if (ppu->picture_hook != NULL) {
+    ppu->picture_hook(ppu->hook_user, ppu);
   }
 }
 

@@ -142,6 +142,16 @@ typedef struct SmxPpu {
   bool v_toggle;
   Uint16 h_latch;
   Uint16 v_latch;
+  /** Counts CGRAM writes, so a copy of CGRAM can tell it is stale. */
+  Uint32 cgram_serial;
+  /**
+   * Called before each visible scanline is drawn, with the registers it is
+   * drawn with, and when a picture is finished. NULL for none. Saves states
+   * keep the hooks of the machine they load into.
+   */
+  void (*line_hook)(void *user, const struct SmxPpu *ppu, Uint32 scanline);
+  void (*picture_hook)(void *user, const struct SmxPpu *ppu);
+  void *hook_user;
 } SmxPpu;
 
 void smx_ppu_init(SmxPpu *ppu, SmxBus *bus);

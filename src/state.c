@@ -121,12 +121,18 @@ static void smx_state_restore_ppu(SmxPpu *ppu, const Uint8 *in) {
   Uint8 *pixels = ppu->pixels;
   Uint8 *picture = ppu->picture;
   const Uint32 *beam_line = ppu->beam_line;
+  void (*line_hook)(void *, const SmxPpu *, Uint32) = ppu->line_hook;
+  void (*picture_hook)(void *, const SmxPpu *) = ppu->picture_hook;
+  void *hook_user = ppu->hook_user;
 
   SDL_memcpy(ppu, in, sizeof(SmxPpu));
   ppu->bus = bus;
   ppu->pixels = pixels;
   ppu->picture = picture;
   ppu->beam_line = beam_line;
+  ppu->line_hook = line_hook;
+  ppu->picture_hook = picture_hook;
+  ppu->hook_user = hook_user;
 }
 
 static void smx_state_restore_apu(SmxApu *apu, const Uint8 *in) {

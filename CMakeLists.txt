@@ -55,6 +55,7 @@ set(SMX_SOURCES
   src/state.c
   src/save.c
   src/pace.c
+  src/motion.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -241,6 +242,9 @@ if(EXISTS "${SMX_ROM}")
     set_tests_properties("game_${run}" PROPERTIES LABELS rom TIMEOUT 1800)
   endforeach()
 
+  add_test(NAME motion_rom COMMAND smx_test_motion "${SMX_ROM}")
+  set_tests_properties(motion_rom PROPERTIES LABELS rom TIMEOUT 1800)
+
   # smxsave reaches play from each section's save station.
   foreach(section ceres landing explore crateria brinstar norfair wrecked-ship maridia tourian)
     add_test(
@@ -274,6 +278,10 @@ endif()
 add_executable(smx_test_pace tests/test_pace.c)
 target_link_libraries(smx_test_pace PRIVATE smx)
 add_test(NAME pace COMMAND smx_test_pace)
+
+add_executable(smx_test_motion tests/test_motion.c)
+target_link_libraries(smx_test_motion PRIVATE smx_game smx)
+add_test(NAME motion COMMAND smx_test_motion)
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)

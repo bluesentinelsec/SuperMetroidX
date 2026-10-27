@@ -102,10 +102,13 @@ The picture fills the screen at the shape an NTSC television gave it, with CRT s
 | `--aspect` | `tv` shows pixels 8:7 wide, as a television did; `square` | `tv` |
 | `--scanlines` | `on`, `off` | `on` |
 | `--sync` | `display` shows every game frame for the same number of display refreshes; `audio` paces the game by the audio queue at the console's exact rate | `display` |
+| `--interpolate` | `on` draws in-between pictures on displays faster than 60 Hz; `off` | `on` |
 
 For example, `SuperMetroidX --window-mode windowed --scale integer --aspect square --scanlines off --sync audio` shows the raw picture in a window, paced as before these enhancements.
 
-The SNES draws 60.0988 frames a second, which no display matches exactly. With `--sync display`, when the display refreshes at a whole multiple of that rate (60, 59.94, 120, or 240 Hz), the game runs one frame every one, two, or four refreshes, about 0.17% slower than a console at 60 Hz, and its audio is resampled to match; the pitch change, under 3 cents, is inaudible. Each frame then shows for the same time, so scrolling has no hitches. At other rates, such as 144 Hz, the game keeps the console's rate. The game's logic is untouched either way: every frame is emulated exactly as on the console. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option.
+The SNES draws 60.0988 frames a second, which no display matches exactly. With `--sync display`, when the display refreshes at a whole multiple of that rate (60, 59.94, 120, or 240 Hz), the game runs one frame every one, two, or four refreshes, about 0.17% slower than a console at 60 Hz, and its audio is resampled to match; the pitch change, under 3 cents, is inaudible. Each frame then shows for the same time, so scrolling has no hitches. At other rates, such as 144 Hz, the game keeps the console's rate. The game's logic is untouched either way: every frame is emulated exactly as on the console.
+
+On a display faster than the game, such as 120 or 144 Hz, `--interpolate on` fills the extra refreshes with in-between pictures, as game engines interpolate between physics steps. Each in-between picture is the last game frame drawn again by the same PPU renderer, with the scrolling and the sprites moved back toward the frame before: scroll by its change on each line, a sprite with the game object it belongs to (Samus, an enemy, a projectile) or by matching its tiles. The camera moves by fractions of a pixel; the HUD stays put. Animation frames, colors, and everything the game computes stay exactly as the console's. The pictures run slightly behind: at 120 Hz each new frame shows one refresh (8 ms) later than without interpolation, and at rates such as 144 Hz about a frame later. At 60 Hz there is nothing in between, so it does nothing. F3 switches it on and off while playing, to compare. It needs `--sync display`. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option.
 
 ## Controls
 
@@ -126,6 +129,7 @@ The gamepad follows the SNES layout by position, so the buttons' letters differ 
 | --- | --- |
 | Escape | Quit (release builds ask first) |
 | F11 or Alt+Return | Toggle fullscreen |
+| F3 | Switch motion interpolation on or off |
 | F5 | Quick-save |
 | F9 | Quick-load (`--load-state` starts from the quick-save) |
 
@@ -182,12 +186,12 @@ GitHub's hosted runners build and test Debug on Ubuntu, macOS, and Windows with 
 ./playtest.sh norfair                 # the first Norfair save station, with Varia
 ./playtest.sh maridia --items screw   # add items or beams to the section's loadout
 ./playtest.sh --debug tourian         # under lldb or gdb, with a backtrace on a crash
-./playtest.sh --release               # the Release build, fullscreen, to judge smoothness
+./playtest.sh --dev                   # the Debug build, in a window
 ./playtest.sh --keep norfair          # continue the last Norfair session
 ./playtest.sh --list                  # sections and loadout options
 ```
 
-The sections are `ceres`, `landing`, `explore` (the default), `crateria`, `brinstar`, `norfair`, `wrecked-ship`, `maridia`, and `tourian`. Each starts with clear progress flags: bosses are alive and the Wrecked Ship is unpowered. The script uses `smxsave`, which plays the ROM headless: the game formats its own SRAM, slot A is written at the section's save station with its loadout, and the tool presses through the title and file select to a quick-save state in play. Saves and states from a play test stay in `build/playtest/<section>/`, apart from your own.
+The sections are `ceres`, `landing`, `explore` (the default), `crateria`, `brinstar`, `norfair`, `wrecked-ship`, `maridia`, and `tourian`. Each starts with clear progress flags: bosses are alive and the Wrecked Ship is unpowered. The script plays the Release build fullscreen; `--dev` plays the Debug build in a window. It uses `smxsave`, which plays the ROM headless: the game formats its own SRAM, slot A is written at the section's save station with its loadout, and the tool presses through the title and file select to a quick-save state in play. Saves and states from a play test stay in `build/playtest/<section>/`, apart from your own.
 
 ### The translator
 

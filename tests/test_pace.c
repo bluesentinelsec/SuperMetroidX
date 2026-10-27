@@ -56,6 +56,7 @@ static void test_60hz(void) {
   frames = run(&pace, 16666667u, 1000000, 300, 600, &most);
   expect("60 Hz locks 1:1", pace.lock == 1);
   expect("60 Hz runs one frame per refresh", frames == 600 && most == 1);
+  expect("60 Hz never interpolates", smx_pace_alpha(&pace) == 1.0f);
   expect("60 Hz slows audio 0.17%", smx_pace_audio_ratio(&pace, 100, 100) < 0.999f &&
                                         smx_pace_audio_ratio(&pace, 100, 100) > 0.997f);
 }
@@ -96,6 +97,8 @@ static void test_120hz(void) {
     last = got;
   }
   expect("120 Hz shows each frame for two refreshes", alternates);
+  expect("120 Hz interpolates halfway, then shows the frame",
+         (smx_pace_alpha(&pace) == 0.5f || smx_pace_alpha(&pace) == 1.0f));
 }
 
 static void test_mode_rate(void) {
@@ -117,6 +120,7 @@ static void test_144hz(void) {
   frames = run(&pace, 6944444u, 500000, 300, 1440, &most);
   /* Ten seconds at the console's rate is 601 frames. */
   expect("144 Hz does not lock", pace.lock == 0);
+  expect("144 Hz interpolates", smx_pace_alpha(&pace) < 1.0f);
   expect("144 Hz keeps the console's rate", frames >= 600 && frames <= 602 && most == 1);
   expect("144 Hz plays audio at its rate", smx_pace_audio_ratio(&pace, 100, 100) == 1.0f);
 }
@@ -128,9 +132,9 @@ static void test_missed_refresh(void) {
   smx_pace_init(&pace, FRAME_NS, 60.0f);
   run(&pace, 16666667u, 0, 300, 10, &most);
   expect("a present two refreshes late runs two frames",
-         smx_pace_presented(&pace, pace.presents[(pace.next + SMX_PACE_PRESENTS - 1u) %
-                                                 SMX_PACE_PRESENTS] +
-                                       33333333u) == 2);
+         smx_pace_presented(
+             &pace, pace.presents[(pace.next + SMX_PACE_PRESENTS - 1u) % SMX_PACE_PRESENTS] +
+                        33333333u) == 2);
 }
 
 static void test_no_vsync(void) {
@@ -141,6 +145,7 @@ static void test_no_vsync(void) {
   smx_pace_init(&pace, FRAME_NS, 60.0f);
   run(&pace, 500000u, 0, 100, 0, &most);
   expect("presents that do not wait turn vsync off", !pace.vsync);
+  expect("without vsync nothing is interpolated", smx_pace_alpha(&pace) == 1.0f);
   now = pace.presents[(pace.next + SMX_PACE_PRESENTS - 1u) % SMX_PACE_PRESENTS];
   expect("without vsync the shell waits for the frame", smx_pace_wait_ns(&pace, now) > 0);
   smx_pace_set_vsync(&pace, true, now);

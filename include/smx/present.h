@@ -1,6 +1,8 @@
 #ifndef SMX_PRESENT_H_
 #define SMX_PRESENT_H_
 
+#include "smx/motion.h"
+
 #include <SDL3/SDL.h>
 
 /** How the window covers the display. */
@@ -78,8 +80,12 @@ void smx_present_window_size(const SmxPresentOptions *options, Sint32 src_w, Sin
 bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, Sint32 height,
                       const SmxPresentOptions *options);
 
-/** Show `pixels`, or the backdrop when it is NULL, and swap buffers. */
-void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels);
+/**
+ * Show `pixels`, or the backdrop when it is NULL, and swap buffers. `shift`,
+ * when not NULL, moves the rows of an in-between picture by fractions of a
+ * pixel; the SDL renderer fallback draws whole pixels only.
+ */
+void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels, const SmxMotionShift *shift);
 
 /** Switch between a window and the fullscreen mode in the options (borderless if windowed). */
 void smx_present_toggle_fullscreen(SmxPresenter *presenter);

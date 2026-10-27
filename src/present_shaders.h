@@ -26,6 +26,12 @@ static const Uint8 smx_present_vertex_shader[] =
  * as on a CRT. Beams add in linear light. The gain makes up most of the
  * brightness lost between lines. Below a 2x vertical scale the lines would
  * alias, so the effect fades out between 2.5x and 1.5x.
+ *
+ * An in-between picture of motion interpolation is drawn at whole pixels;
+ * `shifts` holds how far past that each row moves, and `shift_y` the
+ * vertical fraction for rows `shift_y.y` up to `shift_y.z`. The picture is
+ * sampled that far on, so the camera moves by fractions of a pixel. With
+ * scanlines, the beams stay put and the picture moves under them.
  */
 static const Uint8 smx_present_fragment_shader[] =
     "#version 150\n"
@@ -33,6 +39,8 @@ static const Uint8 smx_present_fragment_shader[] =
     "uniform vec2 source_size;\n"
     "uniform vec2 output_size;\n"
     "uniform float scanlines;\n"
+    "uniform sampler2D shifts;\n"
+    "uniform vec3 shift_y;\n"
     "in vec2 coord;\n"
     "out vec4 color;\n"
     "float sharp(float x, float scale) {\n"
@@ -48,14 +56,25 @@ static const Uint8 smx_present_fragment_shader[] =
     "  float width = mix(0.20, 0.32, sqrt(max(max(c.r, c.g), c.b)));\n"
     "  return exp(-0.5 * d * d / (width * width));\n"
     "}\n"
+    "float moved_y(float y) {\n"
+    "  if (y >= shift_y.y && y < shift_y.z) {\n"
+    "    return min(y + shift_y.x, shift_y.z - 0.5);\n"
+    "  }\n"
+    "  return y;\n"
+    "}\n"
     "void main() {\n"
     "  vec2 scale = output_size / source_size;\n"
-    "  float x = sharp(coord.x, scale.x);\n"
-    "  vec3 plain = fetch(x, sharp(coord.y, scale.y));\n"
+    "  float my = moved_y(coord.y);\n"
+    "  float row = clamp(floor(my), 0.0, source_size.y - 1.0);\n"
+    "  float mx = coord.x + texelFetch(shifts, ivec2(int(row), 0), 0).r;\n"
+    "  float x = sharp(mx, scale.x);\n"
+    "  vec3 plain = fetch(x, sharp(my, scale.y));\n"
     "  float y0 = floor(coord.y - 0.5) + 0.5;\n"
     "  float d = coord.y - y0;\n"
-    "  vec3 a = fetch(x, y0) * step(0.0, y0);\n"
-    "  vec3 b = fetch(x, y0 + 1.0) * step(y0 + 1.0, source_size.y);\n"
+    "  float ya = moved_y(y0);\n"
+    "  float yb = moved_y(y0 + 1.0);\n"
+    "  vec3 a = fetch(x, ya) * step(0.0, y0);\n"
+    "  vec3 b = fetch(x, yb) * step(y0 + 1.0, source_size.y);\n"
     "  vec3 lit = (a * beam(d, a) + b * beam(1.0 - d, b)) * 1.3;\n"
     "  float strength = scanlines * clamp(scale.y - 1.5, 0.0, 1.0);\n"
     "  color = vec4(pow(clamp(mix(plain, lit, strength), 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);\n"

@@ -152,8 +152,17 @@ Uint64 smx_pace_wait_ns(const SmxPace *pace, Uint64 now_ns) {
   return due > elapsed ? due - elapsed : 0;
 }
 
-float smx_pace_phase(const SmxPace *pace) {
-  return (float)((double)pace->owed_ns / (double)pace->frame_ns);
+float smx_pace_alpha(const SmxPace *pace) {
+  double owed = (double)pace->owed_ns;
+
+  if (!pace->vsync) {
+    return 1.0f;
+  }
+  /* Locked, the coming refresh is a whole step on and never past the last frame. */
+  if (pace->lock != 0) {
+    owed += (double)pace->step_ns;
+  }
+  return owed >= (double)pace->frame_ns ? 1.0f : (float)(owed / (double)pace->frame_ns);
 }
 
 void smx_pace_set_vsync(SmxPace *pace, bool vsync, Uint64 now_ns) {

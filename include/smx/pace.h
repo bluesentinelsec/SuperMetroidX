@@ -57,8 +57,14 @@ Uint32 smx_pace_presented(SmxPace *pace, Uint64 now_ns);
 /** Without vsync: nanoseconds to wait at `now_ns` before the next game frame is due. */
 Uint64 smx_pace_wait_ns(const SmxPace *pace, Uint64 now_ns);
 
-/** How far, from 0 to 1, the display is into the next game frame. */
-float smx_pace_phase(const SmxPace *pace);
+/**
+ * Where the coming present falls between the last two game frames, from 0
+ * (the frame before) to 1 (the last), for motion interpolation. Locked at k
+ * refreshes a frame, the k presents of a frame show 1/k, 2/k, ... 1: the
+ * game time at the refresh the present shows on, one frame behind. Unlocked,
+ * a frame and a refresh behind, so the steps stay even. Without vsync, 1.
+ */
+float smx_pace_alpha(const SmxPace *pace);
 
 /** The display stopped (or resumed) waiting for refreshes, as when the window is hidden. */
 void smx_pace_set_vsync(SmxPace *pace, bool vsync, Uint64 now_ns);

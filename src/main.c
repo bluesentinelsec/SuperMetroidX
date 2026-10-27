@@ -2,6 +2,7 @@
 #include "smx/cart.h"
 #include "smx/clock.h"
 #include "smx/game.h"
+#include "smx/motion.h"
 #include "smx/pace.h"
 #include "smx/ppu.h"
 #include "smx/present.h"
@@ -205,6 +206,8 @@ static void smx_shell_usage(void) {
   SDL_Log("  --sync display|audio  show each game frame for whole display refreshes,");
   SDL_Log("                      resampling audio to match, or pace by the audio queue");
   SDL_Log("                      at the console's exact rate; default display");
+  SDL_Log("  --interpolate on|off  on displays faster than 60 Hz, draw in-between pictures");
+  SDL_Log("                      that move scrolling and sprites smoothly; default on");
   smx_present_usage();
   SDL_Log("  --smoke             present a few frames and exit, for CI");
 }
@@ -213,6 +216,7 @@ int main(int argc, char **argv) {
   bool smoke = false;
   bool load_state = false;
   bool display_sync = true;
+  bool interpolate = true;
   const char *rom_path = NULL;
   SmxPresentOptions display;
   Sint32 index = 1;
@@ -240,6 +244,17 @@ int main(int argc, char **argv) {
         display_sync = false;
       } else {
         SDL_Log("--sync needs display or audio");
+        smx_shell_usage();
+        return 1;
+      }
+      index += 1;
+    } else if (SDL_strcmp(argv[index], "--interpolate") == 0) {
+      if (index + 1 < argc && SDL_strcmp(argv[index + 1], "on") == 0) {
+        interpolate = true;
+      } else if (index + 1 < argc && SDL_strcmp(argv[index + 1], "off") == 0) {
+        interpolate = false;
+      } else {
+        SDL_Log("--interpolate needs on or off");
         smx_shell_usage();
         return 1;
       }
@@ -355,6 +370,18 @@ int main(int argc, char **argv) {
     }
   }
 
+  /* In-between pictures need the display's refresh, so they come with display sync. */
+  SmxMotion *motion = NULL;
+  SmxMotionShift shift;
+  bool interpolating = true;
+  if (machine && interpolate && display_sync && !smoke) {
+    motion = (SmxMotion *)SDL_calloc(1, sizeof(SmxMotion));
+    if (motion != NULL && !smx_motion_init(motion, &ppu)) {
+      SDL_free(motion);
+      motion = NULL;
+    }
+  }
+
   SDL_AudioStream *audio = NULL;
   if (playing && audio_ready) {
     SDL_AudioSpec spec;
@@ -405,10 +432,18 @@ int main(int argc, char **argv) {
             }
           } else if (smx_state_load(&console, rom_hash, path)) {
             SDL_Log("loaded state from %s", path);
+            if (motion != NULL) {
+              smx_motion_reset(motion);
+            }
           } else {
             SDL_Log("no state for this ROM and build in %s", path);
           }
         }
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                 event.key.scancode == SDL_SCANCODE_F3 && motion != NULL) {
+        /* F3 switches motion interpolation, to compare. */
+        interpolating = !interpolating;
+        SDL_Log("motion interpolation %s", interpolating ? "on" : "off");
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
       } else if (event.type == SDL_EVENT_WINDOW_OCCLUDED || event.type == SDL_EVENT_WINDOW_HIDDEN ||
@@ -496,6 +531,9 @@ int main(int argc, char **argv) {
         SDL_Log("cpu stopped at %u:%u", (unsigned)cpu.pb, (unsigned)cpu.pc);
         playing = false;
       }
+      if (motion != NULL) {
+        smx_motion_objects(motion, bus.wram);
+      }
       sram_clock += 1;
       if (sram_clock == SMX_SHELL_SRAM_FRAMES) {
         sram_clock = 0;
@@ -515,7 +553,12 @@ int main(int argc, char **argv) {
       }
     }
 
-    smx_present_frame(&presenter, playing ? ppu.picture : NULL);
+    const Uint8 *between = NULL;
+    if (motion != NULL && interpolating && playing) {
+      between = smx_motion_draw(motion, smx_pace_alpha(&pace), &shift);
+    }
+    smx_present_frame(&presenter, between != NULL ? between : (playing ? ppu.picture : NULL),
+                      between != NULL ? &shift : NULL);
     if (display_sync) {
       pending = smx_pace_presented(&pace, SDL_GetTicksNS());
     }
@@ -540,6 +583,10 @@ int main(int argc, char **argv) {
     smx_translate_free(&misses);
     SDL_Log("instructions: %llu translated, %llu interpreted", (unsigned long long)cpu.translated,
             (unsigned long long)cpu.interpreted);
+    if (motion != NULL) {
+      smx_motion_quit(motion);
+      SDL_free(motion);
+    }
     smx_ppu_quit(&ppu);
     smx_bus_quit(&bus);
   }

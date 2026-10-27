@@ -52,10 +52,15 @@ struct SmxPresentGl {
   PFNGLUNIFORM1IPROC Uniform1i;
   PFNGLUNIFORM1FPROC Uniform1f;
   PFNGLUNIFORM2FPROC Uniform2f;
+  PFNGLUNIFORM3FPROC Uniform3f;
   PFNGLGENVERTEXARRAYSPROC GenVertexArrays;
   PFNGLBINDVERTEXARRAYPROC BindVertexArray;
   PFNGLDELETEVERTEXARRAYSPROC DeleteVertexArrays;
   Uint32 texture;
+  /** One float per picture row: how far the row moves, for in-between pictures. */
+  Uint32 shift_texture;
+  Sint32 shift_y;
+  bool shifted;
   Uint32 program;
   Uint32 vertex_array;
   Sint32 output_size;
@@ -254,6 +259,7 @@ static bool smx_present_load(struct SmxPresentGl *gl) {
   SMX_GL_LOAD(Uniform1i, "glUniform1i");
   SMX_GL_LOAD(Uniform1f, "glUniform1f");
   SMX_GL_LOAD(Uniform2f, "glUniform2f");
+  SMX_GL_LOAD(Uniform3f, "glUniform3f");
   SMX_GL_LOAD(GenVertexArrays, "glGenVertexArrays");
   SMX_GL_LOAD(BindVertexArray, "glBindVertexArray");
   SMX_GL_LOAD(DeleteVertexArrays, "glDeleteVertexArrays");
@@ -313,13 +319,17 @@ static bool smx_present_program(struct SmxPresentGl *gl, Sint32 width, Sint32 he
   gl->Uniform1i(gl->GetUniformLocation(program, "picture"), 0);
   gl->Uniform2f(gl->GetUniformLocation(program, "source_size"), (GLfloat)width, (GLfloat)height);
   gl->output_size = (Sint32)gl->GetUniformLocation(program, "output_size");
+  gl->Uniform1i(gl->GetUniformLocation(program, "shifts"), 1);
+  gl->shift_y = (Sint32)gl->GetUniformLocation(program, "shift_y");
   return true;
 }
 
 static bool smx_present_open_gl(SmxPresenter *presenter) {
   struct SmxPresentGl *gl = (struct SmxPresentGl *)SDL_calloc(1, sizeof(*gl));
   GLuint texture = 0;
+  GLuint shift_texture = 0;
   GLuint vertex_array = 0;
+  float still[SMX_PPU_HEIGHT];
 
   if (gl == NULL) {
     return false;
@@ -354,6 +364,15 @@ static bool smx_present_open_gl(SmxPresenter *presenter) {
   gl->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)presenter->width, (GLsizei)presenter->height,
                  0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, NULL);
   gl->PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+  SDL_memset(still, 0, sizeof(still));
+  gl->GenTextures(1, &shift_texture);
+  gl->ActiveTexture(GL_TEXTURE1);
+  gl->BindTexture(GL_TEXTURE_2D, shift_texture);
+  gl->shift_texture = (Uint32)shift_texture;
+  gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  gl->TexImage2D(GL_TEXTURE_2D, 0, GL_R32F, (GLsizei)SMX_PPU_HEIGHT, 1, 0, GL_RED, GL_FLOAT, still);
+  gl->ActiveTexture(GL_TEXTURE0);
   return true;
 }
 
@@ -363,6 +382,10 @@ static void smx_present_close_gl(struct SmxPresentGl *gl) {
   }
   if (gl->texture != 0) {
     GLuint texture = (GLuint)gl->texture;
+    gl->DeleteTextures(1, &texture);
+  }
+  if (gl->shift_texture != 0) {
+    GLuint texture = (GLuint)gl->shift_texture;
     gl->DeleteTextures(1, &texture);
   }
   if (gl->vertex_array != 0) {
@@ -463,7 +486,7 @@ bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, 
   return true;
 }
 
-void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels) {
+void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels, const SmxMotionShift *shift) {
   struct SmxPresentGl *gl = presenter->gl;
   int out_w = 0;
   int out_h = 0;
@@ -502,6 +525,19 @@ void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels) {
   if (pixels != NULL) {
     gl->TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)presenter->width, (GLsizei)presenter->height,
                       GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, pixels);
+    /* Upload a row shift only when it changes from still. */
+    if (shift != NULL || gl->shifted) {
+      float still[SMX_PPU_HEIGHT];
+      SDL_memset(still, 0, sizeof(still));
+      gl->ActiveTexture(GL_TEXTURE1);
+      gl->TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)SMX_PPU_HEIGHT, 1, GL_RED, GL_FLOAT,
+                        shift != NULL ? shift->x : still);
+      gl->ActiveTexture(GL_TEXTURE0);
+      gl->Uniform3f((GLint)gl->shift_y, shift != NULL ? (GLfloat)shift->y : 0.0f,
+                    shift != NULL ? (GLfloat)shift->top : 0.0f,
+                    shift != NULL ? (GLfloat)shift->bottom : 0.0f);
+      gl->shifted = shift != NULL;
+    }
     /* OpenGL counts viewport rows from the bottom. */
     gl->Viewport((GLint)x, (GLint)(out_h - y - h), (GLsizei)w, (GLsizei)h);
     gl->Uniform2f((GLint)gl->output_size, (GLfloat)w, (GLfloat)h);
