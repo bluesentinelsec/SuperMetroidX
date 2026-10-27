@@ -10,6 +10,9 @@ CLANG_FORMAT ?= clang-format
 DOXYGEN ?= doxygen
 ROM ?= SuperMetroid.sfc
 ARGS ?=
+# Extra CMake cache settings, such as -DSMX_EMBED_ROM=OFF, and extra ctest flags, such as -LE rom.
+CMAKE_ARGS ?=
+CTEST_ARGS ?=
 
 ifeq ($(OS),Windows_NT)
   BIN := SuperMetroidX.exe
@@ -23,11 +26,11 @@ endif
 DEBUG_BIN := $(DEBUG_DIR)/$(BIN)
 RELEASE_BIN := $(RELEASE_DIR)/$(BIN)
 
-CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA)
+CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA) $(CMAKE_ARGS)
 
 .DEFAULT_GOAL := build
 
-.PHONY: build release play run debug fmt test docs clean package configure-debug configure-release
+.PHONY: build release play run debug fmt test test-release docs clean package configure-debug configure-release
 
 build: configure-debug
 	$(CMAKE) --build $(DEBUG_DIR)
@@ -62,7 +65,10 @@ fmt:
 
 test: build
 	$(CMAKE) --build $(DEBUG_DIR) --target smx_tests
-	cd $(DEBUG_DIR) && ctest --output-on-failure
+	cd $(DEBUG_DIR) && ctest --output-on-failure --parallel 4 $(CTEST_ARGS)
+
+test-release: release
+	cd $(RELEASE_DIR) && ctest --output-on-failure --parallel 4 $(CTEST_ARGS)
 
 docs:
 	$(DOXYGEN) Doxyfile

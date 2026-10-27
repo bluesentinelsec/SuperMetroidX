@@ -1,12 +1,24 @@
 name: CI
 
+# This repository does not take outside contributions. Every job runs only in
+# bluesentinelsec/SuperMetroidX, and for a pull request only when its branch
+# is in this repository, so forks and pull requests from forks run nothing.
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     name: ${{ matrix.os }}
+    if: >-
+      github.repository == 'bluesentinelsec/SuperMetroidX' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -39,13 +51,14 @@ jobs:
           path: build/debug/_deps
           key: sdl3-3.4.18-${{ runner.os }}
 
+      # Hosted runners never have the ROM; embedding is off so a stray one is never linked in.
       - name: Build and test
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
             export PATH="/c/ProgramData/chocolatey/bin:/c/Program Files/Git/usr/bin:$PATH"
           fi
-          make test
+          make test CMAKE_ARGS=-DSMX_EMBED_ROM=OFF
           if [ -d build/debug/SuperMetroidX.app ]; then
             bin=build/debug/SuperMetroidX.app/Contents/MacOS/SuperMetroidX
           elif [ -f build/debug/SuperMetroidX.exe ]; then
@@ -54,3 +67,35 @@ jobs:
             bin=build/debug/SuperMetroidX
           fi
           SDL_VIDEODRIVER=dummy "$bin" --smoke
+
+  # The one job with the ROM: a Raspberry Pi 5 on the owner's network. The ROM
+  # and the build trees stay on the Pi, outside the workspace (SMX_PI_ROM and
+  # SMX_PI_BUILD come from the runner's .env), and nothing is uploaded. A
+  # job-started hook on the Pi refuses jobs from anyone but the owner.
+  raspberry-pi:
+    name: raspberry-pi (ROM)
+    if: >-
+      github.repository == 'bluesentinelsec/SuperMetroidX' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Linux, ARM64, smx-rom]
+    timeout-minutes: 90
+    concurrency:
+      group: raspberry-pi
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the ROM
+        run: |
+          test -n "$SMX_PI_ROM" && test -f "$SMX_PI_ROM" && test -n "$SMX_PI_BUILD"
+          echo "da957f0d63d14cb441d215462904c4fa8519c613  $SMX_PI_ROM" | sha1sum --check --quiet
+
+      # Debug with the ROM built in: unit tests, the game against recorded
+      # hashes (translated and interpreted), every play-test section, and the
+      # shell starting on its built-in ROM.
+      - name: Debug build and tests with the ROM
+        run: make test BUILD_DIR="$SMX_PI_BUILD" CMAKE_ARGS="-DSMX_ROM=$SMX_PI_ROM -DSMX_EMBED_ROM=ON"
+
+      - name: Release build and tests with the ROM
+        run: make test-release BUILD_DIR="$SMX_PI_BUILD" CMAKE_ARGS="-DSMX_ROM=$SMX_PI_ROM -DSMX_EMBED_ROM=ON"
