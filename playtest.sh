@@ -20,12 +20,14 @@ cd "$(dirname "$0")"
 ROM=${ROM:-SuperMetroid.sfc}
 TARGET=run
 KEEP=0
+GAME_ARGS=--load-state
 SECTION=landing
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --debug) TARGET=debug; shift ;;
     --keep) KEEP=1; shift ;;
+    --cheats) GAME_ARGS="$GAME_ARGS --cheats $2"; shift 2 ;;
     --list|--help|-h) make build >/dev/null; exec build/debug/smxsave --list ;;
     -*) break ;;
     *) SECTION=$1; shift; break ;;
@@ -42,4 +44,4 @@ DIR=build/playtest/$SECTION
 if [ "$KEEP" = 0 ] || [ ! -f "$DIR/$(basename "${ROM%.*}").state" ]; then
   build/debug/smxsave --section "$SECTION" "$@" "$ROM" "$DIR"
 fi
-SMX_DATA_DIR=$DIR exec make "$TARGET" ROM="$ROM" ARGS=--load-state
+SMX_DATA_DIR=$DIR exec make "$TARGET" ROM="$ROM" ARGS="$GAME_ARGS"

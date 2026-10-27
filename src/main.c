@@ -1,7 +1,9 @@
 #include "smx/apu.h"
 #include "smx/cart.h"
+#include "smx/cheat.h"
 #include "smx/clock.h"
 #include "smx/game.h"
+#include "smx/overlay.h"
 #include "smx/ppu.h"
 #include "smx/present.h"
 #include "smx/sram.h"
@@ -156,6 +158,20 @@ static const char *smx_shell_find_rom(char *path, Uint32 size) {
   return SDL_GetPathInfo(path, NULL) ? path : "SuperMetroid.sfc";
 }
 
+/* Show a cheat switching, or the items it gave. */
+static void smx_shell_cheat_shown(SmxOverlay *overlay, const SmxCheats *cheats, SmxCheatKind kind) {
+  char text[48];
+
+  if (kind == SMX_CHEAT_ITEMS) {
+    SDL_snprintf(text, sizeof(text), "%s given", smx_cheat_title(kind));
+  } else {
+    SDL_snprintf(text, sizeof(text), "%s %s", smx_cheat_title(kind),
+                 cheats->on[kind] ? "on" : "off");
+  }
+  SDL_Log("cheat: %s", text);
+  smx_overlay_show(overlay, text, SDL_GetTicks());
+}
+
 /*
  * Escape quits at once in debug builds. Release builds ask first, since the
  * key is easy to hit by accident in play.
@@ -192,6 +208,8 @@ static void smx_shell_usage(void) {
   SDL_Log("  ROM defaults to $SMX_ROM, then the ROM built into the game, then");
   SDL_Log("  SuperMetroid.sfc in the working directory or the save folder.");
   SDL_Log("  --load-state        start from the quick-save (F9)");
+  SDL_Log("  --cheats LIST       turn on cheats, comma-separated, or all; keys 1-5 switch them:");
+  SDL_Log("                      life (1), ammo (2), items (3), hyper (4), fly (5)");
   smx_present_usage();
   SDL_Log("  --smoke             present a few frames and exit, for CI");
 }
@@ -200,6 +218,7 @@ int main(int argc, char **argv) {
   bool smoke = false;
   bool load_state = false;
   const char *rom_path = NULL;
+  const char *cheat_list = NULL;
   SmxPresentOptions display;
   Sint32 index = 1;
 
@@ -219,6 +238,16 @@ int main(int argc, char **argv) {
       smoke = true;
     } else if (SDL_strcmp(argv[index], "--load-state") == 0) {
       load_state = true;
+    } else if (SDL_strcmp(argv[index], "--cheats") == 0) {
+      SmxCheats check;
+      smx_cheat_init(&check, NULL, 0);
+      if (index + 1 >= argc || !smx_cheat_parse(&check, argv[index + 1])) {
+        SDL_Log("--cheats needs a list of life, ammo, items, hyper, and fly, or all");
+        smx_shell_usage();
+        return 1;
+      }
+      index += 1;
+      cheat_list = argv[index];
     } else if (argv[index][0] == '-') {
       SDL_Log("unknown option %s", argv[index]);
       smx_shell_usage();
@@ -261,6 +290,8 @@ int main(int argc, char **argv) {
   SmxClock clock;
   SmxSram sram;
   SmxMachine console;
+  SmxCheats cheats;
+  SmxOverlay overlay;
   Uint32 rom_hash = 0;
   SmxTranslator misses;
   SDL_Gamepad *pad = NULL;
@@ -268,6 +299,7 @@ int main(int argc, char **argv) {
   bool playing = false;
   bool machine = false;
   smx_cart_init(&cart);
+  smx_cheat_init(&cheats, NULL, 0);
   SDL_memset(&misses, 0, sizeof(misses));
   if (embedded ? smx_cart_load_bytes(&cart, smx_game_rom, smx_game_rom_size)
                : smx_cart_load_path(&cart, rom_path)) {
@@ -298,6 +330,10 @@ int main(int argc, char **argv) {
     console.apu = &apu;
     console.clock = &clock;
     rom_hash = smx_translate_rom_hash(cart.bytes, cart.size);
+    smx_cheat_init(&cheats, cart.bytes, cart.size);
+    if (cheat_list != NULL) {
+      smx_cheat_parse(&cheats, cheat_list);
+    }
     SDL_Log("loaded %s%s", cart.title, embedded ? " (built in)" : "");
   } else if (!smoke) {
     char message[1400];
@@ -346,6 +382,13 @@ int main(int argc, char **argv) {
     }
   }
 
+  smx_overlay_init(&overlay, SMX_PPU_WIDTH, SMX_PPU_HEIGHT);
+  for (index = 0; index < SMX_CHEAT_COUNT; index += 1) {
+    if (cheats.on[index] && index != SMX_CHEAT_ITEMS) {
+      smx_shell_cheat_shown(&overlay, &cheats, (SmxCheatKind)index);
+    }
+  }
+
   bool running = true;
   Uint64 started = SDL_GetTicks();
   Uint64 next_frame = SDL_GetTicksNS();
@@ -377,6 +420,15 @@ int main(int argc, char **argv) {
           } else {
             SDL_Log("no state for this ROM and build in %s", path);
           }
+        }
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
+                 event.key.scancode >= SDL_SCANCODE_1 &&
+                 event.key.scancode < SDL_SCANCODE_1 + SMX_CHEAT_COUNT) {
+        /* Number keys switch the cheats; items are shown once given. */
+        SmxCheatKind kind = (SmxCheatKind)(event.key.scancode - SDL_SCANCODE_1);
+        smx_cheat_toggle(&cheats, kind);
+        if (kind != SMX_CHEAT_ITEMS) {
+          smx_shell_cheat_shown(&overlay, &cheats, kind);
         }
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
@@ -432,6 +484,9 @@ int main(int argc, char **argv) {
       }
       joy = (Uint16)(joy | smx_gamepad_joy(pad));
       clock.joy = joy;
+      if (smx_cheat_apply(&cheats, bus.wram, joy)) {
+        smx_shell_cheat_shown(&overlay, &cheats, SMX_CHEAT_ITEMS);
+      }
       if (!smx_clock_frame(&clock)) {
         SDL_Log("cpu stopped at %u:%u", (unsigned)cpu.pb, (unsigned)cpu.pc);
         playing = false;
@@ -454,7 +509,8 @@ int main(int argc, char **argv) {
       }
     }
 
-    smx_present_frame(&presenter, playing ? ppu.picture : NULL);
+    smx_present_frame(&presenter,
+                      playing ? smx_overlay_draw(&overlay, ppu.picture, SDL_GetTicks()) : NULL);
 
     if (smoke && (SDL_GetTicks() - started) >= 200) {
       running = false;
@@ -479,6 +535,7 @@ int main(int argc, char **argv) {
     smx_ppu_quit(&ppu);
     smx_bus_quit(&bus);
   }
+  smx_overlay_quit(&overlay);
   smx_cart_free(&cart);
   smx_present_close(&presenter);
   SDL_Quit();
