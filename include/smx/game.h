@@ -20,4 +20,12 @@ typedef struct SmxGame {
 
 extern const SmxGame smx_game;
 
+/**
+ * The ROM image linked into the shell when it is built with `SMX_EMBED_ROM`
+ * (the default when a ROM is given), so the game runs without the ROM file.
+ * NULL and 0 otherwise. A build with an embedded ROM contains the whole ROM.
+ */
+extern const Uint8 *const smx_game_rom;
+extern const Uint32 smx_game_rom_size;
+
 #endif /* SMX_GAME_H_ */

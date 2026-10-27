@@ -75,6 +75,10 @@ endif()
 add_executable(smxrecomp src/recomp_main.c)
 target_link_libraries(smxrecomp PRIVATE smx_tool)
 
+# smxembed turns the ROM into C for builds with SMX_EMBED_ROM.
+add_executable(smxembed src/embed_main.c)
+target_link_libraries(smxembed PRIVATE SDL3::SDL3)
+
 # smxsave plays the ROM headless to write play-test saves; see playtest.sh.
 add_executable(smxsave src/save_main.c)
 target_link_libraries(smxsave PRIVATE smx_tool)
@@ -97,6 +101,7 @@ endfunction()
 set(SMX_ROM "${CMAKE_SOURCE_DIR}/SuperMetroid.sfc" CACHE FILEPATH "ROM translated into the shell")
 option(SMX_RECOMP_TRACE "Trace the ROM in the interpreter to find more code" ON)
 set(SMX_RECOMP_SEEDS "" CACHE FILEPATH "Coverage file from the shell with more entry points")
+option(SMX_EMBED_ROM "Link the ROM into the game, so it runs without the ROM file" ON)
 if(EXISTS "${SMX_ROM}")
   set(SMX_GAME_DIR "${CMAKE_BINARY_DIR}/game")
   set(SMX_RECOMP_FLAGS "")
@@ -116,9 +121,21 @@ if(EXISTS "${SMX_ROM}")
     COMMENT "Translating ${SMX_ROM}"
     VERBATIM
   )
-  add_library(smx_game STATIC ${SMX_GAME_SOURCES})
+  if(SMX_EMBED_ROM)
+    set(SMX_ROM_SOURCE "${SMX_GAME_DIR}/smx_rom.c")
+    add_custom_command(
+      OUTPUT "${SMX_ROM_SOURCE}"
+      COMMAND smxembed "${SMX_ROM}" "${SMX_ROM_SOURCE}"
+      DEPENDS smxembed "${SMX_ROM}"
+      COMMENT "Embedding ${SMX_ROM}"
+      VERBATIM
+    )
+  else()
+    set(SMX_ROM_SOURCE src/rom_stub.c)
+  endif()
+  add_library(smx_game STATIC ${SMX_GAME_SOURCES} ${SMX_ROM_SOURCE})
 else()
-  add_library(smx_game STATIC src/game_stub.c)
+  add_library(smx_game STATIC src/game_stub.c src/rom_stub.c)
 endif()
 target_link_libraries(smx_game PUBLIC smx)
 
@@ -211,6 +228,47 @@ add_test(NAME state COMMAND smx_test_state)
 add_executable(smx_test_sram tests/test_sram.c)
 target_link_libraries(smx_test_sram PRIVATE smx)
 add_test(NAME sram COMMAND smx_test_sram)
+
+# Tests that need the ROM. They run where one is given, such as on the
+# self-hosted runner, and never print or store its bytes.
+if(EXISTS "${SMX_ROM}")
+  add_executable(smx_test_game_run tests/test_game.c)
+  target_link_libraries(smx_test_game_run PRIVATE smx_game smx)
+  target_include_directories(smx_test_game_run PRIVATE tests)
+  foreach(run idle new-game interpreted)
+    add_test(NAME "game_${run}" COMMAND smx_test_game_run ${run} "${SMX_ROM}")
+    set_tests_properties("game_${run}" PROPERTIES LABELS rom TIMEOUT 1800)
+  endforeach()
+
+  # smxsave reaches play from each section's save station.
+  foreach(section ceres landing crateria brinstar norfair wrecked-ship maridia tourian)
+    add_test(
+      NAME "section_${section}"
+      COMMAND smxsave --section ${section} "${SMX_ROM}" "${CMAKE_BINARY_DIR}/test_sections/${section}"
+    )
+    set_tests_properties("section_${section}" PROPERTIES LABELS rom TIMEOUT 600)
+  endforeach()
+
+  # The shell starts on its own ROM, or on the file when the ROM is not built in.
+  if(SMX_EMBED_ROM)
+    set(SMX_SMOKE_ROM "")
+    set(SMX_SMOKE_LOADED "loaded Super Metroid *\\(built in\\)")
+  else()
+    set(SMX_SMOKE_ROM "${SMX_ROM}")
+    set(SMX_SMOKE_LOADED "loaded Super Metroid")
+  endif()
+  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test_smoke")
+  add_test(NAME smoke_rom COMMAND SuperMetroidX --smoke ${SMX_SMOKE_ROM})
+  set_tests_properties(
+    smoke_rom
+    PROPERTIES
+      LABELS rom
+      WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test_smoke"
+      ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SMX_DATA_DIR=${CMAKE_BINARY_DIR}/test_smoke"
+      PASS_REGULAR_EXPRESSION "${SMX_SMOKE_LOADED}"
+      FAIL_REGULAR_EXPRESSION "translated, [1-9][0-9]* interpreted"
+  )
+endif()
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)

@@ -2,7 +2,7 @@
 
 A static recompilation of Super Metroid for Windows, macOS, and Linux. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
 
-The ROM is supplied by the person building the project. It is never committed, and a build contains code translated from it, so **do not share your builds**.
+The ROM is supplied by the person building the project and is never committed. By default the build also links the whole ROM into the program, so the game runs without the ROM file. Either way a build contains the ROM's code, so **do not share your builds**.
 
 ## Quick start
 
@@ -28,7 +28,9 @@ You need a dump of the North American / Japanese cartridge, **Super Metroid (Jap
 
 Check it with `shasum SuperMetroid.sfc` (macOS, Linux) or `certutil -hashfile SuperMetroid.sfc SHA1` (Windows). A copy with a 512-byte copier header also works; its hashes differ. The PAL release and ROM hacks are not supported. Use the `.sfc` (or `.smc`) file itself, not a `.zip`.
 
-To build from a ROM somewhere else, set `SMX_ROM` when configuring, for example `cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DSMX_ROM=/path/to/rom.sfc`, or keep the file at `SuperMetroid.sfc` in the root.
+To build from a ROM somewhere else, pass `SMX_ROM` to CMake, for example `make play CMAKE_ARGS=-DSMX_ROM=/path/to/rom.sfc`, or keep the file at `SuperMetroid.sfc` in the root.
+
+The ROM is built into the game by default (`SMX_EMBED_ROM`), so the program needs no ROM file next to it. To leave it out and load the ROM when the game starts instead, configure with `-DSMX_EMBED_ROM=OFF`, for example `make play CMAKE_ARGS=-DSMX_EMBED_ROM=OFF`. The setting is remembered for that build folder until you change it.
 
 ## Tools
 
@@ -80,13 +82,14 @@ The game is in `build/release/` after `make release`:
 | Linux | `build/release/SuperMetroidX` |
 | Windows | `build/release/SuperMetroidX.exe` |
 
-Run it with the ROM's path, or with no argument to load `SuperMetroid.sfc` from the working directory:
+Run it with no argument to play the ROM built into it. A ROM path on the command line, or in the `SMX_ROM` environment variable, plays that file instead. A build without the ROM built in loads `SuperMetroid.sfc` from the working directory or the save folder:
 
 ```sh
-./build/release/SuperMetroidX path/to/SuperMetroid.sfc
+./build/release/SuperMetroidX                            # the built-in ROM
+./build/release/SuperMetroidX path/to/SuperMetroid.sfc   # a ROM file
 ```
 
-To start the game from Finder or Explorer, copy the ROM to `SuperMetroid.sfc` in the save folder (see [Saves](#saves)), where the game also looks. `make package` makes a `.dmg`, `.zip`, or `.tar.gz` of the release build for your own machines.
+With the ROM built in, the game also starts from Finder or Explorer as it is. Without it, copy the ROM to `SuperMetroid.sfc` in the save folder (see [Saves](#saves)), where the game looks. `make package` makes a `.dmg`, `.zip`, or `.tar.gz` of the release build for your own machines.
 
 ## Display
 
@@ -146,7 +149,7 @@ The game saves at save stations as it would on a console, and the file is update
 
 ```sh
 make build     # Debug, -O0, debug symbols
-make test      # Debug build plus unit tests
+make test      # Debug build plus unit tests, and the ROM tests when a ROM is given
 make debug     # Debug build under lldb or gdb; backtrace on a crash
 make fmt       # clang-format
 make docs      # Doxygen HTML in docs/html
@@ -156,6 +159,16 @@ make clean
 [AGENTS.md](AGENTS.md) has the project's conventions. `make fmt` needs clang-format, and `make docs` needs Doxygen.
 
 The first build caches what the translator found in `build/<config>/game/trace.txt`, so later builds reuse it. Configure with `-DSMX_RECOMP_TRACE=OFF` to translate from static analysis alone. Without a ROM, the build still succeeds: the game links an empty translation and interprets everything. `SuperMetroidX --smoke` opens the window, presents a few frames, and exits; CI runs it with `SDL_VIDEODRIVER=dummy`.
+
+`make test` and `make test-release` take `CTEST_ARGS`, and `make` takes `CMAKE_ARGS` for CMake settings. With a ROM, CTest also runs the tests labelled `rom`; `make test CTEST_ARGS="-LE rom"` skips them:
+
+- `game_idle`, `game_new-game`, `game_interpreted`: the game from power-on, left alone and through a new game into Ceres, checked against picture and audio hashes in `tests/game_hashes.h`, recorded from a build that matched Mesen 2. The interpreter must give the same hashes as the translation.
+- `section_<name>`: `smxsave` reaches play from each play-test section.
+- `smoke_rom`: the game starts on its built-in ROM, or on the file without one, and runs only translated code.
+
+### CI
+
+GitHub's hosted runners build and test Debug on Ubuntu, macOS, and Windows with `SMX_EMBED_ROM=OFF`; they never have the ROM. The one exception is the `raspberry-pi (ROM)` job, which runs on the owner's self-hosted Raspberry Pi 5 (runner labels `self-hosted, Linux, ARM64, smx-rom`). There the ROM is built in, and both Debug and Release run every test, including the `rom` ones. The ROM and the build trees stay on the Pi. Jobs run only for this repository and its own branches, never for forks or pull requests from forks, and a job-started hook on the Pi refuses any job not started by the owner. All four jobs must pass before a pull request merges.
 
 ### Play testing
 

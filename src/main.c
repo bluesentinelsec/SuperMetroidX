@@ -189,8 +189,8 @@ static bool smx_shell_confirm_quit(SDL_Window *window) {
 
 static void smx_shell_usage(void) {
   SDL_Log("usage: SuperMetroidX [options] [ROM]");
-  SDL_Log("  ROM defaults to $SMX_ROM, then SuperMetroid.sfc in the working directory or the");
-  SDL_Log("  save folder.");
+  SDL_Log("  ROM defaults to $SMX_ROM, then the ROM built into the game, then");
+  SDL_Log("  SuperMetroid.sfc in the working directory or the save folder.");
   SDL_Log("  --load-state        start from the quick-save (F9)");
   smx_present_usage();
   SDL_Log("  --smoke             present a few frames and exit, for CI");
@@ -231,7 +231,12 @@ int main(int argc, char **argv) {
     rom_path = SDL_getenv("SMX_ROM");
   }
   char rom_default[1024];
-  if (rom_path == NULL || rom_path[0] == '\0') {
+  bool embedded = false;
+  if ((rom_path == NULL || rom_path[0] == '\0') && smx_game_rom != NULL) {
+    /* Saves are still named after SuperMetroid.sfc. */
+    embedded = true;
+    rom_path = "SuperMetroid.sfc";
+  } else if (rom_path == NULL || rom_path[0] == '\0') {
     rom_path = smx_shell_find_rom(rom_default, sizeof(rom_default));
   }
 
@@ -264,7 +269,8 @@ int main(int argc, char **argv) {
   bool machine = false;
   smx_cart_init(&cart);
   SDL_memset(&misses, 0, sizeof(misses));
-  if (smx_cart_load_path(&cart, rom_path)) {
+  if (embedded ? smx_cart_load_bytes(&cart, smx_game_rom, smx_game_rom_size)
+               : smx_cart_load_path(&cart, rom_path)) {
     smx_bus_init(&bus, cart.bytes, cart.size, smx_cart_sram_bytes(cart.sram_size_code));
     smx_cpu_init(&cpu, &bus);
     smx_dma_init(&dma, &bus);
@@ -292,7 +298,7 @@ int main(int argc, char **argv) {
     console.apu = &apu;
     console.clock = &clock;
     rom_hash = smx_translate_rom_hash(cart.bytes, cart.size);
-    SDL_Log("loaded %s", cart.title);
+    SDL_Log("loaded %s%s", cart.title, embedded ? " (built in)" : "");
   } else if (!smoke) {
     char message[1400];
     char *data = SDL_GetPrefPath("SuperMetroidX", "SuperMetroidX");
