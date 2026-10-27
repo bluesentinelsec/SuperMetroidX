@@ -39,6 +39,9 @@ static const Uint16 smx_save_controls[11] = {0x0800, 0x0400, 0x0200, 0x0100, 0x0
 static const SmxSaveSection smx_save_section_list[] = {
     {"ceres", "Ceres Station, as a new game starts", {SMX_SAVE_CERES, 0, 0, 0, 99, 0, 0, 0, 0}},
     {"landing", "the ship on Zebes, with nothing", {SMX_SAVE_CRATERIA, 0, 0, 0, 99, 0, 0, 0, 0}},
+    {"explore",
+     "the ship on Zebes, with everything, to roam the world",
+     {SMX_SAVE_CRATERIA, 0, SMX_SAVE_ALL_ITEMS, SMX_SAVE_ALL_BEAMS, 1499, 400, 230, 50, 50}},
     {"crateria",
      "the Crateria save room, with Morph Ball and Bombs",
      {SMX_SAVE_CRATERIA, 1, SMX_SAVE_EARLY, 0, 99, 0, 10, 0, 0}},

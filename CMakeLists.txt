@@ -54,6 +54,7 @@ set(SMX_SOURCES
   src/sram.c
   src/state.c
   src/save.c
+  src/pace.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -241,7 +242,7 @@ if(EXISTS "${SMX_ROM}")
   endforeach()
 
   # smxsave reaches play from each section's save station.
-  foreach(section ceres landing crateria brinstar norfair wrecked-ship maridia tourian)
+  foreach(section ceres landing explore crateria brinstar norfair wrecked-ship maridia tourian)
     add_test(
       NAME "section_${section}"
       COMMAND smxsave --section ${section} "${SMX_ROM}" "${CMAKE_BINARY_DIR}/test_sections/${section}"
@@ -269,6 +270,10 @@ if(EXISTS "${SMX_ROM}")
       FAIL_REGULAR_EXPRESSION "translated, [1-9][0-9]* interpreted"
   )
 endif()
+
+add_executable(smx_test_pace tests/test_pace.c)
+target_link_libraries(smx_test_pace PRIVATE smx)
+add_test(NAME pace COMMAND smx_test_pace)
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)

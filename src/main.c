@@ -2,6 +2,7 @@
 #include "smx/cart.h"
 #include "smx/clock.h"
 #include "smx/game.h"
+#include "smx/pace.h"
 #include "smx/ppu.h"
 #include "smx/present.h"
 #include "smx/sram.h"
@@ -19,6 +20,15 @@
 #define SMX_SHELL_QUEUE_BYTES(frames) ((int)((frames) * 534u * 4u))
 /** One average NTSC frame: 357366 master clocks at 21477270 Hz. */
 #define SMX_SHELL_FRAME_NS 16639266u
+/*
+ * With display sync, sample frames of 32040 Hz audio: one game frame's worth,
+ * the queue the pace aims for, below which the shell runs an extra game frame
+ * rather than let it run dry, and above which it skips one.
+ */
+#define SMX_SHELL_FRAME_SAMPLES 534u
+#define SMX_SHELL_TARGET_SAMPLES (3u * SMX_SHELL_FRAME_SAMPLES)
+#define SMX_SHELL_LOW_SAMPLES (2u * SMX_SHELL_FRAME_SAMPLES)
+#define SMX_SHELL_HIGH_SAMPLES (8u * SMX_SHELL_FRAME_SAMPLES)
 
 /*
  * Keyboard to joypad, in the bit order of a 16-bit read of `$4218`:
@@ -192,6 +202,9 @@ static void smx_shell_usage(void) {
   SDL_Log("  ROM defaults to $SMX_ROM, then the ROM built into the game, then");
   SDL_Log("  SuperMetroid.sfc in the working directory or the save folder.");
   SDL_Log("  --load-state        start from the quick-save (F9)");
+  SDL_Log("  --sync display|audio  show each game frame for whole display refreshes,");
+  SDL_Log("                      resampling audio to match, or pace by the audio queue");
+  SDL_Log("                      at the console's exact rate; default display");
   smx_present_usage();
   SDL_Log("  --smoke             present a few frames and exit, for CI");
 }
@@ -199,6 +212,7 @@ static void smx_shell_usage(void) {
 int main(int argc, char **argv) {
   bool smoke = false;
   bool load_state = false;
+  bool display_sync = true;
   const char *rom_path = NULL;
   SmxPresentOptions display;
   Sint32 index = 1;
@@ -219,6 +233,17 @@ int main(int argc, char **argv) {
       smoke = true;
     } else if (SDL_strcmp(argv[index], "--load-state") == 0) {
       load_state = true;
+    } else if (SDL_strcmp(argv[index], "--sync") == 0) {
+      if (index + 1 < argc && SDL_strcmp(argv[index + 1], "display") == 0) {
+        display_sync = true;
+      } else if (index + 1 < argc && SDL_strcmp(argv[index + 1], "audio") == 0) {
+        display_sync = false;
+      } else {
+        SDL_Log("--sync needs display or audio");
+        smx_shell_usage();
+        return 1;
+      }
+      index += 1;
     } else if (argv[index][0] == '-') {
       SDL_Log("unknown option %s", argv[index]);
       smx_shell_usage();
@@ -346,6 +371,12 @@ int main(int argc, char **argv) {
     }
   }
 
+  SmxPace pace;
+  const SDL_DisplayMode *mode =
+      SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(presenter.window));
+  smx_pace_init(&pace, SMX_SHELL_FRAME_NS, mode != NULL ? mode->refresh_rate : 0.0f);
+  Uint32 pending = 1;
+
   bool running = true;
   Uint64 started = SDL_GetTicks();
   Uint64 next_frame = SDL_GetTicksNS();
@@ -380,6 +411,16 @@ int main(int argc, char **argv) {
         }
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
+      } else if (event.type == SDL_EVENT_WINDOW_OCCLUDED || event.type == SDL_EVENT_WINDOW_HIDDEN ||
+                 event.type == SDL_EVENT_WINDOW_MINIMIZED) {
+        /* A hidden window's presents stop waiting for the display. */
+        smx_pace_set_vsync(&pace, false, SDL_GetTicksNS());
+      } else if (event.type == SDL_EVENT_WINDOW_EXPOSED || event.type == SDL_EVENT_WINDOW_SHOWN ||
+                 event.type == SDL_EVENT_WINDOW_RESTORED) {
+        smx_pace_set_vsync(&pace, true, SDL_GetTicksNS());
+      } else if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) {
+        mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(presenter.window));
+        smx_pace_init(&pace, SMX_SHELL_FRAME_NS, mode != NULL ? mode->refresh_rate : 0.0f);
       } else if (event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
                  event.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN) {
         smx_present_event(&presenter, &event);
@@ -391,15 +432,39 @@ int main(int argc, char **argv) {
     }
 
     /*
-     * Pace emulation by the audio queue when there is one, else by the
-     * average NTSC frame of 357366 master clocks.
+     * With display sync, the pace counts the display's refreshes and says how
+     * many game frames to run before this present, and the audio is resampled
+     * to the game's speed. With audio sync, the audio queue paces emulation at
+     * the console's rate, or a timer does without audio.
      */
-    if (playing && !smoke) {
+    Uint32 frames = 1;
+    if (playing && !smoke && display_sync) {
+      frames = pending;
+      if (!pace.vsync) {
+        Uint64 wait = smx_pace_wait_ns(&pace, SDL_GetTicksNS());
+        if (wait != 0) {
+          SDL_DelayNS(wait);
+        }
+      }
+      if (audio != NULL) {
+        Uint32 queued = (Uint32)(SDL_GetAudioStreamQueued(audio) / 4);
+        while (queued + frames * SMX_SHELL_FRAME_SAMPLES < SMX_SHELL_LOW_SAMPLES &&
+               frames < SMX_SHELL_CATCH_UP_FRAMES) {
+          frames += 1;
+        }
+        if (queued > SMX_SHELL_HIGH_SAMPLES) {
+          frames = 0;
+        }
+        SDL_SetAudioStreamFrequencyRatio(
+            audio, smx_pace_audio_ratio(&pace, queued, SMX_SHELL_TARGET_SAMPLES));
+      }
+    } else if (playing && !smoke) {
       if (audio != NULL) {
         if (SDL_GetAudioStreamQueued(audio) > SMX_SHELL_QUEUE_BYTES(SMX_SHELL_QUEUE_FRAMES)) {
           SDL_DelayNS(1000000);
           continue;
         }
+        frames = SMX_SHELL_CATCH_UP_FRAMES;
       } else {
         Uint64 now = SDL_GetTicksNS();
         if (now < next_frame) {
@@ -412,13 +477,8 @@ int main(int argc, char **argv) {
       }
     }
 
-    /*
-     * Presenting can wait for the display, whose refresh is not the SNES
-     * frame rate. Emulate more than one frame per present while the audio
-     * queue is short so it never runs dry.
-     */
     Uint32 batch = 0;
-    while (playing) {
+    while (playing && batch < frames) {
       const bool *keys = SDL_GetKeyboardState(NULL);
       Uint16 joy = 0;
       Uint32 key = 0;
@@ -448,13 +508,17 @@ int main(int argc, char **argv) {
         SDL_PutAudioStreamData(audio, frames, (int)(count * 2u * sizeof(Sint16)));
       }
       batch += 1;
-      if (smoke || audio == NULL || batch == SMX_SHELL_CATCH_UP_FRAMES ||
+      /* With audio sync, emulate more than one frame per present only to refill the queue. */
+      if (!display_sync && audio != NULL &&
           SDL_GetAudioStreamQueued(audio) >= SMX_SHELL_QUEUE_BYTES(SMX_SHELL_QUEUE_FRAMES - 1u)) {
         break;
       }
     }
 
     smx_present_frame(&presenter, playing ? ppu.picture : NULL);
+    if (display_sync) {
+      pending = smx_pace_presented(&pace, SDL_GetTicksNS());
+    }
 
     if (smoke && (SDL_GetTicks() - started) >= 200) {
       running = false;

@@ -109,8 +109,8 @@ static bool smx_game_run(const SmxCart *cart, bool translated, Uint32 script, Ui
     sound = smx_game_fnv(sound, (const Uint8 *)samples, count * 4u);
     if (frame % SMX_GAME_CHECKPOINT_FRAMES == 0u) {
       Uint32 at = frame / SMX_GAME_CHECKPOINT_FRAMES - 1u;
-      pictures[at] = smx_game_fnv(2166136261u, run->ppu.picture,
-                                  (Uint32)(SMX_PPU_WIDTH * SMX_PPU_HEIGHT * 4));
+      pictures[at] =
+          smx_game_fnv(2166136261u, run->ppu.picture, (Uint32)(SMX_PPU_WIDTH * SMX_PPU_HEIGHT * 4));
       sounds[at] = sound;
     }
   }
@@ -155,8 +155,8 @@ int main(int argc, char **argv) {
   SmxCart cart;
   bool ok = true;
 
-  if (argc != 3 || (!record && SDL_strcmp(what, "idle") != 0 &&
-                    SDL_strcmp(what, "new-game") != 0 && SDL_strcmp(what, "interpreted") != 0)) {
+  if (argc != 3 || (!record && SDL_strcmp(what, "idle") != 0 && SDL_strcmp(what, "new-game") != 0 &&
+                    SDL_strcmp(what, "interpreted") != 0)) {
     SDL_Log("usage: smx_test_game_run idle|new-game|interpreted|--record ROM");
     return 1;
   }
@@ -190,8 +190,7 @@ int main(int argc, char **argv) {
          ok;
   } else {
     ok = smx_game_run(&cart, false, 0, SMX_GAME_INTERPRETED, pictures, sounds) &&
-         smx_game_check("interpreted", SMX_GAME_INTERPRETED, pictures, sounds, smx_game_idle) &&
-         ok;
+         smx_game_check("interpreted", SMX_GAME_INTERPRETED, pictures, sounds, smx_game_idle) && ok;
   }
   smx_cart_free(&cart);
   return ok ? 0 : 1;

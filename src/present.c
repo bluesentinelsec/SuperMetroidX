@@ -387,6 +387,7 @@ static bool smx_present_open_renderer(SmxPresenter *presenter) {
     return false;
   }
   SDL_SetTextureScaleMode(presenter->texture, SDL_SCALEMODE_PIXELART);
+  SDL_SetRenderVSync(presenter->renderer, 1);
   return true;
 }
 
