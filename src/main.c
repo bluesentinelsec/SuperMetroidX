@@ -137,17 +137,92 @@ static Uint16 smx_gamepad_joy(SDL_Gamepad *pad) {
   return joy;
 }
 
+/*
+ * SuperMetroid.sfc in the working directory, else in the save folder, so the
+ * game also starts from a file manager, whose working directory is elsewhere.
+ */
+static const char *smx_shell_find_rom(char *path, Uint32 size) {
+  char *data = NULL;
+
+  if (SDL_GetPathInfo("SuperMetroid.sfc", NULL)) {
+    return "SuperMetroid.sfc";
+  }
+  data = SDL_GetPrefPath("SuperMetroidX", "SuperMetroidX");
+  if (data == NULL) {
+    return "SuperMetroid.sfc";
+  }
+  SDL_snprintf(path, size, "%sSuperMetroid.sfc", data);
+  SDL_free(data);
+  return SDL_GetPathInfo(path, NULL) ? path : "SuperMetroid.sfc";
+}
+
+/*
+ * Escape quits at once in debug builds. Release builds ask first, since the
+ * key is easy to hit by accident in play.
+ */
+static bool smx_shell_confirm_quit(SDL_Window *window) {
+#ifdef NDEBUG
+  static const SDL_MessageBoxButtonData buttons[] = {
+      {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel"},
+      {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Quit"},
+  };
+  SDL_MessageBoxData box;
+  int chosen = 0;
+
+  SDL_memset(&box, 0, sizeof(box));
+  box.flags = SDL_MESSAGEBOX_WARNING;
+  box.window = window;
+  box.title = "SuperMetroidX";
+  box.message = "Are you sure you want to quit? Progress since your last save will be lost.";
+  box.numbuttons = (int)(sizeof(buttons) / sizeof(buttons[0]));
+  box.buttons = buttons;
+  if (!SDL_ShowMessageBox(&box, &chosen)) {
+    SDL_Log("cannot ask before quitting: %s", SDL_GetError());
+    return true;
+  }
+  return chosen == 1;
+#else
+  (void)window;
+  return true;
+#endif
+}
+
+static void smx_shell_usage(void) {
+  SDL_Log("usage: SuperMetroidX [options] [ROM]");
+  SDL_Log("  ROM defaults to $SMX_ROM, then SuperMetroid.sfc in the working directory or the");
+  SDL_Log("  save folder.");
+  SDL_Log("  --load-state        start from the quick-save (F9)");
+  smx_present_usage();
+  SDL_Log("  --smoke             present a few frames and exit, for CI");
+}
+
 int main(int argc, char **argv) {
   bool smoke = false;
   bool load_state = false;
   const char *rom_path = NULL;
+  SmxPresentOptions display;
   Sint32 index = 1;
 
+  smx_present_defaults(&display);
   for (; index < argc; index += 1) {
-    if (SDL_strcmp(argv[index], "--smoke") == 0) {
+    Sint32 used = smx_present_option(&display, (Sint32)argc - index, argv + index);
+    if (used < 0) {
+      SDL_Log("%s needs one of the values below", argv[index]);
+      smx_shell_usage();
+      return 1;
+    } else if (used > 0) {
+      index += used - 1;
+    } else if (SDL_strcmp(argv[index], "--help") == 0 || SDL_strcmp(argv[index], "-h") == 0) {
+      smx_shell_usage();
+      return 0;
+    } else if (SDL_strcmp(argv[index], "--smoke") == 0) {
       smoke = true;
     } else if (SDL_strcmp(argv[index], "--load-state") == 0) {
       load_state = true;
+    } else if (argv[index][0] == '-') {
+      SDL_Log("unknown option %s", argv[index]);
+      smx_shell_usage();
+      return 1;
     } else if (rom_path == NULL) {
       rom_path = argv[index];
     }
@@ -155,8 +230,9 @@ int main(int argc, char **argv) {
   if (rom_path == NULL) {
     rom_path = SDL_getenv("SMX_ROM");
   }
+  char rom_default[1024];
   if (rom_path == NULL || rom_path[0] == '\0') {
-    rom_path = "SuperMetroid.sfc";
+    rom_path = smx_shell_find_rom(rom_default, sizeof(rom_default));
   }
 
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
@@ -165,17 +241,8 @@ int main(int argc, char **argv) {
   }
   bool audio_ready = SDL_InitSubSystem(SDL_INIT_AUDIO);
 
-  SDL_Window *window = SDL_CreateWindow("SuperMetroidX", 960, 540, SDL_WINDOW_RESIZABLE);
-  if (window == NULL) {
-    SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
-    SDL_Quit();
-    return 1;
-  }
-
-  SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL);
-  if (renderer == NULL) {
-    SDL_Log("SDL_CreateRenderer failed: %s", SDL_GetError());
-    SDL_DestroyWindow(window);
+  SmxPresenter presenter;
+  if (!smx_present_open(&presenter, "SuperMetroidX", SMX_PPU_WIDTH, SMX_PPU_HEIGHT, &display)) {
     SDL_Quit();
     return 1;
   }
@@ -226,6 +293,20 @@ int main(int argc, char **argv) {
     console.clock = &clock;
     rom_hash = smx_translate_rom_hash(cart.bytes, cart.size);
     SDL_Log("loaded %s", cart.title);
+  } else if (!smoke) {
+    char message[1400];
+    char *data = SDL_GetPrefPath("SuperMetroidX", "SuperMetroidX");
+    SDL_snprintf(message, sizeof(message),
+                 "Cannot load the ROM %s.\n\nPass the ROM's path on the command line, or put it "
+                 "at SuperMetroid.sfc in the working directory or in %s.",
+                 rom_path, data != NULL ? data : "the SuperMetroidX save folder");
+    SDL_free(data);
+    SDL_Log("%s", message);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "SuperMetroidX", message, presenter.window);
+    smx_cart_free(&cart);
+    smx_present_close(&presenter);
+    SDL_Quit();
+    return 1;
   }
   SDL_memset(&sram, 0, sizeof(sram));
   if (machine && !smoke) {
@@ -242,23 +323,6 @@ int main(int argc, char **argv) {
       }
     }
   }
-
-  SDL_Texture *texture = NULL;
-  if (playing) {
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                SMX_PPU_WIDTH, SMX_PPU_HEIGHT);
-    if (texture == NULL) {
-      SDL_Log("SDL_CreateTexture failed: %s", SDL_GetError());
-      playing = false;
-    } else {
-      SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
-    }
-  }
-
-  Uint8 red = 0;
-  Uint8 green = 0;
-  Uint8 blue = 0;
-  smx_backdrop(&red, &green, &blue);
 
   SDL_AudioStream *audio = NULL;
   if (playing && audio_ready) {
@@ -285,11 +349,14 @@ int main(int argc, char **argv) {
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                 event.key.scancode == SDL_SCANCODE_ESCAPE) {
+        running = !smx_shell_confirm_quit(presenter.window);
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                  (event.key.scancode == SDL_SCANCODE_F11 ||
                   (event.key.scancode == SDL_SCANCODE_RETURN &&
                    (event.key.mod & SDL_KMOD_ALT) != 0))) {
         /* F11 or Alt+Enter toggles fullscreen. */
-        SDL_SetWindowFullscreen(window, (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) == 0);
+        smx_present_toggle_fullscreen(&presenter);
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
                  (event.key.scancode == SDL_SCANCODE_F5 || event.key.scancode == SDL_SCANCODE_F9)) {
         /* F5 saves the quick-save state and F9 loads it. SRAM is not part of it. */
@@ -307,6 +374,9 @@ int main(int argc, char **argv) {
         }
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
+      } else if (event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
+                 event.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN) {
+        smx_present_event(&presenter, &event);
       } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED && pad != NULL &&
                  SDL_GetGamepadID(pad) == event.gdevice.which) {
         SDL_CloseGamepad(pad);
@@ -378,30 +448,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (playing) {
-      SDL_UpdateTexture(texture, NULL, ppu.picture, SMX_PPU_WIDTH * 4);
-      int win_w = 0;
-      int win_h = 0;
-      Sint32 dst_x = 0;
-      Sint32 dst_y = 0;
-      Sint32 dst_w = 0;
-      Sint32 dst_h = 0;
-      SDL_GetWindowSize(window, &win_w, &win_h);
-      smx_present_fit(SMX_PPU_WIDTH, SMX_PPU_HEIGHT, (Sint32)win_w, (Sint32)win_h, &dst_x, &dst_y,
-                      &dst_w, &dst_h);
-      SDL_FRect dst;
-      dst.x = (float)dst_x;
-      dst.y = (float)dst_y;
-      dst.w = (float)dst_w;
-      dst.h = (float)dst_h;
-      SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-      SDL_RenderClear(renderer);
-      SDL_RenderTexture(renderer, texture, NULL, &dst);
-    } else {
-      SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
-      SDL_RenderClear(renderer);
-    }
-    SDL_RenderPresent(renderer);
+    smx_present_frame(&presenter, playing ? ppu.picture : NULL);
 
     if (smoke && (SDL_GetTicks() - started) >= 200) {
       running = false;
@@ -410,9 +457,6 @@ int main(int argc, char **argv) {
 
   if (audio != NULL) {
     SDL_DestroyAudioStream(audio);
-  }
-  if (texture != NULL) {
-    SDL_DestroyTexture(texture);
   }
   if (pad != NULL) {
     SDL_CloseGamepad(pad);
@@ -430,8 +474,7 @@ int main(int argc, char **argv) {
     smx_bus_quit(&bus);
   }
   smx_cart_free(&cart);
-  SDL_DestroyRenderer(renderer);
-  SDL_DestroyWindow(window);
+  smx_present_close(&presenter);
   SDL_Quit();
   return 0;
 }

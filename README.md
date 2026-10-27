@@ -1,61 +1,163 @@
 # SuperMetroidX
 
-A static recompilation of Super Metroid for desktop PCs. At build time, the 65816 program in your ROM is translated to C and compiled into the game, which runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA). The ROM is supplied by the person building the project and is never committed.
+A static recompilation of Super Metroid for Windows, macOS, and Linux. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
 
-## Requirements
+The ROM is supplied by the person building the project. It is never committed, and a build contains code translated from it, so **do not share your builds**.
 
-- CMake 3.25 or newer
-- Ninja
-- A C11 compiler
-- clang-format, for `make fmt`
-- Doxygen, for `make docs`
-- GNU make. On Windows, use Git Bash.
+## Quick start
 
-## Build
+1. Install the tools for your system (below).
+2. Clone this repository and put your ROM in its root as `SuperMetroid.sfc`.
+3. Build and play:
 
-Put your Super Metroid ROM (NTSC, headered or not) at `SuperMetroid.sfc` in the repository root, or point CMake at it with `-DSMX_ROM=/path/to/rom.sfc`.
+   ```sh
+   make play
+   ```
+
+The first build translates the ROM, which takes a few minutes. Release builds start fullscreen; press F11 for a window and Escape to quit.
+
+## The ROM
+
+You need a dump of the North American / Japanese cartridge, **Super Metroid (Japan, USA) (En,Ja)**. Without a copier header it is 3,145,728 bytes and has these hashes:
+
+| | |
+| --- | --- |
+| CRC32 | `D63ED5F8` |
+| MD5 | `21f3e98df4780ee1c667b84e57d88675` |
+| SHA-1 | `da957f0d63d14cb441d215462904c4fa8519c613` |
+
+Check it with `shasum SuperMetroid.sfc` (macOS, Linux) or `certutil -hashfile SuperMetroid.sfc SHA1` (Windows). A copy with a 512-byte copier header also works; its hashes differ. The PAL release and ROM hacks are not supported. Use the `.sfc` (or `.smc`) file itself, not a `.zip`.
+
+To build from a ROM somewhere else, set `SMX_ROM` when configuring, for example `cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DSMX_ROM=/path/to/rom.sfc`, or keep the file at `SuperMetroid.sfc` in the root.
+
+## Tools
+
+You need Git, CMake 3.25 or newer, Ninja, GNU make, and a C11 compiler. CMake downloads and builds SDL3 itself, so the first configure needs an internet connection.
+
+**macOS** (Apple Silicon or Intel), with [Homebrew](https://brew.sh):
+
+```sh
+xcode-select --install
+brew install cmake ninja
+```
+
+**Ubuntu and Debian:**
+
+```sh
+sudo apt-get install build-essential git cmake ninja-build pkg-config \
+  libasound2-dev libpulse-dev libpipewire-0.3-dev libudev-dev \
+  libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+  libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev \
+  libdecor-0-dev
+```
+
+SDL only uses the audio and display systems whose headers it finds when it is configured, so install them before the first build. If you add some later, run `make clean` and build again.
+
+**Windows**, with [MSYS2](https://www.msys2.org): open the *MSYS2 UCRT64* shell and run
+
+```sh
+pacman -S git make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+```
+
+Run every `make` command from that shell. CI builds Windows with MinGW-w64 GCC.
+
+## Build and play
+
+```sh
+make play      # Release build, then play SuperMetroid.sfc (fullscreen)
+make release   # Release build only
+make run       # Debug build, then play in a window
+make test      # Debug build plus unit tests
+```
+
+`make play` and `make run` take `ROM=path/to/rom.sfc` to play a different file, and `ARGS="..."` to pass options, such as `make play ARGS="--scanlines off"`.
+
+The game is in `build/release/` after `make release`:
+
+| System | Program |
+| --- | --- |
+| macOS | `build/release/SuperMetroidX.app` (the program inside is `Contents/MacOS/SuperMetroidX`) |
+| Linux | `build/release/SuperMetroidX` |
+| Windows | `build/release/SuperMetroidX.exe` |
+
+Run it with the ROM's path, or with no argument to load `SuperMetroid.sfc` from the working directory:
+
+```sh
+./build/release/SuperMetroidX path/to/SuperMetroid.sfc
+```
+
+To start the game from Finder or Explorer, copy the ROM to `SuperMetroid.sfc` in the save folder (see [Saves](#saves)), where the game also looks. `make package` makes a `.dmg`, `.zip`, or `.tar.gz` of the release build for your own machines.
+
+## Display
+
+The picture fills the screen at the shape an NTSC television gave it, with CRT scanlines drawn by an OpenGL 3.2 shader built into the program. Each enhancement can be turned off:
+
+| Option | Values | Default |
+| --- | --- | --- |
+| `--window-mode` | `windowed`; `borderless`, fullscreen at the desktop's resolution; `exclusive` (or `fullscreen`), fullscreen at its own display mode | `borderless` in release builds, `windowed` in debug builds |
+| `--scale` | `fit` fills the window; `integer` keeps whole-number scales | `fit` |
+| `--aspect` | `tv` shows pixels 8:7 wide, as a television did; `square` | `tv` |
+| `--scanlines` | `on`, `off` | `on` |
+
+For example, `SuperMetroidX --window-mode windowed --scale integer --aspect square --scanlines off` shows the raw picture in a window. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option.
+
+## Controls
+
+| SNES | Keyboard | Xbox-style gamepad | Super Metroid (default) |
+| --- | --- | --- | --- |
+| D-pad | Arrow keys | D-pad or left stick | Move, aim; Down twice for Morph Ball |
+| X | S | Y (north) | Shoot |
+| A | A | B (east) | Jump |
+| B | Z | A (south) | Run |
+| Y | X | X (west) | Item cancel |
+| Select | Right Shift | Back / View | Item select |
+| L / R | Q / W | Shoulders or triggers | Aim down / aim up |
+| Start | Return | Start / Menu | Pause, map, equipment |
+
+The gamepad follows the SNES layout by position, so the buttons' letters differ from the SNES's. The game's own controller setup screen remaps the actions.
+
+| Key | Action |
+| --- | --- |
+| Escape | Quit (release builds ask first) |
+| F11 or Alt+Return | Toggle fullscreen |
+| F5 | Quick-save |
+| F9 | Quick-load (`--load-state` starts from the quick-save) |
+
+## Saves
+
+The cartridge's battery-backed SRAM is kept as `SuperMetroid.srm` in the save folder:
+
+| System | Save folder |
+| --- | --- |
+| macOS | `~/Library/Application Support/SuperMetroidX/SuperMetroidX/` |
+| Windows | `%APPDATA%\SuperMetroidX\SuperMetroidX\` |
+| Linux | `~/.local/share/SuperMetroidX/SuperMetroidX/` |
+
+The game saves at save stations as it would on a console, and the file is updated within a second. A `.srm` from an emulator such as Mesen works if you give it the ROM's name. Quick-save states go next to it as `SuperMetroid.state`. They hold everything but SRAM, so loading one never undoes the game's own saves, and a state only loads into the build and ROM that made it. Set `SMX_DATA_DIR` to keep saves somewhere else, such as next to a portable install.
+
+## Troubleshooting
+
+- **"Cannot load the ROM"**: the game did not find the file. Pass its path, or put it at one of the places the message names.
+- **The build says the translation is of a different ROM, or the game runs slowly**: the ROM the game loaded is not the one it was built from, so it interprets the code instead of running the translation. Rebuild with the ROM you play.
+- **No sound on Linux**: SDL was configured before the audio headers were installed. Install them, then `make clean` and build again.
+- **A crash**: `make debug` runs the Debug build under lldb (macOS) or gdb (Linux) and prints every thread's backtrace. Please include it in an issue.
+
+## Development
 
 ```sh
 make build     # Debug, -O0, debug symbols
 make test      # Debug build plus unit tests
-make release   # Optimized build
-make run       # Debug build, then play SuperMetroid.sfc (ROM=path, ARGS=flags)
-make debug     # Debug build under lldb (macOS) or gdb (Linux); backtrace on a crash
-make package   # Release archive: .dmg, .zip, or .tar.gz
+make debug     # Debug build under lldb or gdb; backtrace on a crash
 make fmt       # clang-format
 make docs      # Doxygen HTML in docs/html
 make clean
 ```
 
-The first build translates the ROM. `smxrecomp` plays the attract demos and the opening of a new game in its interpreter to find code, which takes a few minutes. It caches what it found in `build/<config>/game/trace.txt`, so later builds reuse it. Configure with `-DSMX_RECOMP_TRACE=OFF` to translate from static analysis alone. Without a ROM, the build still succeeds: the shell links an empty translation and interprets everything.
+[AGENTS.md](AGENTS.md) has the project's conventions. `make fmt` needs clang-format, and `make docs` needs Doxygen.
 
-`make build` writes `build/debug/SuperMetroidX`. On macOS the binary is `build/debug/SuperMetroidX.app/Contents/MacOS/SuperMetroidX`. On Windows it is `SuperMetroidX.exe`.
+The first build caches what the translator found in `build/<config>/game/trace.txt`, so later builds reuse it. Configure with `-DSMX_RECOMP_TRACE=OFF` to translate from static analysis alone. Without a ROM, the build still succeeds: the game links an empty translation and interprets everything. `SuperMetroidX --smoke` opens the window, presents a few frames, and exits; CI runs it with `SDL_VIDEODRIVER=dummy`.
 
-```sh
-./build/release/SuperMetroidX               # loads SuperMetroid.sfc from the working directory
-./build/release/SuperMetroidX path/to/rom.sfc
-./build/debug/SuperMetroidX --smoke
-```
-
-`--smoke` opens the window, presents a few frames, and exits. CI sets `SDL_VIDEODRIVER=dummy`.
-
-## Controls
-
-| SNES | Keyboard | Xbox-style gamepad |
-| --- | --- | --- |
-| D-pad | Arrow keys | D-pad or left stick |
-| B / Y | Z / X | A / X (south / west) |
-| A / X | A / S | B / Y (east / north) |
-| L / R | Q / W | Shoulders or triggers |
-| Start / Select | Return / Right Shift | Start / Back |
-
-F11 or Alt+Enter toggles fullscreen. F5 saves a quick-save state and F9 loads it. `--load-state` on the command line starts from the quick-save.
-
-## Saves
-
-The cartridge's battery-backed SRAM is kept as `<rom name>.srm` in your user-data directory: on macOS `~/Library/Application Support/SuperMetroidX/SuperMetroidX/`, on Windows `%APPDATA%\SuperMetroidX\SuperMetroidX\`, and on Linux `~/.local/share/SuperMetroidX/SuperMetroidX/`. Quick-save states go next to it as `<rom name>.state`. They hold everything but SRAM, so loading one never undoes the game's own saves. A state only loads into the build and ROM that made it. Set `SMX_DATA_DIR` to keep saves somewhere else, such as next to a portable install. The game saves at save stations as it would on a console, and the file is updated within a second.
-
-## Play testing
+### Play testing
 
 `playtest.sh` starts the game in play at a chosen section, skipping the intro and Ceres:
 
@@ -69,7 +171,7 @@ The cartridge's battery-backed SRAM is kept as `<rom name>.srm` in your user-dat
 
 The sections are `ceres`, `landing`, `crateria`, `brinstar`, `norfair`, `wrecked-ship`, `maridia`, and `tourian`. Each starts with clear progress flags: bosses are alive and the Wrecked Ship is unpowered. The script uses `smxsave`, which plays the ROM headless: the game formats its own SRAM, slot A is written at the section's save station with its loadout, and the tool presses through the title and file select to a quick-save state in play. Saves and states from a play test stay in `build/playtest/<section>/`, apart from your own.
 
-## The translator
+### The translator
 
 `smxrecomp` is the command-line front end to the translator library in `include/smx/translate.h`:
 
@@ -77,6 +179,6 @@ The sections are `ceres`, `landing`, `crateria`, `brinstar`, `norfair`, `wrecked
 smxrecomp [--no-trace] [--seeds FILE] ROM OUTDIR
 ```
 
-It decodes code from the reset and interrupt vectors, follows branches, calls, and jump tables while tracking the M, X, and E flags, and adds the entry points its trace reached. Each straight-line run of instructions becomes a C function with a label per instruction. The generated code calls the same cycle-timed CPU operations as the interpreter. Code the translator never found, such as code in RAM, still runs in the interpreter, and the shell logs how many instructions ran each way when it exits.
+It decodes code from the reset and interrupt vectors, follows branches, calls, and jump tables while tracking the M, X, and E flags, and adds the entry points its trace reached. Each straight-line run of instructions becomes a C function with a label per instruction. The generated code calls the same cycle-timed CPU operations as the interpreter. Code the translator never found, such as code in RAM, still runs in the interpreter. The game logs how many instructions ran each way when it exits, and records untranslated entry points in `<save folder>/SuperMetroid.coverage`; configure with `-DSMX_RECOMP_SEEDS=<that file>` to translate them too.
 
 SDL3 `release-3.4.18` is fetched and compiled as a static library by CMake.

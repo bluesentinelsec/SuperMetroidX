@@ -49,6 +49,7 @@ CMake is the build description. The Makefile is the only interface people should
 
 - `make build` — Debug: no optimization, debug symbols
 - `make release` — optimized, `NDEBUG`
+- `make play` — Release build, then run it on `ROM` with extra `ARGS`
 - `make run` — Debug build, then run it on `ROM` (default `SuperMetroid.sfc`) with extra `ARGS`
 - `make debug` — the same under lldb on macOS or gdb on Linux, printing every thread's backtrace on a crash
 - `make test` — Debug build, then CTest
@@ -73,4 +74,6 @@ GitHub Actions builds and tests Debug on `ubuntu-latest`, `macos-latest`, and `w
 
 ## What comes next
 
-The SNES runtime (CPU bus, PPU, APU, DMA, HDMA) is written here, in C, against frame hashes from an NTSC reference log. The translator emits C that calls the same cycle-timed CPU operations as the interpreter, so translated and interpreted runs produce identical frames; `tests/test_translate.c` checks every opcode under every flag set against the interpreter. The shell then presents the framebuffer through OpenGL, with scanline shaders embedded in headers, an Xbox-style gamepad and keyboard mapped through SDL, SRAM in the OS user-data directory, and save states that are independent of SRAM.
+The SNES runtime (CPU bus, PPU, APU, DMA, HDMA) is written here, in C, against frame hashes from an NTSC reference log. The translator emits C that calls the same cycle-timed CPU operations as the interpreter, so translated and interpreted runs produce identical frames; `tests/test_translate.c` checks every opcode under every flag set against the interpreter. The shell presents the picture through an OpenGL 3.2 core context (`smx_present_*` in `include/smx/present.h`), with its shaders as `Uint8` arrays in `src/present_shaders.h`, and falls back to an SDL renderer without OpenGL. It maps an Xbox-style gamepad and the keyboard through SDL, keeps SRAM in the OS user-data directory, and keeps save states independent of SRAM. Display enhancements (fill scaling, the 8:7 television aspect, scanlines) default on and each has a command-line switch to turn it off; release builds start borderless fullscreen and debug builds windowed.
+
+Version 1.0 plays the whole game. Later releases add modern features on top of it without changing what the runtime emulates.
