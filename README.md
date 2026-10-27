@@ -189,6 +189,8 @@ GitHub's hosted runners build and test Debug on Ubuntu, macOS, and Windows with 
 ./playtest.sh --dev                   # the Debug build, in a window
 ./playtest.sh --keep norfair          # continue the last Norfair session
 ./playtest.sh --list                  # sections and loadout options
+./playtest.sh before                  # main, built in build/before/src, to compare with this checkout
+./playtest.sh after                   # this checkout (the same as no mode)
 ```
 
 The sections are `ceres`, `landing`, `explore` (the default), `crateria`, `brinstar`, `norfair`, `wrecked-ship`, `maridia`, and `tourian`. Each starts with clear progress flags: bosses are alive and the Wrecked Ship is unpowered. The script plays the Release build fullscreen; `--dev` plays the Debug build in a window. It uses `smxsave`, which plays the ROM headless: the game formats its own SRAM, slot A is written at the section's save station with its loadout, and the tool presses through the title and file select to a quick-save state in play. Saves and states from a play test stay in `build/playtest/<section>/`, apart from your own.
