@@ -127,6 +127,17 @@ void smx_sound_set(SmxSound *sound, const SmxSoundOptions *options) {
   }
 }
 
+void smx_sound_pause(SmxSound *sound, bool paused) {
+  if (sound->stream == NULL) {
+    return;
+  }
+  if (paused) {
+    SDL_PauseAudioStreamDevice(sound->stream);
+  } else {
+    SDL_ResumeAudioStreamDevice(sound->stream);
+  }
+}
+
 void smx_sound_put(SmxSound *sound, const Sint16 *frames, Uint32 count) {
   Sint16 out[2048 * 2];
   Uint32 at = 0;

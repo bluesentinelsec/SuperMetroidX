@@ -94,7 +94,7 @@ Uint32 smx_resample_run(SmxResampler *resampler, const Sint16 *in, Uint32 frames
       float blend = (float)(phase - (double)p);
       const float *a = resampler->filter[p];
       const float *b = resampler->filter[p + 1u];
-      const float(*x)[2] = &resampler->input[base - before];
+      const float (*x)[2] = &resampler->input[base - before];
       float left_a = 0.0f;
       float left_b = 0.0f;
       float right_a = 0.0f;

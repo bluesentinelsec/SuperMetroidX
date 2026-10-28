@@ -3,9 +3,11 @@
 #include "smx/cheat.h"
 #include "smx/clock.h"
 #include "smx/game.h"
+#include "smx/menu.h"
 #include "smx/overlay.h"
 #include "smx/ppu.h"
 #include "smx/present.h"
+#include "smx/settings.h"
 #include "smx/sound.h"
 #include "smx/sram.h"
 #include "smx/state.h"
@@ -173,6 +175,148 @@ static void smx_shell_cheat_shown(SmxOverlay *overlay, const SmxCheats *cheats, 
   smx_overlay_show(overlay, text, SDL_GetTicks());
 }
 
+/* What the settings menu changes, and where it saves. */
+typedef struct SmxShellMenu {
+  SmxMenu menu;
+  SmxSettings *settings;
+  SmxSettings *saved;
+  const char *path;
+  SmxPresenter *presenter;
+  SmxSound *sound;
+  /** The S-DSP, or NULL without a cartridge. */
+  SmxDsp *dsp;
+  SmxCheats *cheats;
+  SmxOverlay *overlay;
+  /** The left stick's last direction, so a push moves the menu once. */
+  SmxMenuInput stick;
+  bool stick_held;
+} SmxShellMenu;
+
+/* Put the settings in effect: display, what is heard, and the resampler. */
+static void smx_shell_apply(SmxShellMenu *shell) {
+  smx_present_set_options(shell->presenter, &shell->settings->display);
+  if (shell->dsp != NULL) {
+    shell->dsp->heard = shell->settings->sound.interpolation;
+  }
+  smx_sound_set(shell->sound, &shell->settings->sound);
+}
+
+static void smx_shell_menu_open(SmxShellMenu *shell) {
+  smx_menu_open(&shell->menu);
+  smx_overlay_clear(shell->overlay);
+  smx_sound_pause(shell->sound, true);
+}
+
+static void smx_shell_menu_event(SmxShellMenu *shell, SmxMenuEvent event) {
+  Uint32 kind = 0;
+
+  if (event == SMX_MENU_SETTING) {
+    SmxSettingId id = shell->menu.changed;
+    smx_settings_set(shell->saved, id, smx_settings_get(shell->settings, id));
+    smx_shell_apply(shell);
+    if (shell->path != NULL) {
+      smx_settings_save(shell->saved, shell->path);
+    }
+  } else if (event == SMX_MENU_RESET) {
+    smx_settings_defaults(shell->saved);
+    *shell->settings = *shell->saved;
+    smx_shell_apply(shell);
+    if (shell->path != NULL) {
+      smx_settings_remove(shell->path);
+    }
+    for (; kind < SMX_CHEAT_COUNT; kind += 1) {
+      shell->cheats->on[kind] = false;
+    }
+  } else if (event == SMX_MENU_CLOSED) {
+    smx_sound_pause(shell->sound, false);
+  }
+}
+
+/* The menu input a key gives, if any. */
+static bool smx_shell_menu_key(SDL_Scancode scancode, SmxMenuInput *input) {
+  switch (scancode) {
+  case SDL_SCANCODE_UP:
+    *input = SMX_MENU_UP;
+    return true;
+  case SDL_SCANCODE_DOWN:
+    *input = SMX_MENU_DOWN;
+    return true;
+  case SDL_SCANCODE_LEFT:
+    *input = SMX_MENU_LEFT;
+    return true;
+  case SDL_SCANCODE_RIGHT:
+    *input = SMX_MENU_RIGHT;
+    return true;
+  case SDL_SCANCODE_RETURN:
+  case SDL_SCANCODE_KP_ENTER:
+  case SDL_SCANCODE_SPACE:
+    *input = SMX_MENU_ACCEPT;
+    return true;
+  case SDL_SCANCODE_ESCAPE:
+  case SDL_SCANCODE_BACKSPACE:
+    *input = SMX_MENU_BACK;
+    return true;
+  default:
+    return false;
+  }
+}
+
+/* The menu input a gamepad button gives, if any: south accepts and east goes back. */
+static bool smx_shell_menu_button(Uint8 button, SmxMenuInput *input) {
+  switch (button) {
+  case SDL_GAMEPAD_BUTTON_DPAD_UP:
+    *input = SMX_MENU_UP;
+    return true;
+  case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
+    *input = SMX_MENU_DOWN;
+    return true;
+  case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
+    *input = SMX_MENU_LEFT;
+    return true;
+  case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:
+    *input = SMX_MENU_RIGHT;
+    return true;
+  case SDL_GAMEPAD_BUTTON_SOUTH:
+    *input = SMX_MENU_ACCEPT;
+    return true;
+  case SDL_GAMEPAD_BUTTON_EAST:
+  case SDL_GAMEPAD_BUTTON_START:
+    *input = SMX_MENU_BACK;
+    return true;
+  default:
+    return false;
+  }
+}
+
+/* A push of the left stick past half way, once per push. */
+static bool smx_shell_menu_stick(SmxShellMenu *shell, SDL_Gamepad *pad, SmxMenuInput *input) {
+  Sint16 x = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
+  Sint16 y = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+  bool held = true;
+
+  if (y < -SMX_SHELL_AXIS_PRESS) {
+    *input = SMX_MENU_UP;
+  } else if (y > SMX_SHELL_AXIS_PRESS) {
+    *input = SMX_MENU_DOWN;
+  } else if (x < -SMX_SHELL_AXIS_PRESS) {
+    *input = SMX_MENU_LEFT;
+  } else if (x > SMX_SHELL_AXIS_PRESS) {
+    *input = SMX_MENU_RIGHT;
+  } else {
+    held = false;
+  }
+  if (!held) {
+    shell->stick_held = false;
+    return false;
+  }
+  if (shell->stick_held && shell->stick == *input) {
+    return false;
+  }
+  shell->stick_held = true;
+  shell->stick = *input;
+  return true;
+}
+
 /*
  * Escape quits at once in debug builds. Release builds ask first, since the
  * key is easy to hit by accident in play.
@@ -213,6 +357,9 @@ static void smx_shell_usage(void) {
   SDL_Log("                      life (1), ammo (2), items (3), hyper (4), fly (5)");
   smx_present_usage();
   smx_sound_usage();
+  SDL_Log("  --reset-settings    forget the saved settings and start from the defaults");
+  SDL_Log("  Settings saved from the menu (~ on the keyboard, R3 on a gamepad) apply first;");
+  SDL_Log("  options given here override them for this run.");
   SDL_Log("  --smoke             present a few frames and exit, for CI");
 }
 
@@ -221,16 +368,31 @@ int main(int argc, char **argv) {
   bool load_state = false;
   const char *rom_path = NULL;
   const char *cheat_list = NULL;
-  SmxPresentOptions display;
-  SmxSoundOptions hearing;
+  /* `saved` is what the settings file holds; `settings`, what this run uses. */
+  SmxSettings saved;
+  SmxSettings settings;
+  char settings_path[1024];
+  bool have_settings_path = smx_settings_path(settings_path, sizeof(settings_path));
   Sint32 index = 1;
 
-  smx_present_defaults(&display);
-  smx_sound_defaults(&hearing);
+  smx_settings_defaults(&saved);
   for (; index < argc; index += 1) {
-    Sint32 used = smx_present_option(&display, (Sint32)argc - index, argv + index);
+    if (SDL_strcmp(argv[index], "--reset-settings") == 0 && have_settings_path) {
+      if (smx_settings_remove(settings_path)) {
+        SDL_Log("settings reset to the defaults");
+      } else {
+        SDL_Log("cannot remove %s: %s", settings_path, SDL_GetError());
+      }
+    }
+  }
+  if (have_settings_path && smx_settings_load(&saved, settings_path)) {
+    SDL_Log("settings from %s", settings_path);
+  }
+  settings = saved;
+  for (index = 1; index < argc; index += 1) {
+    Sint32 used = smx_present_option(&settings.display, (Sint32)argc - index, argv + index);
     if (used == 0) {
-      used = smx_sound_option(&hearing, (Sint32)argc - index, argv + index);
+      used = smx_sound_option(&settings.sound, (Sint32)argc - index, argv + index);
     }
     if (used < 0) {
       SDL_Log("%s needs one of the values below", argv[index]);
@@ -243,6 +405,7 @@ int main(int argc, char **argv) {
       return 0;
     } else if (SDL_strcmp(argv[index], "--smoke") == 0) {
       smoke = true;
+    } else if (SDL_strcmp(argv[index], "--reset-settings") == 0) {
     } else if (SDL_strcmp(argv[index], "--load-state") == 0) {
       load_state = true;
     } else if (SDL_strcmp(argv[index], "--cheats") == 0) {
@@ -283,7 +446,8 @@ int main(int argc, char **argv) {
   bool audio_ready = SDL_InitSubSystem(SDL_INIT_AUDIO);
 
   SmxPresenter presenter;
-  if (!smx_present_open(&presenter, "SuperMetroidX", SMX_PPU_WIDTH, SMX_PPU_HEIGHT, &display)) {
+  if (!smx_present_open(&presenter, "SuperMetroidX", SMX_PPU_WIDTH, SMX_PPU_HEIGHT,
+                        &settings.display)) {
     SDL_Quit();
     return 1;
   }
@@ -315,7 +479,7 @@ int main(int argc, char **argv) {
     smx_dma_init(&dma, &bus);
     smx_ppu_init(&ppu, &bus);
     smx_apu_init(&apu, &bus);
-    apu.dsp.heard = hearing.interpolation;
+    apu.dsp.heard = settings.sound.interpolation;
     smx_clock_init(&clock, &cpu, &dma);
     clock.ppu = &ppu;
     smx_cpu_reset(&cpu);
@@ -378,7 +542,7 @@ int main(int argc, char **argv) {
   bool audio = false;
   SDL_memset(&sound, 0, sizeof(sound));
   if (playing && audio_ready) {
-    audio = smx_sound_open(&sound, &hearing);
+    audio = smx_sound_open(&sound, &settings.sound);
   }
 
   smx_overlay_init(&overlay, SMX_PPU_WIDTH, SMX_PPU_HEIGHT);
@@ -388,14 +552,61 @@ int main(int argc, char **argv) {
     }
   }
 
+  SmxShellMenu shell;
+  SDL_memset(&shell, 0, sizeof(shell));
+  smx_menu_init(&shell.menu);
+  shell.settings = &settings;
+  shell.saved = &saved;
+  shell.path = have_settings_path ? settings_path : NULL;
+  shell.presenter = &presenter;
+  shell.sound = &sound;
+  shell.dsp = machine ? &apu.dsp : NULL;
+  shell.cheats = &cheats;
+  shell.overlay = &overlay;
+
   bool running = true;
   Uint64 started = SDL_GetTicks();
   Uint64 next_frame = SDL_GetTicksNS();
   while (running) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+      SmxMenuInput input = SMX_MENU_BACK;
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
+                 event.key.scancode == SDL_SCANCODE_GRAVE) {
+        /* ~ opens and closes the settings menu. */
+        if (shell.menu.open) {
+          shell.menu.open = false;
+          smx_shell_menu_event(&shell, SMX_MENU_CLOSED);
+        } else {
+          smx_shell_menu_open(&shell);
+        }
+      } else if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && playing && pad != NULL &&
+                 event.gbutton.which == SDL_GetGamepadID(pad) &&
+                 event.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) {
+        /* So does pressing the right stick. */
+        if (shell.menu.open) {
+          shell.menu.open = false;
+          smx_shell_menu_event(&shell, SMX_MENU_CLOSED);
+        } else {
+          smx_shell_menu_open(&shell);
+        }
+      } else if (shell.menu.open && event.type == SDL_EVENT_KEY_DOWN &&
+                 smx_shell_menu_key(event.key.scancode, &input) &&
+                 (!event.key.repeat || input < SMX_MENU_ACCEPT)) {
+        smx_shell_menu_event(
+            &shell, smx_menu_input(&shell.menu, &settings, &cheats, input, SDL_GetTicks()));
+      } else if (shell.menu.open && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && pad != NULL &&
+                 event.gbutton.which == SDL_GetGamepadID(pad) &&
+                 smx_shell_menu_button(event.gbutton.button, &input)) {
+        smx_shell_menu_event(
+            &shell, smx_menu_input(&shell.menu, &settings, &cheats, input, SDL_GetTicks()));
+      } else if (shell.menu.open && event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && pad != NULL &&
+                 event.gaxis.which == SDL_GetGamepadID(pad) &&
+                 smx_shell_menu_stick(&shell, pad, &input)) {
+        smx_shell_menu_event(
+            &shell, smx_menu_input(&shell.menu, &settings, &cheats, input, SDL_GetTicks()));
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                  event.key.scancode == SDL_SCANCODE_ESCAPE) {
         running = !smx_shell_confirm_quit(presenter.window);
@@ -429,26 +640,6 @@ int main(int argc, char **argv) {
         if (kind != SMX_CHEAT_ITEMS) {
           smx_shell_cheat_shown(&overlay, &cheats, kind);
         }
-      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
-                 event.key.scancode == SDL_SCANCODE_EQUALS) {
-        /* For comparing while play testing: sinc, cubic, then the console's own sound. */
-        char text[48];
-        if (hearing.interpolation == SMX_DSP_SINC) {
-          hearing.interpolation = SMX_DSP_CUBIC;
-        } else if (hearing.interpolation == SMX_DSP_CUBIC) {
-          hearing.interpolation = SMX_DSP_GAUSSIAN;
-          hearing.resampler = SMX_SOUND_RESAMPLE_SDL;
-        } else {
-          hearing.interpolation = SMX_DSP_SINC;
-          hearing.resampler = SMX_SOUND_RESAMPLE_SINC;
-        }
-        apu.dsp.heard = hearing.interpolation;
-        smx_sound_set(&sound, &hearing);
-        SDL_snprintf(text, sizeof(text), "Audio: %s, %s resampler",
-                     smx_sound_interpolation_name(hearing.interpolation),
-                     hearing.resampler == SMX_SOUND_RESAMPLE_SINC ? "sinc" : "SDL");
-        SDL_Log("%s", text);
-        smx_overlay_show(&overlay, text, SDL_GetTicks());
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
       } else if (event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
@@ -459,6 +650,19 @@ int main(int argc, char **argv) {
         SDL_CloseGamepad(pad);
         pad = NULL;
       }
+    }
+
+    /* The game waits while the settings menu is open. */
+    if (shell.menu.open) {
+      Uint64 now = SDL_GetTicks();
+      SDL_Renderer *renderer = smx_overlay_begin(&overlay, ppu.picture);
+      smx_shell_menu_event(&shell, smx_menu_tick(&shell.menu, &settings, now));
+      smx_menu_draw(&shell.menu, &settings, &cheats, renderer, SMX_PPU_WIDTH, SMX_PPU_HEIGHT, now);
+      smx_present_frame(&presenter,
+                        renderer != NULL ? smx_overlay_finish(&overlay, now) : ppu.picture);
+      SDL_Delay(8);
+      next_frame = SDL_GetTicksNS();
+      continue;
     }
 
     /*

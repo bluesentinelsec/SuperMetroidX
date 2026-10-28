@@ -81,6 +81,12 @@ bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, 
 /** Show `pixels`, or the backdrop when it is NULL, and swap buffers. */
 void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels);
 
+/**
+ * Change the display options while running: the window mode at once, and the
+ * scale, aspect, and scanlines from the next frame.
+ */
+void smx_present_set_options(SmxPresenter *presenter, const SmxPresentOptions *options);
+
 /** Switch between a window and the fullscreen mode in the options (borderless if windowed). */
 void smx_present_toggle_fullscreen(SmxPresenter *presenter);
 

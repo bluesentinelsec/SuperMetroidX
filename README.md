@@ -113,7 +113,7 @@ The console smooths every instrument sample with a Gaussian filter that softens 
 | `--audio-interpolation` | `sinc`, an 8-tap windowed sinc; `cubic`; `gaussian`, the console's own filter | `sinc` |
 | `--audio-resampler` | `sinc`, a 64-tap filter from 32040 Hz to the device's rate, flat to about 14.5 kHz; `sdl`, SDL's own conversion | `sinc` |
 
-Only what you hear changes. The sound chip's registers, its echo buffer, and everything the game can read still come from the console's Gaussian filter. `--audio-interpolation gaussian --audio-resampler sdl` is the sound of version 1.0. While these are being tuned, `=` cycles sinc, cubic, and the console's sound in play.
+Only what you hear changes. The sound chip's registers, its echo buffer, and everything the game can read still come from the console's Gaussian filter. `--audio-interpolation gaussian --audio-resampler sdl` is the sound of version 1.0. The settings menu changes both while you listen.
 
 ## Controls
 
@@ -137,10 +137,21 @@ The gamepad follows the SNES layout by position, so the buttons' letters differ 
 | F5 | Quick-save |
 | F9 | Quick-load (`--load-state` starts from the quick-save) |
 | 1 to 5 | Switch a cheat (see below) |
+| ~ (grave) | Open or close the settings menu; R3 (press the right stick) on a gamepad |
+
+## Settings menu
+
+`~` on the keyboard or R3 on a gamepad pauses the game and opens the settings menu over it. It has every display and sound option above and the cheats. Up and down choose; left and right, or Enter (A on a gamepad), change a setting; Escape (B) or `~` again closes it.
+
+- Changes apply at once and are saved in `settings.ini` in the save folder (below). Cheats are not saved: they last until you quit.
+- A new window mode asks to be kept and goes back by itself after ten seconds, so a mode your display cannot show undoes itself.
+- **Reset to defaults** asks first, then puts every setting back and turns the cheats off.
+- Options on the command line apply to that run over the saved settings and are not saved, unless you change the same setting in the menu.
+- If the window ends up unusable (too small, too large, or off screen), start the game with `--reset-settings` to forget the saved settings, or delete `settings.ini`.
 
 ## Cheats
 
-Cheats are off until you turn them on, with a number key in play or with `--cheats` on the command line, such as `SuperMetroidX --cheats life,fly` or `--cheats all`. A message in the bottom left of the picture says when one turns on or off.
+Cheats are off until you turn them on, in the settings menu, with a number key in play, or with `--cheats` on the command line, such as `SuperMetroidX --cheats life,fly` or `--cheats all`. A message in the bottom left of the picture says when one turns on or off.
 
 | Key | `--cheats` | Cheat |
 | --- | --- | --- |
