@@ -49,6 +49,29 @@ static void test_wram_sram_mmio(void) {
   smx_bus_quit(&bus);
 }
 
+static void test_wram_port(void) {
+  SmxBus bus;
+
+  smx_bus_init(&bus, NULL, 0, 0);
+  smx_bus_write(&bus, 0x002181, 0xFE);
+  smx_bus_write(&bus, 0x002182, 0xFF);
+  smx_bus_write(&bus, 0x002183, 0x00);
+  smx_bus_write(&bus, 0x802180, 0x12);
+  smx_bus_write(&bus, 0x002180, 0x34);
+  smx_bus_write(&bus, 0x002180, 0x56);
+  expect_u8("port writes", smx_bus_read(&bus, 0x7EFFFE), 0x12);
+  expect_u8("port steps", smx_bus_read(&bus, 0x7EFFFF), 0x34);
+  expect_u8("port crosses into $7F", smx_bus_read(&bus, 0x7F0000), 0x56);
+  smx_bus_write(&bus, 0x002181, 0xFF);
+  smx_bus_write(&bus, 0x002182, 0xFF);
+  smx_bus_write(&bus, 0x002183, 0xFF);
+  smx_bus_write(&bus, 0x7FFFFF, 0x77);
+  smx_bus_write(&bus, 0x7E0000, 0x88);
+  expect_u8("port reads", smx_bus_read(&bus, 0x002180), 0x77);
+  expect_u8("port wraps to $7E:0000", smx_bus_read(&bus, 0x002180), 0x88);
+  smx_bus_quit(&bus);
+}
+
 static void test_lorom_window(void) {
   const char *path = SDL_getenv("SMX_ROM");
   SmxCart cart;
@@ -101,6 +124,7 @@ static void test_speed(void) {
 
 int main(void) {
   test_wram_sram_mmio();
+  test_wram_port();
   test_speed();
   test_lorom_window();
   return g_failed ? 1 : 0;

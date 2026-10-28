@@ -94,6 +94,9 @@ Uint8 smx_bus_read(SmxBus *bus, Uint32 addr) {
      * The PPU answers `$2134-$213F` and returns open bus for what it does not model. */
     if (off >= 0x4300 && off <= 0x437F && (off & 0x0Fu) <= 0x0Bu) {
       value = bus->mmio[off];
+    } else if (off == 0x2180) {
+      value = bus->wram[bus->wram_port];
+      bus->wram_port = (bus->wram_port + 1u) & (SMX_BUS_WRAM_SIZE - 1u);
     } else if (off >= 0x2134 && off <= 0x213F && bus->mmio_read != NULL) {
       /* A CGRAM read while the PPU draws depends on how far it has drawn. */
       if (bus->ppu_sync != NULL) {
@@ -146,6 +149,16 @@ void smx_bus_write(SmxBus *bus, Uint32 addr, Uint8 value) {
       return;
     }
     bus->mmio[off] = value;
+    if (off == 0x2180) {
+      bus->wram[bus->wram_port] = value;
+      bus->wram_port = (bus->wram_port + 1u) & (SMX_BUS_WRAM_SIZE - 1u);
+    } else if (off == 0x2181) {
+      bus->wram_port = (bus->wram_port & 0x1FF00u) | value;
+    } else if (off == 0x2182) {
+      bus->wram_port = (bus->wram_port & 0x100FFu) | ((Uint32)value << 8);
+    } else if (off == 0x2183) {
+      bus->wram_port = (bus->wram_port & 0x0FFFFu) | ((Uint32)(value & 1u) << 16);
+    }
     if (off == 0x4203) {
       Uint16 product = (Uint16)((Uint16)bus->mmio[0x4202] * value);
       bus->mmio[0x4216] = (Uint8)product;
