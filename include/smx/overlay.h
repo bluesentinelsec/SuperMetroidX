@@ -1,0 +1,41 @@
+#ifndef SMX_OVERLAY_H_
+#define SMX_OVERLAY_H_
+
+#include <SDL3/SDL.h>
+
+/** Messages shown at once; a new one pushes out the oldest. */
+#define SMX_OVERLAY_LINES 4u
+/** How long a message shows. */
+#define SMX_OVERLAY_MS 2500u
+
+/**
+ * Short messages in the bottom left of the picture, such as a cheat turning
+ * on. They are drawn with SDL's built-in 8x8 font, through a software
+ * renderer, onto a copy of the picture, so they scale with it and the
+ * picture the console drew is left alone.
+ */
+typedef struct SmxOverlay {
+  Uint32 width;
+  Uint32 height;
+  Uint8 *pixels;
+  SDL_Surface *surface;
+  SDL_Renderer *renderer;
+  char text[SMX_OVERLAY_LINES][48];
+  Uint64 until[SMX_OVERLAY_LINES];
+  Uint32 count;
+} SmxOverlay;
+
+/** For XRGB8888 pictures `width` by `height`. */
+bool smx_overlay_init(SmxOverlay *overlay, Uint32 width, Uint32 height);
+void smx_overlay_quit(SmxOverlay *overlay);
+
+/** Show `text` from `now_ms` for SMX_OVERLAY_MS. */
+void smx_overlay_show(SmxOverlay *overlay, const char *text, Uint64 now_ms);
+
+/**
+ * `picture` with the messages showing at `now_ms` drawn on a copy, or
+ * `picture` itself when there are none.
+ */
+const Uint8 *smx_overlay_draw(SmxOverlay *overlay, const Uint8 *picture, Uint64 now_ms);
+
+#endif /* SMX_OVERLAY_H_ */

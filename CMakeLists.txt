@@ -54,6 +54,8 @@ set(SMX_SOURCES
   src/sram.c
   src/state.c
   src/save.c
+  src/cheat.c
+  src/overlay.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -268,6 +270,14 @@ if(EXISTS "${SMX_ROM}")
       PASS_REGULAR_EXPRESSION "${SMX_SMOKE_LOADED}"
       FAIL_REGULAR_EXPRESSION "translated, [1-9][0-9]* interpreted"
   )
+endif()
+
+add_executable(smx_test_cheat tests/test_cheat.c)
+target_link_libraries(smx_test_cheat PRIVATE smx_game smx)
+add_test(NAME cheat COMMAND smx_test_cheat)
+if(EXISTS "${SMX_ROM}")
+  add_test(NAME cheat_rom COMMAND smx_test_cheat "${SMX_ROM}")
+  set_tests_properties(cheat_rom PROPERTIES LABELS rom TIMEOUT 600)
 endif()
 
 add_executable(smx_test_apu tests/test_apu.c)
