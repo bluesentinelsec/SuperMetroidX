@@ -8,6 +8,8 @@
 
 /**
  * LoROM cartridge bus.
+ * `$2180` reads and writes WRAM at the address `$2181-$2183` set, a byte at a
+ * time, and steps it.
  * `rom` is borrowed and must outlive the bus. WRAM and SRAM are owned.
  */
 typedef struct SmxBus {
@@ -18,6 +20,8 @@ typedef struct SmxBus {
   Uint32 sram_size;
   Uint8 mmio[0x4500];
   Uint8 open_bus;
+  /** The WRAM address `$2180` reads and writes next, set through `$2181-$2183`. */
+  Uint32 wram_port;
   void (*mmio_write)(void *user, Uint16 addr, Uint8 value);
   Uint8 (*mmio_read)(void *user, Uint16 addr, Uint8 open_bus);
   void *mmio_user;
