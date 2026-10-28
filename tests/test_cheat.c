@@ -90,7 +90,7 @@ static void test_ram(void) {
   smx_cheat_apply(&cheats, wram, 0x0040);
   expect("fly waits for the jump button", get16(wram, 0x0B36) == 0);
   smx_cheat_apply(&cheats, wram, 0x0080);
-  expect("fly rises while jump is held", get16(wram, 0x0B36) == 1 && get16(wram, 0x0B2E) == 2);
+  expect("fly rises while jump is held", get16(wram, 0x0B36) == 1 && get16(wram, 0x0B2E) == 4);
   put16(wram, 0x09B4, 0x8000);
   put16(wram, 0x0B36, 2);
   smx_cheat_apply(&cheats, wram, 0x0080);
@@ -113,11 +113,17 @@ static void test_items_hyper(void) {
     put16(rom, 0x0019A3u + index, (Uint16)(0x3400u + index));
   }
   put16(rom, 0x06E1F2u, 0xD900);
+  /* Beam tiles and colors for Charge+Wave+Plasma (index 9) and for none (index 0). */
+  put16(rom, 0x0843B1u + 18u, 0xA000);
+  put16(rom, 0x0843C9u + 18u, 0xC500);
+  put16(rom, 0x0843B1u, 0xB000);
+  put16(rom, 0x0843C9u, 0xC600);
+  for (index = 0; index < 16u; index += 1) {
+    put16(rom, 0x084500u + index * 2u, (Uint16)(0x900u + index));
+    put16(rom, 0x084600u + index * 2u, (Uint16)(0x600u + index));
+  }
   for (index = 0; index < 0x80u; index += 2) {
     put16(wram, 0xC608u + index, 0x2C0F);
-  }
-  for (index = 0; index < 8u; index += 1) {
-    put16(wram, 0xC1C2u + index * 2u, (Uint16)(0x200u + index));
   }
 
   smx_cheat_init(&cheats, rom, 0x100000);
@@ -139,18 +145,29 @@ static void test_items_hyper(void) {
   expect("the x-ray icon", get16(wram, 0xC636) == 0x3424 && get16(wram, 0xC678) == 0x342A);
 
   put16(wram, 0x1E7D, 0x1234);
+  put16(wram, 0x09A6, 0);
+  put16(wram, 0x0330, 7);
   smx_cheat_toggle(&cheats, SMX_CHEAT_HYPER);
   smx_cheat_apply(&cheats, wram, 0);
   expect("hyper sets the game's flag", get16(wram, 0x0A76) == 0x8000);
-  expect("hyper starts the rainbow in a free slot",
-         get16(wram, 0x1E7D + 14u) == 0xE1F0 && get16(wram, 0x1EBD + 14u) == 0xD900 &&
-             get16(wram, 0x1E7D) == 0x1234);
+  expect("hyper equips Charge, Wave, and Plasma", get16(wram, 0x09A6) == 0x1009);
+  expect("hyper queues the beam's tiles after what the game queued",
+         get16(wram, 0x00D7) == 0x0100 && get16(wram, 0x00D9) == 0xA000 && wram[0x00DB] == 0x9A &&
+             get16(wram, 0x00DC) == 0x6300 && get16(wram, 0x0330) == 14);
+  expect("hyper loads the beam's colors",
+         get16(wram, 0xC1C0) == 0x900 && get16(wram, 0xC1DE) == 0x90F);
+  expect("hyper starts the rainbow in a free slot", get16(wram, 0x1E7D + 14u) == 0xE1F0 &&
+                                                        get16(wram, 0x1EBD + 14u) == 0xD900 &&
+                                                        get16(wram, 0x1E7D) == 0x1234);
   put16(wram, 0xC1C2, 0x7FFF);
+  put16(wram, 0x0330, 0);
   smx_cheat_toggle(&cheats, SMX_CHEAT_HYPER);
   smx_cheat_apply(&cheats, wram, 0);
   expect("hyper off clears the flag and the rainbow",
          get16(wram, 0x0A76) == 0 && get16(wram, 0x1E7D + 14u) == 0);
-  expect("hyper off brings the beam's colors back", get16(wram, 0xC1C2) == 0x200);
+  expect("hyper off brings the beams back", get16(wram, 0x09A6) == 0);
+  expect("hyper off loads their tiles and colors",
+         get16(wram, 0x00D2) == 0xB000 && get16(wram, 0xC1C2) == 0x601);
   SDL_free(rom);
   SDL_free(wram);
 }
@@ -263,7 +280,9 @@ static void put_ram(Console *console, Uint32 at, Uint16 value) {
   put16(console->bus.wram, at, value);
 }
 
-static Uint16 ram(const Console *console, Uint32 at) { return get16(console->bus.wram, at); }
+static Uint16 ram(const Console *console, Uint32 at) {
+  return get16(console->bus.wram, at);
+}
 
 /* Items given in play look as they do when a save with them loads: HUD and suit. */
 static void test_rom_items(const SmxCart *cart) {
@@ -352,33 +371,56 @@ static void test_rom_ammo(const SmxCart *cart) {
   quit(console);
 }
 
-/* The hyper beam fires the game's hyper shot with its rainbow, and goes when switched off. */
+/*
+ * The hyper beam loads Charge+Wave+Plasma's tiles and colors as a save with
+ * them does, fires the hyper shot with its rainbow, and puts back the beam
+ * that was equipped when switched off.
+ */
 static void test_rom_hyper(const SmxCart *cart) {
-  Console *console = boot(cart, &smx_save_section("landing")->loadout);
-  Uint16 colors[8];
+  SmxSaveLoadout beams = smx_save_section("landing")->loadout;
+  Console *saved = NULL;
+  Console *console = NULL;
+  Uint8 tiles[0x200];
+  Uint16 colors[16];
   Uint32 index = 0;
+  bool loaded = true;
   bool same = true;
   bool rainbow = false;
 
-  for (; index < 8u; index += 1) {
-    colors[index] = ram(console, 0xC1C2u + index * 2u);
+  beams.beams = 0x1009;
+  saved = boot(cart, &beams);
+  console = boot(cart, &smx_save_section("landing")->loadout);
+  SDL_memcpy(tiles, console->ppu.vram + 0x6300u * 2u, sizeof(tiles));
+  for (; index < 16u; index += 1) {
+    colors[index] = ram(console, 0xC1C0u + index * 2u);
   }
   console->cheats.on[SMX_CHEAT_HYPER] = true;
+  frames(console, 2, 0);
+  expect("hyper: Charge, Wave, and Plasma are equipped", ram(console, 0x09A6) == 0x1009);
+  loaded = SDL_memcmp(console->ppu.vram + 0x6300u * 2u, saved->ppu.vram + 0x6300u * 2u,
+                      sizeof(tiles)) == 0;
+  for (index = 9; index < 16u; index += 1) {
+    loaded = loaded && ram(console, 0xC1C0u + index * 2u) == ram(saved, 0xC1C0u + index * 2u);
+  }
+  expect("hyper: the beam's tiles and colors are a save's with those beams", loaded);
   frames(console, 2, 0x0040);
   expect("hyper: the shot is the hyper beam's", (ram(console, 0x0C18) & 0x0010) != 0);
   for (index = 0; index < 20u; index += 1) {
     frame(console, 0);
-    rainbow = rainbow || ram(console, 0xC1C4) != colors[1];
+    rainbow = rainbow || ram(console, 0xC1C4) != ram(saved, 0xC1C4);
   }
   expect("hyper: the beam's colors cycle", rainbow);
   console->cheats.on[SMX_CHEAT_HYPER] = false;
   frames(console, 30, 0);
-  for (index = 0; index < 8u; index += 1) {
-    same = same && ram(console, 0xC1C2u + index * 2u) == colors[index];
+  same = SDL_memcmp(console->ppu.vram + 0x6300u * 2u, tiles, sizeof(tiles)) == 0;
+  for (index = 0; index < 16u; index += 1) {
+    same = same && ram(console, 0xC1C0u + index * 2u) == colors[index];
   }
-  expect("hyper: off brings the beam back", ram(console, 0x0A76) == 0 && same);
+  expect("hyper: off brings back the beam, its tiles, and its colors",
+         ram(console, 0x0A76) == 0 && ram(console, 0x09A6) == 0 && same);
   frames(console, 2, 0x0040);
   expect("hyper: off fires the plain beam", (ram(console, 0x0C18) & 0x0010) == 0);
+  quit(saved);
   quit(console);
 }
 

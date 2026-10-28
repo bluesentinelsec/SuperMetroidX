@@ -34,8 +34,8 @@ typedef struct SmxCheats {
   bool hyper_set;
   /** The game had given the hyper beam itself, so it stays. */
   bool hyper_was;
-  /** The beam colors the hyper beam's rainbow replaces. */
-  Uint8 beam_colors[16];
+  /** The beams equipped before the hyper beam replaced them. */
+  Uint16 beams_was;
 } SmxCheats;
 
 /** No cheats on, for the LoROM image `rom` (NULL draws no HUD icons or suit colors). */

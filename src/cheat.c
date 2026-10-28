@@ -16,6 +16,10 @@
 /* Damage owed to Samus, taken from her energy early in the next frame. */
 #define SMX_CHEAT_DAMAGE 0x0A50u
 #define SMX_CHEAT_HYPER_BEAM 0x0A76u
+#define SMX_CHEAT_BEAM_SOUND 0x0DC0u
+/* The game's queue of transfers to VRAM at the next vblank: 7-byte entries at $D0. */
+#define SMX_CHEAT_VRAM_QUEUE 0x00D0u
+#define SMX_CHEAT_VRAM_QUEUE_END 0x0330u
 #define SMX_CHEAT_Y_SUBSPEED 0x0B2Cu
 #define SMX_CHEAT_Y_SPEED 0x0B2Eu
 #define SMX_CHEAT_Y_DIRECTION 0x0B36u
@@ -55,8 +59,11 @@
  * From the ROM. The suit palettes, by `$0A74` (0 power, 2 varia, 4 gravity),
  * point into bank $9B. The HUD icons are drawn as the game's own routines
  * draw them on pickup: missiles at $80:99CF, the rest at $80:9A0E-$80:9A3E.
- * The hyper beam's rainbow is the palette effect Mother Brain's fight starts
- * at $91:E5FD.
+ * Beam graphics and colors load as $90:AC8D loads them for `$09A6`: tiles
+ * from bank $9A to VRAM $6300, and colors from bank $90 to sprite palette 6.
+ * The hyper beam is given as Mother Brain's fight gives it at $91:E5F0:
+ * Charge, Wave, and Plasma equipped and loaded, the rainbow palette effect,
+ * and the hyper flag.
  */
 #define SMX_CHEAT_SUIT_PALETTES 0x91D727u
 #define SMX_CHEAT_SUIT_GRAVITY 4u
@@ -67,9 +74,17 @@
 #define SMX_CHEAT_HYPER_FX 0xE1F0u
 #define SMX_CHEAT_HYPER_FX_BANK 0x8Du
 #define SMX_CHEAT_FX_PRE_DEFAULT 0xC526u
+#define SMX_CHEAT_BEAM_TILES 0x90C3B1u
+#define SMX_CHEAT_BEAM_COLORS 0x90C3C9u
+#define SMX_CHEAT_BEAM_TILES_BANK 0x9Au
+#define SMX_CHEAT_BEAM_COLORS_BANK 0x90u
+#define SMX_CHEAT_BEAM_TILES_SIZE 0x0100u
+#define SMX_CHEAT_BEAM_VRAM 0x6300u
+#define SMX_CHEAT_BEAM_PALETTE 0x1C0u
+#define SMX_CHEAT_HYPER_BEAMS 0x1009u
 
 /* Fly mode's rise, in pixels per frame. */
-#define SMX_CHEAT_FLY_SPEED 2u
+#define SMX_CHEAT_FLY_SPEED 4u
 
 static const struct {
   const char *name;
@@ -115,9 +130,13 @@ void smx_cheat_init(SmxCheats *cheats, const Uint8 *rom, Uint32 rom_size) {
   cheats->rom.size = rom_size;
 }
 
-const char *smx_cheat_name(SmxCheatKind kind) { return smx_cheat_names[kind].name; }
+const char *smx_cheat_name(SmxCheatKind kind) {
+  return smx_cheat_names[kind].name;
+}
 
-const char *smx_cheat_title(SmxCheatKind kind) { return smx_cheat_names[kind].title; }
+const char *smx_cheat_title(SmxCheatKind kind) {
+  return smx_cheat_names[kind].title;
+}
 
 bool smx_cheat_parse(SmxCheats *cheats, const char *list) {
   char name[16];
@@ -244,6 +263,29 @@ static void smx_cheat_give(const SmxCheats *cheats, Uint8 *wram) {
   smx_cheat_icons_draw(cheats, wram);
 }
 
+/* Load the graphics and colors of `beams`, as the game does when they change. */
+static void smx_cheat_beam_load(const SmxCheats *cheats, Uint8 *wram, Uint16 beams) {
+  Uint32 index = (Uint32)(beams & 0x0FFFu) * 2u;
+  Uint16 tiles = smx_cheat_rom(&cheats->rom, SMX_CHEAT_BEAM_TILES + index);
+  Uint16 colors = smx_cheat_rom(&cheats->rom, SMX_CHEAT_BEAM_COLORS + index);
+  Uint32 at = SMX_CHEAT_VRAM_QUEUE + smx_cheat_get(wram, SMX_CHEAT_VRAM_QUEUE_END);
+  Uint32 color = 0;
+
+  if (tiles == 0 || colors == 0) {
+    return;
+  }
+  smx_cheat_put(wram, at, SMX_CHEAT_BEAM_TILES_SIZE);
+  smx_cheat_put(wram, at + 2u, tiles);
+  wram[at + 4u] = SMX_CHEAT_BEAM_TILES_BANK;
+  smx_cheat_put(wram, at + 5u, SMX_CHEAT_BEAM_VRAM);
+  smx_cheat_put(wram, SMX_CHEAT_VRAM_QUEUE_END, (Uint16)(at + 7u - SMX_CHEAT_VRAM_QUEUE));
+  for (; color < 16u; color += 1) {
+    Uint32 from = ((Uint32)SMX_CHEAT_BEAM_COLORS_BANK << 16) | (Uint32)(colors + color * 2u);
+    smx_cheat_put(wram, SMX_CHEAT_PALETTES + SMX_CHEAT_BEAM_PALETTE + color * 2u,
+                  smx_cheat_rom(&cheats->rom, from));
+  }
+}
+
 /* The hyper beam's palette effect slot, or SMX_CHEAT_FX_SLOTS without one. */
 static Uint32 smx_cheat_fx_find(const Uint8 *wram, Uint16 id) {
   Uint32 slot = 0;
@@ -283,10 +325,14 @@ static void smx_cheat_hyper(SmxCheats *cheats, Uint8 *wram) {
 
   if (cheats->on[SMX_CHEAT_HYPER]) {
     if (!cheats->hyper_set) {
-      SDL_memcpy(cheats->beam_colors, wram + SMX_CHEAT_PALETTES + 0x1C2u,
-                 sizeof(cheats->beam_colors));
       cheats->hyper_was = smx_cheat_get(wram, SMX_CHEAT_HYPER_BEAM);
+      cheats->beams_was = smx_cheat_get(wram, SMX_CHEAT_BEAMS_EQUIPPED);
       cheats->hyper_set = true;
+      if (cheats->hyper_was == 0) {
+        smx_cheat_put(wram, SMX_CHEAT_BEAMS_EQUIPPED, SMX_CHEAT_HYPER_BEAMS);
+        smx_cheat_beam_load(cheats, wram, SMX_CHEAT_HYPER_BEAMS);
+        smx_cheat_put(wram, SMX_CHEAT_BEAM_SOUND, 0);
+      }
     }
     smx_cheat_put(wram, SMX_CHEAT_HYPER_BEAM, 0x8000u);
     if (slot == SMX_CHEAT_FX_SLOTS) {
@@ -301,8 +347,8 @@ static void smx_cheat_hyper(SmxCheats *cheats, Uint8 *wram) {
     if (slot < SMX_CHEAT_FX_SLOTS) {
       smx_cheat_put(wram, SMX_CHEAT_FX_IDS + slot * 2u, 0);
     }
-    SDL_memcpy(wram + SMX_CHEAT_PALETTES + 0x1C2u, cheats->beam_colors,
-               sizeof(cheats->beam_colors));
+    smx_cheat_put(wram, SMX_CHEAT_BEAMS_EQUIPPED, cheats->beams_was);
+    smx_cheat_beam_load(cheats, wram, cheats->beams_was);
   }
 }
 

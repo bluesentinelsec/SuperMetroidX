@@ -136,7 +136,7 @@ Cheats are off until you turn them on, with a number key in play or with `--chea
 | 1 | `life` | Infinite life: energy and reserve tanks stay full. Samus still flinches when hit. |
 | 2 | `ammo` | Infinite ammo: missiles, super missiles, and power bombs stay full, with 99 of each kind before its first expansion. |
 | 3 | `items` | All items: every item, beam, tank, and expansion, full, given once. Ammo then counts down as usual unless `ammo` is on. |
-| 4 | `hyper` | Hyper beam: the beam from Mother Brain's fight. Off again brings back your own beams. |
+| 4 | `hyper` | Hyper beam: given as Mother Brain's fight gives it, with Charge, Wave, and Plasma equipped and the rainbow. Off again brings back the beams you had. |
 | 5 | `fly` | Fly mode: hold jump to rise. Walls and ceilings still stop Samus; let go to fall. |
 
 Cheats work as a cheat cartridge does: between frames, the shell writes the game's memory, and the game does the rest. Items given by a cheat stay in your save if you then save at a save station.
