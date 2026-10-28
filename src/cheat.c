@@ -235,34 +235,6 @@ static void smx_cheat_refill(Uint8 *wram, Uint32 at) {
   smx_cheat_put(wram, at, most);
 }
 
-static void smx_cheat_give(const SmxCheats *cheats, Uint8 *wram) {
-  Uint16 palette = smx_cheat_rom(&cheats->rom, SMX_CHEAT_SUIT_PALETTES + SMX_CHEAT_SUIT_GRAVITY);
-  Uint32 color = 0;
-
-  smx_cheat_put(wram, SMX_CHEAT_ITEMS_EQUIPPED, SMX_CHEAT_ALL_ITEMS);
-  smx_cheat_put(wram, SMX_CHEAT_ITEMS_COLLECTED, SMX_CHEAT_ALL_ITEMS);
-  /* The game equips Plasma over Spazer. */
-  smx_cheat_put(wram, SMX_CHEAT_BEAMS_EQUIPPED, SMX_CHEAT_ALL_BEAMS & (Uint16)~SMX_CHEAT_SPAZER);
-  smx_cheat_put(wram, SMX_CHEAT_BEAMS_COLLECTED, SMX_CHEAT_ALL_BEAMS);
-  smx_cheat_fill(wram, SMX_CHEAT_ENERGY, SMX_CHEAT_MAX_ENERGY);
-  smx_cheat_fill(wram, SMX_CHEAT_MISSILES, SMX_CHEAT_MAX_MISSILES);
-  smx_cheat_fill(wram, SMX_CHEAT_SUPERS, SMX_CHEAT_MAX_SUPERS);
-  smx_cheat_fill(wram, SMX_CHEAT_POWER_BOMBS, SMX_CHEAT_MAX_POWER_BOMBS);
-  smx_cheat_fill(wram, SMX_CHEAT_RESERVE, SMX_CHEAT_MAX_RESERVE);
-  if (smx_cheat_get(wram, SMX_CHEAT_RESERVE_MODE) == 0) {
-    smx_cheat_put(wram, SMX_CHEAT_RESERVE_MODE, 1);
-  }
-  /* The suit's colors, which the game sets only when a suit is picked up. */
-  if (palette != 0) {
-    for (; color < 16u; color += 1) {
-      Uint32 from = ((Uint32)SMX_CHEAT_SUIT_BANK << 16) | (Uint32)(palette + color * 2u);
-      smx_cheat_put(wram, SMX_CHEAT_PALETTES + SMX_CHEAT_SAMUS_COLORS + color * 2u,
-                    smx_cheat_rom(&cheats->rom, from));
-    }
-  }
-  smx_cheat_icons_draw(cheats, wram);
-}
-
 /* Load the graphics and colors of `beams`, as the game does when they change. */
 static void smx_cheat_beam_load(const SmxCheats *cheats, Uint8 *wram, Uint16 beams) {
   Uint32 index = (Uint32)(beams & 0x0FFFu) * 2u;
@@ -284,6 +256,43 @@ static void smx_cheat_beam_load(const SmxCheats *cheats, Uint8 *wram, Uint16 bea
     smx_cheat_put(wram, SMX_CHEAT_PALETTES + SMX_CHEAT_BEAM_PALETTE + color * 2u,
                   smx_cheat_rom(&cheats->rom, from));
   }
+}
+
+static void smx_cheat_give(SmxCheats *cheats, Uint8 *wram) {
+  Uint16 beams = SMX_CHEAT_ALL_BEAMS & (Uint16)~SMX_CHEAT_SPAZER;
+  Uint16 palette = smx_cheat_rom(&cheats->rom, SMX_CHEAT_SUIT_PALETTES + SMX_CHEAT_SUIT_GRAVITY);
+  Uint32 color = 0;
+
+  smx_cheat_put(wram, SMX_CHEAT_ITEMS_EQUIPPED, SMX_CHEAT_ALL_ITEMS);
+  smx_cheat_put(wram, SMX_CHEAT_ITEMS_COLLECTED, SMX_CHEAT_ALL_ITEMS);
+  /*
+   * Every beam but Spazer, which the game will not equip with Plasma, loaded
+   * as equipping them does. The hyper beam, while on, stays in their place.
+   */
+  smx_cheat_put(wram, SMX_CHEAT_BEAMS_COLLECTED, SMX_CHEAT_ALL_BEAMS);
+  if (cheats->hyper_set && cheats->hyper_was == 0) {
+    cheats->beams_was = beams;
+  } else {
+    smx_cheat_put(wram, SMX_CHEAT_BEAMS_EQUIPPED, beams);
+    smx_cheat_beam_load(cheats, wram, beams);
+  }
+  smx_cheat_fill(wram, SMX_CHEAT_ENERGY, SMX_CHEAT_MAX_ENERGY);
+  smx_cheat_fill(wram, SMX_CHEAT_MISSILES, SMX_CHEAT_MAX_MISSILES);
+  smx_cheat_fill(wram, SMX_CHEAT_SUPERS, SMX_CHEAT_MAX_SUPERS);
+  smx_cheat_fill(wram, SMX_CHEAT_POWER_BOMBS, SMX_CHEAT_MAX_POWER_BOMBS);
+  smx_cheat_fill(wram, SMX_CHEAT_RESERVE, SMX_CHEAT_MAX_RESERVE);
+  if (smx_cheat_get(wram, SMX_CHEAT_RESERVE_MODE) == 0) {
+    smx_cheat_put(wram, SMX_CHEAT_RESERVE_MODE, 1);
+  }
+  /* The suit's colors, which the game sets only when a suit is picked up. */
+  if (palette != 0) {
+    for (; color < 16u; color += 1) {
+      Uint32 from = ((Uint32)SMX_CHEAT_SUIT_BANK << 16) | (Uint32)(palette + color * 2u);
+      smx_cheat_put(wram, SMX_CHEAT_PALETTES + SMX_CHEAT_SAMUS_COLORS + color * 2u,
+                    smx_cheat_rom(&cheats->rom, from));
+    }
+  }
+  smx_cheat_icons_draw(cheats, wram);
 }
 
 /* The hyper beam's palette effect slot, or SMX_CHEAT_FX_SLOTS without one. */

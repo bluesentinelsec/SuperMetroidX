@@ -168,6 +168,16 @@ static void test_items_hyper(void) {
   expect("hyper off brings the beams back", get16(wram, 0x09A6) == 0);
   expect("hyper off loads their tiles and colors",
          get16(wram, 0x00D2) == 0xB000 && get16(wram, 0xC1C2) == 0x601);
+
+  /* Items given while the hyper beam is on wait behind it. */
+  smx_cheat_toggle(&cheats, SMX_CHEAT_HYPER);
+  smx_cheat_apply(&cheats, wram, 0);
+  smx_cheat_toggle(&cheats, SMX_CHEAT_ITEMS);
+  smx_cheat_apply(&cheats, wram, 0);
+  expect("items keep the hyper beam equipped", get16(wram, 0x09A6) == 0x1009);
+  smx_cheat_toggle(&cheats, SMX_CHEAT_HYPER);
+  smx_cheat_apply(&cheats, wram, 0);
+  expect("hyper off then equips every beam but Spazer", get16(wram, 0x09A6) == 0x100B);
   SDL_free(rom);
   SDL_free(wram);
 }
@@ -292,6 +302,7 @@ static void test_rom_items(const SmxCart *cart) {
   Uint32 index = 0;
   bool hud = true;
   bool suit = true;
+  bool beam = true;
 
   full.items = 0xF32F;
   full.beams = 0x100F;
@@ -317,9 +328,13 @@ static void test_rom_items(const SmxCart *cart) {
   }
   for (index = 0xC0u; index < 0xD0u; index += 1) {
     suit = suit && saved->ppu.cgram[index] == given->ppu.cgram[index];
+    beam = beam && saved->ppu.cgram[index + 0x20u] == given->ppu.cgram[index + 0x20u];
   }
+  beam = beam &&
+         SDL_memcmp(saved->ppu.vram + 0x6300u * 2u, given->ppu.vram + 0x6300u * 2u, 0x200u) == 0;
   expect("items: the HUD matches a save with every item", hud);
   expect("items: the suit's colors match a save with every item", suit);
+  expect("items: the beam's tiles and colors match a save with every item", beam);
   quit(saved);
   quit(given);
 }
