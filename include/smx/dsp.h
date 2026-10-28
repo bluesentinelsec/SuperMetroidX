@@ -6,9 +6,25 @@
 /** Stereo frames the output ring holds before the oldest are dropped. */
 #define SMX_DSP_OUT_FRAMES 4096u
 
+/** Decoded samples a voice keeps for the interpolation the listener hears. */
+#define SMX_DSP_HEARD_SAMPLES 32u
+
+/**
+ * How the samples the listener hears are interpolated. The hardware's
+ * Gaussian filter softens the treble; cubic and sinc keep more of it.
+ */
+typedef enum SmxDspInterpolation {
+  SMX_DSP_GAUSSIAN,
+  SMX_DSP_CUBIC,
+  SMX_DSP_SINC
+} SmxDspInterpolation;
+
 /** One of the eight voices. `buf` holds 12 decoded samples twice over. */
 typedef struct SmxDspVoice {
   Sint16 buf[24];
+  /** The same samples in decode order, further back, for `heard`. */
+  Sint16 heard[SMX_DSP_HEARD_SAMPLES];
+  Uint8 heard_head;
   Uint8 buf_pos;
   Sint32 interp_pos;
   Uint16 brr_addr;
@@ -28,6 +44,12 @@ typedef struct SmxDspVoice {
  * advance on the shared rate counter. `ram` is the SPC700's 64 KiB, borrowed.
  * Fields named `t_` are values latched on one cycle for use on a later one.
  * Each finished sample is appended to `out` as an interleaved stereo frame.
+ *
+ * With `heard` other than SMX_DSP_GAUSSIAN, `out` is mixed from the same
+ * voices interpolated that way, through the same volumes, and the echo as
+ * the hardware computes it. Everything the SPC700 can see (OUTX, ENVX, pitch
+ * modulation, and the echo buffer in its RAM) still comes from the Gaussian
+ * filter, so the program runs as it would on the console.
  */
 typedef struct SmxDsp {
   Uint8 *ram;
@@ -66,6 +88,9 @@ typedef struct SmxDsp {
   Sint32 t_main_out[2];
   Sint32 t_echo_out[2];
   Sint32 t_echo_in[2];
+  SmxDspInterpolation heard;
+  Sint32 t_heard_output;
+  Sint32 t_heard_main[2];
   Sint16 out[SMX_DSP_OUT_FRAMES * 2u];
   Uint32 out_head;
   Uint32 out_count;

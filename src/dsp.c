@@ -106,6 +106,60 @@ static const Sint16 smx_dsp_gauss[512] = {
     1299, 1300, 1300, 1301, 1302, 1302, 1303, 1303, 1303, 1304, 1304, 1304, 1304, 1304, 1305, 1305,
 };
 
+/* Taps of the windowed sinc the listener can choose, and its phases between samples. */
+#define SMX_DSP_SINC_TAPS 8u
+#define SMX_DSP_SINC_PHASES 256u
+
+static float smx_dsp_sinc_table[SMX_DSP_SINC_PHASES][SMX_DSP_SINC_TAPS];
+static bool smx_dsp_sinc_ready = false;
+
+static float smx_dsp_bessel_i0(float x) {
+  float sum = 1.0f;
+  float term = 1.0f;
+  Uint32 k = 1;
+
+  for (; k < 24u; k += 1) {
+    term *= (x / (2.0f * (float)k)) * (x / (2.0f * (float)k));
+    sum += term;
+  }
+  return sum;
+}
+
+/*
+ * Kaiser-windowed sinc weights for taps at -3..4 around a point a fraction
+ * `phase / SMX_DSP_SINC_PHASES` past tap 0, normalized to unity gain.
+ */
+static void smx_dsp_sinc_init(void) {
+  const float beta = 5.0f;
+  const float half = (float)SMX_DSP_SINC_TAPS / 2.0f;
+  Uint32 phase = 0;
+
+  for (; phase < SMX_DSP_SINC_PHASES; phase += 1) {
+    float frac = (float)phase / (float)SMX_DSP_SINC_PHASES;
+    float sum = 0.0f;
+    Uint32 tap = 0;
+    for (; tap < SMX_DSP_SINC_TAPS; tap += 1) {
+      float x = (float)tap - (half - 1.0f) - frac;
+      float ratio = x / half;
+      float window = 0.0f;
+      float sinc = 1.0f;
+      if (ratio > -1.0f && ratio < 1.0f) {
+        window =
+            smx_dsp_bessel_i0(beta * SDL_sqrtf(1.0f - ratio * ratio)) / smx_dsp_bessel_i0(beta);
+      }
+      if (x != 0.0f) {
+        sinc = SDL_sinf(SDL_PI_F * x) / (SDL_PI_F * x);
+      }
+      smx_dsp_sinc_table[phase][tap] = sinc * window;
+      sum += sinc * window;
+    }
+    for (tap = 0; tap < SMX_DSP_SINC_TAPS; tap += 1) {
+      smx_dsp_sinc_table[phase][tap] /= sum;
+    }
+  }
+  smx_dsp_sinc_ready = true;
+}
+
 static Sint32 smx_dsp_clamp16(Sint32 value) {
   if (value > 32767) {
     return 32767;
@@ -137,6 +191,9 @@ void smx_dsp_init(SmxDsp *dsp, Uint8 *ram) {
   dsp->regs[SMX_DSP_FLG] = 0xE0;
   dsp->noise = 0x4000;
   dsp->every_other = true;
+  if (!smx_dsp_sinc_ready) {
+    smx_dsp_sinc_init();
+  }
   for (; voice < 8; voice += 1) {
     dsp->voices[voice].brr_offset = 1;
   }
@@ -259,6 +316,8 @@ static void smx_dsp_decode(SmxDsp *dsp, SmxDspVoice *voice) {
     sample = (Sint16)(sample * 2);
     voice->buf[pos + i] = (Sint16)sample;
     voice->buf[pos + i + 12u] = (Sint16)sample;
+    voice->heard[voice->heard_head] = (Sint16)sample;
+    voice->heard_head = (Uint8)((voice->heard_head + 1u) % SMX_DSP_HEARD_SAMPLES);
   }
 }
 
@@ -277,10 +336,55 @@ static Sint32 smx_dsp_interpolate(const SmxDspVoice *voice) {
   return smx_dsp_clamp16(out) & ~1;
 }
 
+/*
+ * Sample `k` of the four the Gaussian filter reads (0-3; others reach further
+ * back or ahead) from the voice's decode history. The Gaussian's in[k] is the
+ * sample 11 - i - k back from the newest, for i the whole part of the position.
+ * Samples not yet decoded repeat the newest.
+ */
+static float smx_dsp_heard_sample(const SmxDspVoice *voice, Sint32 k) {
+  Sint32 back = 11 - (Sint32)(voice->interp_pos >> 12) - k;
+
+  if (back < 0) {
+    back = 0;
+  }
+  return (float)voice->heard[(voice->heard_head + SMX_DSP_HEARD_SAMPLES - 1u - (Uint32)back) %
+                             SMX_DSP_HEARD_SAMPLES];
+}
+
+/* The point between in[1] and in[2] the Gaussian filter samples, by `heard`. */
+static Sint32 smx_dsp_heard_interpolate(const SmxDsp *dsp, const SmxDspVoice *voice) {
+  float out = 0.0f;
+
+  if (dsp->heard == SMX_DSP_CUBIC) {
+    float t = (float)(voice->interp_pos & 0xFFF) / 4096.0f;
+    float p0 = smx_dsp_heard_sample(voice, 0);
+    float p1 = smx_dsp_heard_sample(voice, 1);
+    float p2 = smx_dsp_heard_sample(voice, 2);
+    float p3 = smx_dsp_heard_sample(voice, 3);
+    out =
+        p1 + 0.5f * t *
+                 (p2 - p0 +
+                  t * (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3 + t * (3.0f * (p1 - p2) + p3 - p0)));
+  } else {
+    const float *weights = smx_dsp_sinc_table[((Uint32)voice->interp_pos >> 4) & 0xFFu];
+    Sint32 tap = 0;
+    for (; tap < (Sint32)SMX_DSP_SINC_TAPS; tap += 1) {
+      out += weights[tap] * smx_dsp_heard_sample(voice, tap - 2);
+    }
+  }
+  return smx_dsp_clamp16((Sint32)(out < 0.0f ? out - 0.5f : out + 0.5f));
+}
+
 static void smx_dsp_voice_output(SmxDsp *dsp, Uint8 index, Uint8 ch) {
   Sint32 amp = (dsp->t_output * (Sint8)smx_dsp_vreg(dsp, index, (Uint8)(SMX_DSP_VOLL + ch))) >> 7;
 
   dsp->t_main_out[ch] = smx_dsp_clamp16(dsp->t_main_out[ch] + amp);
+  if (dsp->heard != SMX_DSP_GAUSSIAN) {
+    Sint32 heard =
+        (dsp->t_heard_output * (Sint8)smx_dsp_vreg(dsp, index, (Uint8)(SMX_DSP_VOLL + ch))) >> 7;
+    dsp->t_heard_main[ch] = smx_dsp_clamp16(dsp->t_heard_main[ch] + heard);
+  }
   if ((dsp->t_eon & (1u << index)) != 0) {
     dsp->t_echo_out[ch] = smx_dsp_clamp16(dsp->t_echo_out[ch] + amp);
   }
@@ -344,6 +448,10 @@ static void smx_dsp_v3c(SmxDsp *dsp, Uint8 index) {
     output = (Sint16)(dsp->noise * 2u);
   }
   dsp->t_output = ((output * voice->env) >> 11) & ~1;
+  if (dsp->heard != SMX_DSP_GAUSSIAN) {
+    Sint32 heard = (dsp->t_non & bit) != 0 ? output : smx_dsp_heard_interpolate(dsp, voice);
+    dsp->t_heard_output = ((heard * voice->env) >> 11) & ~1;
+  }
   voice->envx_out = (Uint8)(voice->env >> 4);
   if ((dsp->regs[SMX_DSP_FLG] & 0x80) != 0 || (dsp->t_brr_header & 3u) == 1) {
     voice->env_mode = SMX_ENV_RELEASE;
@@ -452,12 +560,15 @@ static Sint32 smx_dsp_fir(const SmxDsp *dsp, Uint8 tap, Uint8 ch) {
          6;
 }
 
-static Sint32 smx_dsp_echo_output(const SmxDsp *dsp, Uint8 ch) {
-  Sint32 main =
-      (Sint16)((dsp->t_main_out[ch] * (Sint8)dsp->regs[(Uint8)(SMX_DSP_MVOLL + ch * 0x10u)]) >> 7);
+static Sint32 smx_dsp_mix(const SmxDsp *dsp, Sint32 dry, Uint8 ch) {
+  Sint32 main = (Sint16)((dry * (Sint8)dsp->regs[(Uint8)(SMX_DSP_MVOLL + ch * 0x10u)]) >> 7);
   Sint32 echo =
       (Sint16)((dsp->t_echo_in[ch] * (Sint8)dsp->regs[(Uint8)(SMX_DSP_EVOLL + ch * 0x10u)]) >> 7);
   return smx_dsp_clamp16(main + echo);
+}
+
+static Sint32 smx_dsp_echo_output(const SmxDsp *dsp, Uint8 ch) {
+  return smx_dsp_mix(dsp, dsp->t_main_out[ch], ch);
 }
 
 static void smx_dsp_echo_write(SmxDsp *dsp, Uint8 ch) {
@@ -525,8 +636,14 @@ static void smx_dsp_echo_27(SmxDsp *dsp) {
   Sint32 left = dsp->t_main_out[0];
   Sint32 right = smx_dsp_echo_output(dsp, 1);
 
+  if (dsp->heard != SMX_DSP_GAUSSIAN) {
+    left = smx_dsp_mix(dsp, dsp->t_heard_main[0], 0);
+    right = smx_dsp_mix(dsp, dsp->t_heard_main[1], 1);
+  }
   dsp->t_main_out[0] = 0;
   dsp->t_main_out[1] = 0;
+  dsp->t_heard_main[0] = 0;
+  dsp->t_heard_main[1] = 0;
   if ((dsp->regs[SMX_DSP_FLG] & 0x40) != 0) {
     left = 0;
     right = 0;
