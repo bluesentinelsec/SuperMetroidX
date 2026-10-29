@@ -44,7 +44,11 @@ typedef enum SmxMenuEvent {
 } SmxMenuEvent;
 
 /** A question the menu waits on. */
-typedef enum SmxMenuAsk { SMX_MENU_ASK_NONE, SMX_MENU_ASK_KEEP_DISPLAY, SMX_MENU_ASK_RESET } SmxMenuAsk;
+typedef enum SmxMenuAsk {
+  SMX_MENU_ASK_NONE,
+  SMX_MENU_ASK_KEEP_DISPLAY,
+  SMX_MENU_ASK_RESET
+} SmxMenuAsk;
 
 /**
  * The settings menu drawn over the paused game. Up and down choose a row;
