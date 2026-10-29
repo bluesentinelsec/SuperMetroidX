@@ -1,5 +1,7 @@
 # SuperMetroidX
 
+![SuperMetroidX trailer: the title screen, Brinstar, Norfair, Kraid, Phantoon, Mother Brain, Ridley, the five cheats, scanlines, and sound](media/trailer.gif)
+
 A static recompilation of Super Metroid for Windows, macOS, and Linux. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
 
 On top of the console's behaviour, which it leaves unchanged, the game adds:
@@ -14,7 +16,7 @@ On top of the console's behaviour, which it leaves unchanged, the game adds:
 
 SuperMetroidX is distributed as source code only. There are no downloads of the game, and there won't be: you build it from this repository with your own copy of the Super Metroid ROM.
 
-That is the only way to make it without infringing Nintendo's copyright. Super Metroid's program, graphics, music, and sound are Nintendo's, and a build is made from them: the translator turns the ROM's code into C, and by default the ROM itself is linked into the program. So every build contains Nintendo's copyrighted work, and sharing one would be distributing the game. That is the kind of release that draws DMCA takedowns. This repository holds none of the game: no ROM, no code or data from it, and no generated translation of it, only the runtime, the translator, and the shell. The ROM you supply never leaves your build folder.
+That is the only way to make it without infringing Nintendo's copyright. Super Metroid's program, graphics, music, and sound are Nintendo's, and a build is made from them: the translator turns the ROM's code into C, and by default the ROM itself is linked into the program. So every build contains Nintendo's copyrighted work, and sharing one would be distributing the game. That is the kind of release that draws DMCA takedowns. This repository holds none of the game: no ROM, no code or data from it, and no generated translation of it, only the runtime, the translator, the shell, and the trailer above, which is footage of the game running. The ROM you supply never leaves your build folder.
 
 Keep your builds and packages for your own machines, and **do not share them**. Use a ROM you dumped from a cartridge you own.
 
