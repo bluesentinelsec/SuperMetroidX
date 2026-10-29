@@ -3,6 +3,7 @@
 #include "smx/cheat.h"
 #include "smx/clock.h"
 #include "smx/game.h"
+#include "smx/icon.h"
 #include "smx/menu.h"
 #include "smx/overlay.h"
 #include "smx/ppu.h"
@@ -14,6 +15,8 @@
 #include "smx/translate.h"
 
 #include <SDL3/SDL.h>
+/* SDL's entry point: WinMain for windowed Windows builds, plain main elsewhere. */
+#include <SDL3/SDL_main.h>
 
 /** Process entry. `int` is required by the C standard. */
 /** Audio queued ahead, in NTSC frames, before the shell waits. */
@@ -360,7 +363,19 @@ static void smx_shell_usage(void) {
   SDL_Log("  --reset-settings    forget the saved settings and start from the defaults");
   SDL_Log("  Settings saved from the menu (~ on the keyboard, R3 on a gamepad) apply first;");
   SDL_Log("  options given here override them for this run.");
+  SDL_Log("  --version           print the version and exit");
   SDL_Log("  --smoke             present a few frames and exit, for CI");
+}
+
+/*
+ * What SDL tells the system about the game. On Linux the identifier names the
+ * window, so the desktop matches it to its desktop entry and icon.
+ */
+static void smx_shell_metadata(void) {
+  SDL_SetAppMetadata("SuperMetroidX", SMX_VERSION, SMX_APP_ID);
+  SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_CREATOR_STRING, SMX_VENDOR);
+  SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_URL_STRING, SMX_HOMEPAGE);
+  SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_TYPE_STRING, "game");
 }
 
 int main(int argc, char **argv) {
@@ -403,6 +418,9 @@ int main(int argc, char **argv) {
     } else if (SDL_strcmp(argv[index], "--help") == 0 || SDL_strcmp(argv[index], "-h") == 0) {
       smx_shell_usage();
       return 0;
+    } else if (SDL_strcmp(argv[index], "--version") == 0) {
+      SDL_Log("SuperMetroidX %s", SMX_VERSION);
+      return 0;
     } else if (SDL_strcmp(argv[index], "--smoke") == 0) {
       smoke = true;
     } else if (SDL_strcmp(argv[index], "--reset-settings") == 0) {
@@ -439,6 +457,7 @@ int main(int argc, char **argv) {
     rom_path = smx_shell_find_rom(rom_default, sizeof(rom_default));
   }
 
+  smx_shell_metadata();
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     SDL_Log("SDL_Init failed: %s", SDL_GetError());
     return 1;
@@ -451,6 +470,16 @@ int main(int argc, char **argv) {
     SDL_Quit();
     return 1;
   }
+#ifndef SDL_PLATFORM_APPLE
+  /* macOS takes the icon from the app bundle. */
+  {
+    SDL_Surface *icon = smx_icon_surface();
+    if (icon != NULL) {
+      SDL_SetWindowIcon(presenter.window, icon);
+      SDL_DestroySurface(icon);
+    }
+  }
+#endif
 
   SmxCart cart;
   SmxBus bus;

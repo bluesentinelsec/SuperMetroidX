@@ -1,11 +1,27 @@
 cmake_minimum_required(VERSION 3.25)
 
+# The oldest macOS the app runs on; set before project() so it reaches SDL too.
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS the game supports" FORCE)
+endif()
+
 project(
   SuperMetroidX
   VERSION 1.1.0
   DESCRIPTION "Static recompilation of Super Metroid"
+  HOMEPAGE_URL "https://github.com/bluesentinelsec/SuperMetroidX"
   LANGUAGES C
 )
+if(WIN32)
+  enable_language(RC)
+endif()
+
+# What the packages say about the game. Change SMX_RELEASE_DATE with the version.
+set(SMX_RELEASE_DATE "2026-10-28")
+set(SMX_APP_ID "io.github.bluesentinelsec.SuperMetroidX")
+set(SMX_VENDOR "bluesentinelsec")
+set(SMX_COPYRIGHT "Copyright © 2026 bluesentinelsec")
+set(SMX_COPYRIGHT_ASCII "Copyright (C) 2026 bluesentinelsec")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -60,6 +76,7 @@ set(SMX_SOURCES
   src/sound.c
   src/settings.c
   src/menu.c
+  src/icon.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -84,6 +101,11 @@ target_link_libraries(smxrecomp PRIVATE smx_tool)
 # smxembed turns the ROM into C for builds with SMX_EMBED_ROM.
 add_executable(smxembed src/embed_main.c)
 target_link_libraries(smxembed PRIVATE SDL3::SDL3)
+
+# smxicon draws the game's icon as the .icns, .ico, and PNG files of the packages.
+add_executable(smxicon src/icon_main.c src/icon.c)
+target_include_directories(smxicon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(smxicon PRIVATE SDL3::SDL3)
 
 # smxsave plays the ROM headless to write play-test saves; see playtest.sh.
 add_executable(smxsave src/save_main.c)
@@ -147,15 +169,75 @@ target_link_libraries(smx_game PUBLIC smx)
 
 add_executable(SuperMetroidX src/main.c)
 target_link_libraries(SuperMetroidX PRIVATE smx_game smx)
+target_compile_definitions(
+  SuperMetroidX PRIVATE SMX_VERSION="${PROJECT_VERSION}" SMX_APP_ID="${SMX_APP_ID}"
+                        SMX_VENDOR="${SMX_VENDOR}" SMX_HOMEPAGE="${PROJECT_HOMEPAGE_URL}"
+)
+
+# The icons and metadata of the packages, generated under the build tree.
+set(SMX_PACKAGING_DIR "${CMAKE_BINARY_DIR}/packaging")
+configure_file(packaging/README.txt.in "${SMX_PACKAGING_DIR}/README.txt" @ONLY)
 if(APPLE)
+  set(SMX_ICNS "${SMX_PACKAGING_DIR}/SuperMetroidX.icns")
+  add_custom_command(
+    OUTPUT "${SMX_ICNS}"
+    COMMAND smxicon icns "${SMX_ICNS}"
+    DEPENDS smxicon
+    VERBATIM
+  )
+  target_sources(SuperMetroidX PRIVATE "${SMX_ICNS}")
+  set_source_files_properties("${SMX_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   set_target_properties(
     SuperMetroidX
     PROPERTIES
       MACOSX_BUNDLE TRUE
+      MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
       MACOSX_BUNDLE_BUNDLE_NAME "SuperMetroidX"
-      MACOSX_BUNDLE_GUI_IDENTIFIER "com.supermetroidx.app"
+      MACOSX_BUNDLE_GUI_IDENTIFIER "${SMX_APP_ID}"
+      MACOSX_BUNDLE_ICON_FILE "SuperMetroidX.icns"
       MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+      MACOSX_BUNDLE_COPYRIGHT "${SMX_COPYRIGHT}"
+  )
+elseif(WIN32)
+  set(SMX_ICO "${SMX_PACKAGING_DIR}/SuperMetroidX.ico")
+  set(SMX_MANIFEST "${CMAKE_SOURCE_DIR}/packaging/windows/SuperMetroidX.manifest")
+  set(SMX_RC "${SMX_PACKAGING_DIR}/SuperMetroidX.rc")
+  add_custom_command(
+    OUTPUT "${SMX_ICO}"
+    COMMAND smxicon ico "${SMX_ICO}"
+    DEPENDS smxicon
+    VERBATIM
+  )
+  configure_file(packaging/windows/SuperMetroidX.rc.in "${SMX_RC}" @ONLY)
+  target_sources(SuperMetroidX PRIVATE "${SMX_RC}")
+  set_source_files_properties("${SMX_RC}" PROPERTIES OBJECT_DEPENDS "${SMX_ICO};${SMX_MANIFEST}")
+  # Release builds are windowed programs; Debug keeps a console for the log.
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set_target_properties(SuperMetroidX PROPERTIES WIN32_EXECUTABLE TRUE)
+  endif()
+  # One .exe with no MinGW runtime DLLs beside it.
+  if(MINGW)
+    target_link_options(SuperMetroidX PRIVATE -static)
+  endif()
+else()
+  set(SMX_ICON_SIZES 16 24 32 48 64 128 256 512)
+  set(SMX_ICON_PNGS "")
+  foreach(size IN LISTS SMX_ICON_SIZES)
+    set(png "${SMX_PACKAGING_DIR}/icons/${size}x${size}/${SMX_APP_ID}.png")
+    add_custom_command(
+      OUTPUT "${png}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${SMX_PACKAGING_DIR}/icons/${size}x${size}"
+      COMMAND smxicon png ${size} "${png}"
+      DEPENDS smxicon
+      VERBATIM
+    )
+    list(APPEND SMX_ICON_PNGS "${png}")
+  endforeach()
+  add_custom_target(smx_icons ALL DEPENDS ${SMX_ICON_PNGS})
+  configure_file(
+    packaging/linux/${SMX_APP_ID}.metainfo.xml.in "${SMX_PACKAGING_DIR}/${SMX_APP_ID}.metainfo.xml"
+    @ONLY
   )
 endif()
 
@@ -300,18 +382,76 @@ add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)
 add_test(NAME apu COMMAND smx_test_apu)
 
-install(
-  TARGETS SuperMetroidX
-  BUNDLE DESTINATION .
-  RUNTIME DESTINATION .
-)
+add_executable(smx_test_icon tests/test_icon.c)
+target_link_libraries(smx_test_icon PRIVATE smx)
+add_test(NAME icon COMMAND smx_test_icon)
+
+# `make package` installs into CPack's staging folder and archives it: a
+# disk image on macOS, a zip on Windows, and a tarball in the usual Linux
+# layout (bin/ and share/) on Linux.
+if(APPLE)
+  install(TARGETS SuperMetroidX BUNDLE DESTINATION .)
+  install(FILES "${SMX_PACKAGING_DIR}/README.txt" DESTINATION .)
+  # Sign the finished bundle ad hoc, so its resources are sealed with the
+  # (possibly stripped) executable. This is not a Developer ID signature.
+  install(
+    CODE [[execute_process(
+      COMMAND codesign --force --sign - "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/SuperMetroidX.app"
+      COMMAND_ERROR_IS_FATAL ANY
+    )]]
+  )
+elseif(WIN32)
+  install(TARGETS SuperMetroidX RUNTIME DESTINATION .)
+  install(FILES "${SMX_PACKAGING_DIR}/README.txt" DESTINATION .)
+else()
+  include(GNUInstallDirs)
+  install(TARGETS SuperMetroidX RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  install(FILES packaging/linux/${SMX_APP_ID}.desktop
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+  )
+  install(FILES "${SMX_PACKAGING_DIR}/${SMX_APP_ID}.metainfo.xml"
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
+  )
+  foreach(size IN LISTS SMX_ICON_SIZES)
+    install(FILES "${SMX_PACKAGING_DIR}/icons/${size}x${size}/${SMX_APP_ID}.png"
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${size}x${size}/apps
+    )
+  endforeach()
+  install(FILES "${SMX_PACKAGING_DIR}/README.txt" DESTINATION ${CMAKE_INSTALL_DOCDIR})
+endif()
+
+if(APPLE)
+  set(SMX_PACKAGE_SYSTEM "macOS")
+  if(CMAKE_OSX_ARCHITECTURES)
+    string(REPLACE ";" "-" SMX_PACKAGE_ARCH "${CMAKE_OSX_ARCHITECTURES}")
+  else()
+    set(SMX_PACKAGE_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+  endif()
+else()
+  set(SMX_PACKAGE_SYSTEM "${CMAKE_SYSTEM_NAME}")
+  set(SMX_PACKAGE_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+string(TOLOWER "${SMX_PACKAGE_ARCH}" SMX_PACKAGE_ARCH)
+if(SMX_PACKAGE_ARCH STREQUAL "amd64")
+  set(SMX_PACKAGE_ARCH "x86_64")
+elseif(SMX_PACKAGE_ARCH STREQUAL "aarch64")
+  set(SMX_PACKAGE_ARCH "arm64")
+endif()
 
 set(CPACK_PACKAGE_NAME "SuperMetroidX")
-set(CPACK_PACKAGE_VENDOR "SuperMetroidX")
+set(CPACK_PACKAGE_VENDOR "${SMX_VENDOR}")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
-set(CPACK_PACKAGE_FILE_NAME "SuperMetroidX-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
+set(CPACK_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+set(CPACK_PACKAGE_FILE_NAME
+    "SuperMetroidX-${PROJECT_VERSION}-${SMX_PACKAGE_SYSTEM}-${SMX_PACKAGE_ARCH}"
+)
+set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}/dist")
+set(CPACK_STRIP_FILES ON)
 if(APPLE)
   set(CPACK_GENERATOR "DragNDrop")
+  set(CPACK_DMG_VOLUME_NAME "SuperMetroidX ${PROJECT_VERSION}")
+  set(CPACK_PACKAGE_ICON "${SMX_ICNS}")
 elseif(WIN32)
   set(CPACK_GENERATOR "ZIP")
 else()

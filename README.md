@@ -97,7 +97,21 @@ Run it with no argument to play the ROM built into it. A ROM path on the command
 ./build/release/SuperMetroidX path/to/SuperMetroid.sfc   # a ROM file
 ```
 
-With the ROM built in, the game also starts from Finder or Explorer as it is. Without it, copy the ROM to `SuperMetroid.sfc` in the save folder (see [Saves](#saves)), where the game looks. `make package` makes a `.dmg`, `.zip`, or `.tar.gz` of the release build for your own machines.
+With the ROM built in, the game also starts from Finder or Explorer as it is. Without it, copy the ROM to `SuperMetroid.sfc` in the save folder (see [Saves](#saves)), where the game looks. To make an installable copy, see [Packages](#packages).
+
+## Packages
+
+`make package` (or `make dist`) builds Release, runs the tests, and puts one package for your system in `build/release/dist/`:
+
+| System | Package | Contents |
+| --- | --- | --- |
+| macOS | `SuperMetroidX-<version>-macOS-arm64.dmg` | A disk image to drag `SuperMetroidX.app` into Applications. The app bundle has its icon, version, game category, controller support, and macOS 11 as its minimum, and is signed ad hoc (not notarized). |
+| Windows | `SuperMetroidX-<version>-Windows-x86_64.zip` | `SuperMetroidX.exe`, a windowed program with its icon, version details, and a manifest (per-monitor DPI, UTF-8). The MinGW runtime is linked in, so it needs no DLLs beside it. |
+| Linux | `SuperMetroidX-<version>-Linux-x86_64.tar.gz` | `bin/SuperMetroidX` and `share/` in the usual layout: a desktop entry, icons from 16 to 512 pixels, and AppStream metadata. Copy `bin` and `share` into `~/.local` to add the game to the applications menu. |
+
+Each package has a short `README.txt` for players. The icon is drawn in code (`src/icon.c`), and `smxicon` writes it as `.icns`, `.ico`, and PNG files at build time. The metadata templates are in `packaging/`, filled in from the version in `CMakeLists.txt`. A Linux package runs on distributions with the same or a newer glibc than the one it was built on.
+
+A package is a build, so with the ROM built in it contains the ROM, and either way it contains the ROM's translated code: keep it for your own machines.
 
 ## Display
 

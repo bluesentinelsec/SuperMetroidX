@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>@SMX_APP_ID@</id>
+  <name>@PROJECT_NAME@</name>
+  <summary>Static recompilation of Super Metroid</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <developer id="io.github.bluesentinelsec">
+    <name>@SMX_VENDOR@</name>
+  </developer>
+  <description>
+    <p>
+      SuperMetroidX plays Super Metroid natively. At build time the game's
+      65816 program is translated to C and compiled, then it runs on a
+      cycle-timed SNES runtime that matches the Mesen 2 emulator frame for
+      frame, from the intro to the end credits.
+    </p>
+    <p>On top of the original game it adds:</p>
+    <ul>
+      <li>A picture that fills the screen at a television's 8:7 pixel shape, with CRT scanlines</li>
+      <li>Cleaner sound through sinc interpolation and resampling</li>
+      <li>An in-game settings menu that saves your choices</li>
+      <li>Optional cheats and quick-save states</li>
+    </ul>
+    <p>Super Metroid is a trademark of Nintendo. SuperMetroidX is not affiliated with or endorsed by Nintendo.</p>
+  </description>
+  <launchable type="desktop-id">@SMX_APP_ID@.desktop</launchable>
+  <url type="homepage">@PROJECT_HOMEPAGE_URL@</url>
+  <url type="bugtracker">@PROJECT_HOMEPAGE_URL@/issues</url>
+  <categories>
+    <category>Game</category>
+    <category>ActionGame</category>
+  </categories>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-fantasy">mild</content_attribute>
+  </content_rating>
+  <supports>
+    <control>keyboard</control>
+    <control>gamepad</control>
+  </supports>
+  <provides>
+    <binary>@PROJECT_NAME@</binary>
+  </provides>
+  <releases>
+    <release version="@PROJECT_VERSION@" date="@SMX_RELEASE_DATE@"/>
+  </releases>
+</component>

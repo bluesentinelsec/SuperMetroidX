@@ -1,0 +1,39 @@
+// Windows resources: the icon Explorer shows, the version details in the
+// file's Properties, and the application manifest. CMake fills in @...@.
+
+1 ICON "@SMX_ICO@"
+
+// 24 is RT_MANIFEST.
+1 24 "@SMX_MANIFEST@"
+
+1 VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK 0x3FL
+FILEFLAGS 0x0L
+// VOS_NT_WINDOWS32 and VFT_APP.
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    // US English, Unicode.
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "@SMX_VENDOR@"
+      VALUE "FileDescription", "@PROJECT_NAME@"
+      VALUE "FileVersion", "@PROJECT_VERSION@"
+      VALUE "InternalName", "@PROJECT_NAME@"
+      VALUE "LegalCopyright", "@SMX_COPYRIGHT_ASCII@"
+      VALUE "OriginalFilename", "@PROJECT_NAME@.exe"
+      VALUE "ProductName", "@PROJECT_NAME@"
+      VALUE "ProductVersion", "@PROJECT_VERSION@"
+      VALUE "Comments", "@PROJECT_DESCRIPTION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
