@@ -20,8 +20,9 @@ endif()
 set(SMX_RELEASE_DATE "2026-10-28")
 set(SMX_APP_ID "io.github.bluesentinelsec.SuperMetroidX")
 set(SMX_VENDOR "bluesentinelsec")
-set(SMX_COPYRIGHT "Copyright © 2026 bluesentinelsec")
-set(SMX_COPYRIGHT_ASCII "Copyright (C) 2026 bluesentinelsec")
+set(SMX_COPYRIGHT "Copyright © 2026 bluesentinelsec. Licensed under the GNU GPL version 3.")
+set(SMX_COPYRIGHT_ASCII "Copyright (C) 2026 bluesentinelsec. Licensed under the GNU GPL version 3.")
+set(SMX_LICENSE "GPL-3.0-only")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -388,10 +389,11 @@ add_test(NAME icon COMMAND smx_test_icon)
 
 # `make package` installs into CPack's staging folder and archives it: a
 # disk image on macOS, a zip on Windows, and a tarball in the usual Linux
-# layout (bin/ and share/) on Linux.
+# layout (bin/ and share/) on Linux. Each holds the GPL beside the game.
 if(APPLE)
   install(TARGETS SuperMetroidX BUNDLE DESTINATION .)
   install(FILES "${SMX_PACKAGING_DIR}/README.txt" DESTINATION .)
+  install(FILES LICENSE DESTINATION . RENAME LICENSE.txt)
   # Sign the finished bundle ad hoc, so its resources are sealed with the
   # (possibly stripped) executable. This is not a Developer ID signature.
   install(
@@ -403,6 +405,7 @@ if(APPLE)
 elseif(WIN32)
   install(TARGETS SuperMetroidX RUNTIME DESTINATION .)
   install(FILES "${SMX_PACKAGING_DIR}/README.txt" DESTINATION .)
+  install(FILES LICENSE DESTINATION . RENAME LICENSE.txt)
 else()
   include(GNUInstallDirs)
   install(TARGETS SuperMetroidX RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -418,6 +421,7 @@ else()
     )
   endforeach()
   install(FILES "${SMX_PACKAGING_DIR}/README.txt" DESTINATION ${CMAKE_INSTALL_DOCDIR})
+  install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/SuperMetroidX)
 endif()
 
 if(APPLE)
@@ -443,6 +447,7 @@ set(CPACK_PACKAGE_VENDOR "${SMX_VENDOR}")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 set(CPACK_PACKAGE_FILE_NAME
     "SuperMetroidX-${PROJECT_VERSION}-${SMX_PACKAGE_SYSTEM}-${SMX_PACKAGE_ARCH}"
 )

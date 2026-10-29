@@ -8,6 +8,10 @@ SuperMetroidX is a static recompilation of the SNES game Super Metroid. The 6581
 
 The ROM, SRAM, save states, and generated translation of the ROM are user-supplied build inputs. Never commit them. Never commit a header, source file, or test fixture that contains ROM bytes. With `SMX_EMBED_ROM` (on by default) `smxembed` writes the ROM as C into `build/*/game/smx_rom.c`; that file and every build made from it contain the ROM and are never committed or published. Hashes of the game's output, such as `tests/game_hashes.h`, are not ROM bytes.
 
+## License
+
+SuperMetroidX is licensed under the GNU GPL, version 3 only (`LICENSE`, SPDX `GPL-3.0-only`). Everything committed here is under it, so add only code you can release under it. The GPL does not cover the ROM or anything generated from it. The project is distributed as source only: no build or package is ever published, because every one contains Nintendo's code.
+
 ## Language
 
 The runtime and the shell are C11. Do not add C++ translation units.
