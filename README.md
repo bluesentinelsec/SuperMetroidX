@@ -2,6 +2,14 @@
 
 A static recompilation of Super Metroid for Windows, macOS, and Linux. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
 
+On top of the console's behaviour, which it leaves unchanged, the game adds:
+
+- a picture that fills the screen at a television's 8:7 pixel shape, with CRT scanlines
+- cleaner sound, through sinc interpolation and a long sinc resampler
+- an in-game settings menu (`~`, or R3 on a gamepad) that saves your choices
+- five optional cheats
+- quick-save states
+
 The ROM is supplied by the person building the project and is never committed. By default the build also links the whole ROM into the program, so the game runs without the ROM file. Either way a build contains the ROM's code, so **do not share your builds**.
 
 ## Quick start
@@ -14,7 +22,7 @@ The ROM is supplied by the person building the project and is never committed. B
    make play
    ```
 
-The first build translates the ROM, which takes a few minutes. Release builds start fullscreen; press F11 for a window and Escape to quit.
+The first build translates the ROM, which takes a few minutes. Release builds start fullscreen. Press `~` (R3 on a gamepad) for the settings menu, F11 for a window, and Escape to quit.
 
 ## The ROM
 
@@ -102,7 +110,7 @@ The picture fills the screen at the shape an NTSC television gave it, with CRT s
 | `--aspect` | `tv` shows pixels 8:7 wide, as a television did; `square` | `tv` |
 | `--scanlines` | `on`, `off` | `on` |
 
-For example, `SuperMetroidX --window-mode windowed --scale integer --aspect square --scanlines off` shows the raw picture in a window. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option.
+For example, `SuperMetroidX --window-mode windowed --scale integer --aspect square --scanlines off` shows the raw picture in a window. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option, and the [settings menu](#settings-menu) changes them while you play.
 
 ## Sound
 
