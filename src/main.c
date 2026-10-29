@@ -6,6 +6,7 @@
 #include "smx/overlay.h"
 #include "smx/ppu.h"
 #include "smx/present.h"
+#include "smx/sound.h"
 #include "smx/sram.h"
 #include "smx/state.h"
 #include "smx/translate.h"
@@ -17,8 +18,8 @@
 #define SMX_SHELL_QUEUE_FRAMES 4u
 /** Most frames emulated per presented frame while the audio queue refills. */
 #define SMX_SHELL_CATCH_UP_FRAMES 4u
-/** Bytes of queued 32040 Hz stereo S16 audio in `frames` NTSC frames. */
-#define SMX_SHELL_QUEUE_BYTES(frames) ((int)((frames) * 534u * 4u))
+/** 32040 Hz stereo frames of audio in `frames` NTSC frames. */
+#define SMX_SHELL_QUEUE_SAMPLES(frames) ((frames) * 534u)
 /** One average NTSC frame: 357366 master clocks at 21477270 Hz. */
 #define SMX_SHELL_FRAME_NS 16639266u
 
@@ -211,6 +212,7 @@ static void smx_shell_usage(void) {
   SDL_Log("  --cheats LIST       turn on cheats, comma-separated, or all; keys 1-5 switch them:");
   SDL_Log("                      life (1), ammo (2), items (3), hyper (4), fly (5)");
   smx_present_usage();
+  smx_sound_usage();
   SDL_Log("  --smoke             present a few frames and exit, for CI");
 }
 
@@ -220,11 +222,16 @@ int main(int argc, char **argv) {
   const char *rom_path = NULL;
   const char *cheat_list = NULL;
   SmxPresentOptions display;
+  SmxSoundOptions hearing;
   Sint32 index = 1;
 
   smx_present_defaults(&display);
+  smx_sound_defaults(&hearing);
   for (; index < argc; index += 1) {
     Sint32 used = smx_present_option(&display, (Sint32)argc - index, argv + index);
+    if (used == 0) {
+      used = smx_sound_option(&hearing, (Sint32)argc - index, argv + index);
+    }
     if (used < 0) {
       SDL_Log("%s needs one of the values below", argv[index]);
       smx_shell_usage();
@@ -308,6 +315,7 @@ int main(int argc, char **argv) {
     smx_dma_init(&dma, &bus);
     smx_ppu_init(&ppu, &bus);
     smx_apu_init(&apu, &bus);
+    apu.dsp.heard = hearing.interpolation;
     smx_clock_init(&clock, &cpu, &dma);
     clock.ppu = &ppu;
     smx_cpu_reset(&cpu);
@@ -366,20 +374,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  SDL_AudioStream *audio = NULL;
+  SmxSound sound;
+  bool audio = false;
+  SDL_memset(&sound, 0, sizeof(sound));
   if (playing && audio_ready) {
-    SDL_AudioSpec spec;
-    spec.format = SDL_AUDIO_S16;
-    spec.channels = 2;
-    spec.freq = 32040;
-    audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
-    if (audio == NULL) {
-      SDL_Log("audio unavailable: %s", SDL_GetError());
-    } else if (!SDL_ResumeAudioStreamDevice(audio)) {
-      SDL_Log("audio resume failed: %s", SDL_GetError());
-      SDL_DestroyAudioStream(audio);
-      audio = NULL;
-    }
+    audio = smx_sound_open(&sound, &hearing);
   }
 
   smx_overlay_init(&overlay, SMX_PPU_WIDTH, SMX_PPU_HEIGHT);
@@ -430,6 +429,26 @@ int main(int argc, char **argv) {
         if (kind != SMX_CHEAT_ITEMS) {
           smx_shell_cheat_shown(&overlay, &cheats, kind);
         }
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
+                 event.key.scancode == SDL_SCANCODE_EQUALS) {
+        /* For comparing while play testing: sinc, cubic, then the console's own sound. */
+        char text[48];
+        if (hearing.interpolation == SMX_DSP_SINC) {
+          hearing.interpolation = SMX_DSP_CUBIC;
+        } else if (hearing.interpolation == SMX_DSP_CUBIC) {
+          hearing.interpolation = SMX_DSP_GAUSSIAN;
+          hearing.resampler = SMX_SOUND_RESAMPLE_SDL;
+        } else {
+          hearing.interpolation = SMX_DSP_SINC;
+          hearing.resampler = SMX_SOUND_RESAMPLE_SINC;
+        }
+        apu.dsp.heard = hearing.interpolation;
+        smx_sound_set(&sound, &hearing);
+        SDL_snprintf(text, sizeof(text), "Audio: %s, %s resampler",
+                     smx_sound_interpolation_name(hearing.interpolation),
+                     hearing.resampler == SMX_SOUND_RESAMPLE_SINC ? "sinc" : "SDL");
+        SDL_Log("%s", text);
+        smx_overlay_show(&overlay, text, SDL_GetTicks());
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
       } else if (event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
@@ -447,8 +466,8 @@ int main(int argc, char **argv) {
      * average NTSC frame of 357366 master clocks.
      */
     if (playing && !smoke) {
-      if (audio != NULL) {
-        if (SDL_GetAudioStreamQueued(audio) > SMX_SHELL_QUEUE_BYTES(SMX_SHELL_QUEUE_FRAMES)) {
+      if (audio) {
+        if (smx_sound_queued(&sound) > SMX_SHELL_QUEUE_SAMPLES(SMX_SHELL_QUEUE_FRAMES)) {
           SDL_DelayNS(1000000);
           continue;
         }
@@ -496,15 +515,15 @@ int main(int argc, char **argv) {
         sram_clock = 0;
         smx_sram_flush(&sram, &bus);
       }
-      if (audio != NULL) {
+      if (audio) {
         /* About 533 frames of 32040 Hz stereo per NTSC frame. */
         Sint16 frames[1024 * 2];
         Uint32 count = smx_apu_drain(&apu, frames, 1024);
-        SDL_PutAudioStreamData(audio, frames, (int)(count * 2u * sizeof(Sint16)));
+        smx_sound_put(&sound, frames, count);
       }
       batch += 1;
-      if (smoke || audio == NULL || batch == SMX_SHELL_CATCH_UP_FRAMES ||
-          SDL_GetAudioStreamQueued(audio) >= SMX_SHELL_QUEUE_BYTES(SMX_SHELL_QUEUE_FRAMES - 1u)) {
+      if (smoke || !audio || batch == SMX_SHELL_CATCH_UP_FRAMES ||
+          smx_sound_queued(&sound) >= SMX_SHELL_QUEUE_SAMPLES(SMX_SHELL_QUEUE_FRAMES - 1u)) {
         break;
       }
     }
@@ -517,9 +536,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (audio != NULL) {
-    SDL_DestroyAudioStream(audio);
-  }
+  smx_sound_close(&sound);
   if (pad != NULL) {
     SDL_CloseGamepad(pad);
   }

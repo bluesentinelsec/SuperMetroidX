@@ -131,9 +131,12 @@ static void smx_state_restore_ppu(SmxPpu *ppu, const Uint8 *in) {
 
 static void smx_state_restore_apu(SmxApu *apu, const Uint8 *in) {
   SmxBus *bus = apu->bus;
+  SmxDspInterpolation heard = apu->dsp.heard;
 
   SDL_memcpy(apu, in, sizeof(SmxApu));
   apu->bus = bus;
+  /* What the listener hears is a setting, not machine state. */
+  apu->dsp.heard = heard;
   apu->dsp.ram = apu->ram;
 }
 

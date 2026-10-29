@@ -104,6 +104,17 @@ The picture fills the screen at the shape an NTSC television gave it, with CRT s
 
 For example, `SuperMetroidX --window-mode windowed --scale integer --aspect square --scanlines off` shows the raw picture in a window. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option.
 
+## Sound
+
+The console smooths every instrument sample with a Gaussian filter that softens the treble, then plays at 32040 Hz. By default the game keeps that sound's character but plays it cleaner:
+
+| Option | Values | Default |
+| --- | --- | --- |
+| `--audio-interpolation` | `sinc`, an 8-tap windowed sinc; `cubic`; `gaussian`, the console's own filter | `sinc` |
+| `--audio-resampler` | `sinc`, a 64-tap filter from 32040 Hz to the device's rate, flat to about 14.5 kHz; `sdl`, SDL's own conversion | `sinc` |
+
+Only what you hear changes. The sound chip's registers, its echo buffer, and everything the game can read still come from the console's Gaussian filter. `--audio-interpolation gaussian --audio-resampler sdl` is the sound of version 1.0. While these are being tuned, `=` cycles sinc, cubic, and the console's sound in play.
+
 ## Controls
 
 | SNES | Keyboard | Xbox-style gamepad | Super Metroid (default) |

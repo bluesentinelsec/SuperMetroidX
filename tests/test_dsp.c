@@ -142,8 +142,69 @@ static void test_noise(void) {
   expect_true("noise lfsr", dsp.noise == noise);
 }
 
+/*
+ * Voice 0 plays samples alternating +7 and -8 at the sample rate, with echo
+ * on, heard through `heard`. Returns the RMS of the left output.
+ */
+static double run_heard(SmxDsp *dsp, Uint8 *ram, SmxDspInterpolation heard) {
+  Sint16 frames[2 * 64];
+  double sum = 0.0;
+  Uint32 count = 0;
+  Uint32 got = 0;
+  Uint32 i = 0;
+
+  setup(dsp, ram, 0xC3);
+  for (i = 1; i < 9; i += 1) {
+    ram[0x0200 + i] = 0x78;
+  }
+  dsp->heard = heard;
+  smx_dsp_write(dsp, 0x6D, 0x40);
+  smx_dsp_write(dsp, 0x7D, 0x01);
+  smx_dsp_write(dsp, 0x4D, 0x01);
+  smx_dsp_write(dsp, 0x0D, 0x40);
+  smx_dsp_write(dsp, 0x2C, 0x40);
+  smx_dsp_write(dsp, 0x3C, 0x40);
+  smx_dsp_write(dsp, 0x7F, 0x7F);
+  smx_dsp_write(dsp, 0x6C, 0x00);
+  smx_dsp_write(dsp, 0x4C, 0x01);
+  smx_dsp_run(dsp, 600u * 32u);
+  while ((got = smx_dsp_drain(dsp, frames, 64)) != 0) {
+    for (i = 0; i < got; i += 1) {
+      if (count >= 100u) {
+        sum += (double)frames[i * 2u] * frames[i * 2u];
+      }
+      count += 1;
+    }
+  }
+  return SDL_sqrt(sum / (double)(count - 100u));
+}
+
+static void test_heard(void) {
+  static Uint8 ram_gauss[65536];
+  static Uint8 ram_cubic[65536];
+  static Uint8 ram_sinc[65536];
+  SmxDsp gauss;
+  SmxDsp cubic;
+  SmxDsp sinc;
+  double gauss_rms = run_heard(&gauss, ram_gauss, SMX_DSP_GAUSSIAN);
+  double cubic_rms = run_heard(&cubic, ram_cubic, SMX_DSP_CUBIC);
+  double sinc_rms = run_heard(&sinc, ram_sinc, SMX_DSP_SINC);
+
+  expect_true("what is heard leaves SPC RAM alone",
+              SDL_memcmp(ram_gauss, ram_cubic, 65536) == 0 &&
+                  SDL_memcmp(ram_gauss, ram_sinc, 65536) == 0);
+  expect_true("what is heard leaves the registers alone",
+              SDL_memcmp(gauss.regs, cubic.regs, 128) == 0 &&
+                  SDL_memcmp(gauss.regs, sinc.regs, 128) == 0);
+  expect_true("the echo buffer was written", ram_gauss[0x4000] != 0 || ram_gauss[0x4001] != 0);
+  /* The Gaussian filter takes a tone at half the sample rate down to about a quarter. */
+  expect_true("cubic keeps the treble", cubic_rms > gauss_rms * 1.5);
+  expect_true("sinc keeps the treble", sinc_rms > gauss_rms * 1.5);
+}
+
 int main(void) {
   test_voice();
+  test_heard();
   test_end_block();
   test_echo();
   test_noise();

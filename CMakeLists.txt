@@ -56,6 +56,8 @@ set(SMX_SOURCES
   src/save.c
   src/cheat.c
   src/overlay.c
+  src/resample.c
+  src/sound.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
 target_include_directories(
@@ -279,6 +281,10 @@ if(EXISTS "${SMX_ROM}")
   add_test(NAME cheat_rom COMMAND smx_test_cheat "${SMX_ROM}")
   set_tests_properties(cheat_rom PROPERTIES LABELS rom TIMEOUT 600)
 endif()
+
+add_executable(smx_test_resample tests/test_resample.c)
+target_link_libraries(smx_test_resample PRIVATE smx)
+add_test(NAME resample COMMAND smx_test_resample)
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)
