@@ -55,6 +55,10 @@ static void smx_overlay_expire(SmxOverlay *overlay, Uint64 now_ms) {
   overlay->count = kept;
 }
 
+void smx_overlay_clear(SmxOverlay *overlay) {
+  overlay->count = 0;
+}
+
 void smx_overlay_show(SmxOverlay *overlay, const char *text, Uint64 now_ms) {
   smx_overlay_expire(overlay, now_ms);
   if (overlay->count == SMX_OVERLAY_LINES) {
@@ -69,17 +73,20 @@ void smx_overlay_show(SmxOverlay *overlay, const char *text, Uint64 now_ms) {
   overlay->count += 1u;
 }
 
-const Uint8 *smx_overlay_draw(SmxOverlay *overlay, const Uint8 *picture, Uint64 now_ms) {
-  Uint32 index = 0;
-  float bottom = 0.0f;
-
-  smx_overlay_expire(overlay, now_ms);
-  if (overlay->renderer == NULL || overlay->count == 0 || picture == NULL) {
-    return picture;
+SDL_Renderer *smx_overlay_begin(SmxOverlay *overlay, const Uint8 *picture) {
+  if (overlay->renderer == NULL || picture == NULL) {
+    return NULL;
   }
   SDL_memcpy(overlay->pixels, picture, (size_t)overlay->width * overlay->height * 4u);
+  return overlay->renderer;
+}
+
+const Uint8 *smx_overlay_finish(SmxOverlay *overlay, Uint64 now_ms) {
+  Uint32 index = 0;
   /* The newest message is at the bottom. */
-  bottom = (float)overlay->height - SMX_OVERLAY_MARGIN;
+  float bottom = (float)overlay->height - SMX_OVERLAY_MARGIN;
+
+  smx_overlay_expire(overlay, now_ms);
   for (index = overlay->count; index > 0; index -= 1) {
     const char *text = overlay->text[index - 1u];
     float y = bottom - SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE -
@@ -96,4 +103,12 @@ const Uint8 *smx_overlay_draw(SmxOverlay *overlay, const Uint8 *picture, Uint64 
   }
   SDL_RenderPresent(overlay->renderer);
   return overlay->pixels;
+}
+
+const Uint8 *smx_overlay_draw(SmxOverlay *overlay, const Uint8 *picture, Uint64 now_ms) {
+  smx_overlay_expire(overlay, now_ms);
+  if (overlay->count == 0 || smx_overlay_begin(overlay, picture) == NULL) {
+    return picture;
+  }
+  return smx_overlay_finish(overlay, now_ms);
 }

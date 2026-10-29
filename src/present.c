@@ -509,6 +509,20 @@ void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels) {
   SDL_GL_SwapWindow(presenter->window);
 }
 
+void smx_present_set_options(SmxPresenter *presenter, const SmxPresentOptions *options) {
+  struct SmxPresentGl *gl = presenter->gl;
+  bool window = options->window_mode != presenter->options.window_mode;
+
+  presenter->options = *options;
+  if (gl != NULL) {
+    gl->Uniform1f(gl->GetUniformLocation((GLuint)gl->program, "scanlines"),
+                  options->scanlines ? 1.0f : 0.0f);
+  }
+  if (window) {
+    smx_present_window_mode(presenter, options->window_mode);
+  }
+}
+
 void smx_present_toggle_fullscreen(SmxPresenter *presenter) {
   SmxWindowMode mode = presenter->options.window_mode;
 

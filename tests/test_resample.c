@@ -28,13 +28,14 @@ static Uint32 tone(SmxResampler *resampler, double hz, Sint16 *out, Uint32 max) 
   }
   for (index = 0; index < IN_FRAMES; index += 534u) {
     Uint32 frames = IN_FRAMES - index < 534u ? IN_FRAMES - index : 534u;
-    written += smx_resample_run(resampler, in + index * 2u, frames, out + written * 2u,
-                                max - written);
+    written +=
+        smx_resample_run(resampler, in + index * 2u, frames, out + written * 2u, max - written);
   }
   return written;
 }
 
-/* The level of `hz` in the left channel of `frames` output frames, by Goertzel, in dB below 16000. */
+/* The level of `hz` in the left channel of `frames` output frames, by Goertzel, in dB below 16000.
+ */
 static double level(const Sint16 *out, Uint32 from, Uint32 frames, double hz) {
   double coeff = 2.0 * SDL_cos(2.0 * SDL_PI_D * hz / OUT_RATE);
   double s1 = 0.0;

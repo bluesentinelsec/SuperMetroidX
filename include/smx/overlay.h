@@ -29,6 +29,9 @@ typedef struct SmxOverlay {
 bool smx_overlay_init(SmxOverlay *overlay, Uint32 width, Uint32 height);
 void smx_overlay_quit(SmxOverlay *overlay);
 
+/** Drop every message, as when the settings menu opens over them. */
+void smx_overlay_clear(SmxOverlay *overlay);
+
 /** Show `text` from `now_ms` for SMX_OVERLAY_MS. */
 void smx_overlay_show(SmxOverlay *overlay, const char *text, Uint64 now_ms);
 
@@ -37,5 +40,13 @@ void smx_overlay_show(SmxOverlay *overlay, const char *text, Uint64 now_ms);
  * `picture` itself when there are none.
  */
 const Uint8 *smx_overlay_draw(SmxOverlay *overlay, const Uint8 *picture, Uint64 now_ms);
+
+/**
+ * Copy `picture` to draw more on it, such as the settings menu, through the
+ * renderer this returns (NULL if the overlay could not start). Finish with
+ * `smx_overlay_finish`, which adds the messages and returns the picture.
+ */
+SDL_Renderer *smx_overlay_begin(SmxOverlay *overlay, const Uint8 *picture);
+const Uint8 *smx_overlay_finish(SmxOverlay *overlay, Uint64 now_ms);
 
 #endif /* SMX_OVERLAY_H_ */

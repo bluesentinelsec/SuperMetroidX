@@ -10,7 +10,10 @@
 #define SMX_SOUND_DSP_RATE 32040u
 
 /** Who converts the S-DSP's 32040 Hz to the device's rate. */
-typedef enum SmxSoundResampler { SMX_SOUND_RESAMPLE_SINC, SMX_SOUND_RESAMPLE_SDL } SmxSoundResampler;
+typedef enum SmxSoundResampler {
+  SMX_SOUND_RESAMPLE_SINC,
+  SMX_SOUND_RESAMPLE_SDL
+} SmxSoundResampler;
 
 /** What the listener hears. Neither changes what the game runs. */
 typedef struct SmxSoundOptions {
@@ -51,6 +54,9 @@ void smx_sound_close(SmxSound *sound);
 
 /** Change the resampler while playing. The interpolation is the S-DSP's to apply. */
 void smx_sound_set(SmxSound *sound, const SmxSoundOptions *options);
+
+/** Stop or restart playback, as while the settings menu is open. */
+void smx_sound_pause(SmxSound *sound, bool paused);
 
 /** Queue `count` stereo frames at 32040 Hz. */
 void smx_sound_put(SmxSound *sound, const Sint16 *frames, Uint32 count);
