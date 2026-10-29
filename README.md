@@ -10,7 +10,13 @@ On top of the console's behaviour, which it leaves unchanged, the game adds:
 - five optional cheats
 - quick-save states
 
-The ROM is supplied by the person building the project and is never committed. By default the build also links the whole ROM into the program, so the game runs without the ROM file. Either way a build contains the ROM's code, so **do not share your builds**.
+## Build it yourself
+
+SuperMetroidX is distributed as source code only. There are no downloads of the game, and there won't be: you build it from this repository with your own copy of the Super Metroid ROM.
+
+That is the only way to make it without infringing Nintendo's copyright. Super Metroid's program, graphics, music, and sound are Nintendo's, and a build is made from them: the translator turns the ROM's code into C, and by default the ROM itself is linked into the program. So every build contains Nintendo's copyrighted work, and sharing one would be distributing the game. That is the kind of release that draws DMCA takedowns. This repository holds none of the game: no ROM, no code or data from it, and no generated translation of it, only the runtime, the translator, and the shell. The ROM you supply never leaves your build folder.
+
+Keep your builds and packages for your own machines, and **do not share them**. Use a ROM you dumped from a cartridge you own.
 
 ## Quick start
 
@@ -97,7 +103,21 @@ Run it with no argument to play the ROM built into it. A ROM path on the command
 ./build/release/SuperMetroidX path/to/SuperMetroid.sfc   # a ROM file
 ```
 
-With the ROM built in, the game also starts from Finder or Explorer as it is. Without it, copy the ROM to `SuperMetroid.sfc` in the save folder (see [Saves](#saves)), where the game looks. `make package` makes a `.dmg`, `.zip`, or `.tar.gz` of the release build for your own machines.
+With the ROM built in, the game also starts from Finder or Explorer as it is. Without it, copy the ROM to `SuperMetroid.sfc` in the save folder (see [Saves](#saves)), where the game looks. To make an installable copy, see [Packages](#packages).
+
+## Packages
+
+`make package` (or `make dist`) builds Release, runs the tests, and puts one package for your system in `build/release/dist/`:
+
+| System | Package | Contents |
+| --- | --- | --- |
+| macOS | `SuperMetroidX-<version>-macOS-arm64.dmg` | A disk image to drag `SuperMetroidX.app` into Applications. The app bundle has its icon, version, game category, controller support, and macOS 11 as its minimum. |
+| Windows | `SuperMetroidX-<version>-Windows-x86_64.zip` | `SuperMetroidX.exe`, a windowed program with its icon, version details, and a manifest (per-monitor DPI, UTF-8). The MinGW runtime is linked in, so it needs no DLLs beside it. |
+| Linux | `SuperMetroidX-<version>-Linux-x86_64.tar.gz` | `bin/SuperMetroidX` and `share/` in the usual layout: a desktop entry, icons from 16 to 512 pixels, and AppStream metadata. Copy `bin` and `share` into `~/.local` to add the game to the applications menu. |
+
+Each package has a short `README.txt` for players and the GNU GPL as `LICENSE.txt`. The icon is drawn in code (`src/icon.c`), and `smxicon` writes it as `.icns`, `.ico`, and PNG files at build time. The metadata templates are in `packaging/`, filled in from the version in `CMakeLists.txt`. A Linux package runs on distributions with the same or a newer glibc than the one it was built on.
+
+A package is a build, so it contains the ROM's translated code, and the ROM itself unless `SMX_EMBED_ROM` is off. As [above](#build-it-yourself), it is for your own machines. The app is not signed or notarized, which a build you make yourself doesn't need.
 
 ## Display
 
@@ -241,3 +261,11 @@ smxrecomp [--no-trace] [--seeds FILE] ROM OUTDIR
 It decodes code from the reset and interrupt vectors, follows branches, calls, and jump tables while tracking the M, X, and E flags, and adds the entry points its trace reached. Each straight-line run of instructions becomes a C function with a label per instruction. The generated code calls the same cycle-timed CPU operations as the interpreter. Code the translator never found, such as code in RAM, still runs in the interpreter. The game logs how many instructions ran each way when it exits, and records untranslated entry points in `<save folder>/SuperMetroid.coverage`; configure with `-DSMX_RECOMP_SEEDS=<that file>` to translate them too.
 
 SDL3 `release-3.4.18` is fetched and compiled as a static library by CMake.
+
+## License
+
+SuperMetroidX is free software: you can redistribute it and modify it under the terms of the [GNU General Public License, version 3](LICENSE), as published by the Free Software Foundation. It comes with no warranty.
+
+The license covers this repository's source code. It does not cover Super Metroid, your ROM, or anything made from the ROM, such as the translation under `build/` and the builds and packages that contain it. Those stay Nintendo's work, and the GPL grants no right to share them. SDL3 is under the zlib license.
+
+Super Metroid is a trademark of Nintendo. SuperMetroidX is not affiliated with or endorsed by Nintendo.

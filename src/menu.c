@@ -7,15 +7,20 @@
 #define SMX_MENU_TEXT_Y 10.0f
 
 static const char *const smx_menu_labels[SMX_MENU_ROWS] = {
-    "Window",        "Scale",         "Aspect",     "Scanlines",      "Sound filter",
-    "Resampler",     "Infinite life", "Infinite ammo", "Hyper beam",  "Fly mode",
-    "Give all items", "Reset to defaults", "Resume",
+    "Window",       "Scale",     "Aspect",         "Scanlines",
+    "Sound filter", "Resampler", "Infinite life",  "Infinite ammo",
+    "Hyper beam",   "Fly mode",  "Give all items", "Reset to defaults",
+    "Resume",
 };
 
 /* The names the menu shows for each setting's values, in their order. */
 static const char *const smx_menu_values[SMX_SETTING_COUNT][3] = {
-    {"Windowed", "Borderless", "Exclusive"}, {"Integer", "Fill", NULL}, {"Square", "TV 8:7", NULL},
-    {"Off", "On", NULL},                     {"Console", "Cubic", "Sinc"}, {"Sinc", "SDL", NULL},
+    {"Windowed", "Borderless", "Exclusive"},
+    {"Integer", "Fill", NULL},
+    {"Square", "TV 8:7", NULL},
+    {"Off", "On", NULL},
+    {"Console", "Cubic", "Sinc"},
+    {"Sinc", "SDL", NULL},
 };
 
 /* The sections, by the row they start at. */
@@ -28,7 +33,9 @@ static const struct {
     {SMX_MENU_ROW_LIFE, "CHEATS"},
 };
 
-void smx_menu_init(SmxMenu *menu) { SDL_memset(menu, 0, sizeof(*menu)); }
+void smx_menu_init(SmxMenu *menu) {
+  SDL_memset(menu, 0, sizeof(*menu));
+}
 
 void smx_menu_open(SmxMenu *menu) {
   menu->open = true;
@@ -265,8 +272,8 @@ void smx_menu_draw(const SmxMenu *menu, const SmxSettings *settings, const SmxCh
     }
     y += SMX_MENU_LINE_H;
   }
-  smx_menu_text(renderer, SMX_MENU_TEXT_X, (float)height - 18.0f, "Enter/A choose  Esc/B back",
-                130, 130, 150);
+  smx_menu_text(renderer, SMX_MENU_TEXT_X, (float)height - 18.0f, "Enter/A choose  Esc/B back", 130,
+                130, 150);
   if (menu->ask != SMX_MENU_ASK_NONE) {
     smx_menu_draw_ask(menu, renderer, (float)width, (float)height, now_ms);
   }

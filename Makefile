@@ -30,7 +30,7 @@ CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA) $(CMAKE_ARGS)
 
 .DEFAULT_GOAL := build
 
-.PHONY: build release play run debug fmt test test-release docs clean package configure-debug configure-release
+.PHONY: build release play run debug fmt test test-release docs clean package dist configure-debug configure-release
 
 build: configure-debug
 	$(CMAKE) --build $(DEBUG_DIR)
@@ -76,7 +76,11 @@ docs:
 clean:
 	$(CMAKE) -E rm -rf $(BUILD_DIR) docs/html
 
+# A disk image (macOS), zip (Windows), or tarball (Linux) in build/release/dist.
 package: release
-	cd $(RELEASE_DIR) && ctest --output-on-failure
-	cd $(RELEASE_DIR) && $(CMAKE) --install . --prefix $(CURDIR)/$(RELEASE_DIR)/install
+	cd $(RELEASE_DIR) && ctest --output-on-failure $(CTEST_ARGS)
 	cd $(RELEASE_DIR) && cpack
+	@echo "Package in $(RELEASE_DIR)/dist:"
+	@ls $(RELEASE_DIR)/dist | grep -v '^_CPack_Packages$$'
+
+dist: package

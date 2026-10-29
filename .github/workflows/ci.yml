@@ -68,6 +68,57 @@ jobs:
           fi
           SDL_VIDEODRIVER=dummy "$bin" --smoke
 
+      # The package each system's players would download, built without the
+      # ROM and checked, never uploaded.
+      - name: Package
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH="/c/ProgramData/chocolatey/bin:/c/Program Files/Git/usr/bin:$PATH"
+          fi
+          make package CMAKE_ARGS=-DSMX_EMBED_ROM=OFF
+          ls -l build/release/dist
+
+      - name: Check the package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y desktop-file-utils appstream
+          mkdir -p pkg && tar -xzf build/release/dist/SuperMetroidX-*.tar.gz -C pkg --strip-components=1
+          id=io.github.bluesentinelsec.SuperMetroidX
+          test -x pkg/bin/SuperMetroidX
+          test -f pkg/share/icons/hicolor/256x256/apps/$id.png
+          test -f pkg/share/doc/SuperMetroidX/README.txt
+          test -f pkg/share/licenses/SuperMetroidX/LICENSE
+          desktop-file-validate pkg/share/applications/$id.desktop
+          appstreamcli validate --no-net --explain pkg/share/metainfo/$id.metainfo.xml
+          pkg/bin/SuperMetroidX --version
+
+      - name: Check the package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil attach -nobrowse -mountpoint /tmp/smx build/release/dist/SuperMetroidX-*.dmg
+          app=/tmp/smx/SuperMetroidX.app
+          plutil -lint "$app/Contents/Info.plist"
+          test -f "$app/Contents/Resources/SuperMetroidX.icns"
+          test -L /tmp/smx/Applications
+          test -f /tmp/smx/LICENSE.txt
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/SuperMetroidX" --version
+          hdiutil detach /tmp/smx
+
+      - name: Check the package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir pkg && unzip -q build/release/dist/SuperMetroidX-*.zip -d pkg
+          exe=$(echo pkg/*/SuperMetroidX.exe)
+          objdump -p "$exe" > imports.txt
+          grep -q "Windows GUI" imports.txt
+          grep "DLL Name" imports.txt
+          if grep -Ei "DLL Name: (libgcc|libwinpthread|libstdc|SDL3)" imports.txt; then exit 1; fi
+          test -f pkg/*/README.txt
+          test -f pkg/*/LICENSE.txt
+
   # The one job with the ROM: a Raspberry Pi 5 on the owner's network. The ROM
   # and the build trees stay on the Pi, outside the workspace (SMX_PI_ROM and
   # SMX_PI_BUILD come from the runner's .env), and nothing is uploaded. A

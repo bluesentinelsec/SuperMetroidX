@@ -88,8 +88,7 @@ static void test_keep_display(void) {
   press(&w, SMX_MENU_RIGHT, 2000);
   expect("keeping it keeps it", press(&w, SMX_MENU_ACCEPT, 2000) == SMX_MENU_NOTHING &&
                                     w.settings.display.window_mode == SMX_WINDOW_BORDERLESS &&
-                                    smx_menu_tick(&w.menu, &w.settings, 60000) ==
-                                        SMX_MENU_NOTHING);
+                                    smx_menu_tick(&w.menu, &w.settings, 60000) == SMX_MENU_NOTHING);
   press(&w, SMX_MENU_RIGHT, 3000);
   expect("back reverts it", press(&w, SMX_MENU_BACK, 3000) == SMX_MENU_SETTING &&
                                 w.settings.display.window_mode == SMX_WINDOW_BORDERLESS &&
@@ -97,8 +96,7 @@ static void test_keep_display(void) {
   press(&w, SMX_MENU_RIGHT, 4000);
   press(&w, SMX_MENU_LEFT, 4000);
   expect("choosing revert reverts it", press(&w, SMX_MENU_ACCEPT, 4000) == SMX_MENU_SETTING &&
-                                           w.settings.display.window_mode ==
-                                               SMX_WINDOW_BORDERLESS);
+                                           w.settings.display.window_mode == SMX_WINDOW_BORDERLESS);
 }
 
 static void test_cheats_and_reset(void) {
@@ -111,15 +109,15 @@ static void test_cheats_and_reset(void) {
   press(&w, SMX_MENU_LEFT, 0);
   expect("and switches back", !w.cheats.on[SMX_CHEAT_FLY]);
   go_to(&w, SMX_MENU_ROW_ITEMS);
-  expect("items need accept", press(&w, SMX_MENU_RIGHT, 0) == SMX_MENU_NOTHING &&
-                                  !w.cheats.on[SMX_CHEAT_ITEMS]);
-  expect("items are asked for", press(&w, SMX_MENU_ACCEPT, 0) == SMX_MENU_CHEAT &&
-                                    w.cheats.on[SMX_CHEAT_ITEMS]);
+  expect("items need accept",
+         press(&w, SMX_MENU_RIGHT, 0) == SMX_MENU_NOTHING && !w.cheats.on[SMX_CHEAT_ITEMS]);
+  expect("items are asked for",
+         press(&w, SMX_MENU_ACCEPT, 0) == SMX_MENU_CHEAT && w.cheats.on[SMX_CHEAT_ITEMS]);
   go_to(&w, SMX_MENU_ROW_RESET);
   expect("reset asks first", press(&w, SMX_MENU_ACCEPT, 0) == SMX_MENU_NOTHING &&
                                  w.menu.ask == SMX_MENU_ASK_RESET && !w.menu.ask_yes);
-  expect("cancel is the default", press(&w, SMX_MENU_ACCEPT, 0) == SMX_MENU_NOTHING &&
-                                      w.menu.ask == SMX_MENU_ASK_NONE);
+  expect("cancel is the default",
+         press(&w, SMX_MENU_ACCEPT, 0) == SMX_MENU_NOTHING && w.menu.ask == SMX_MENU_ASK_NONE);
   press(&w, SMX_MENU_ACCEPT, 0);
   press(&w, SMX_MENU_RIGHT, 0);
   expect("reset when chosen", press(&w, SMX_MENU_ACCEPT, 0) == SMX_MENU_RESET);

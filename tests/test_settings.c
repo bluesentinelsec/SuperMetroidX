@@ -23,8 +23,9 @@ static void test_round_trip(void) {
   settings.sound.interpolation = SMX_DSP_CUBIC;
   settings.sound.resampler = SMX_SOUND_RESAMPLE_SDL;
   expect("settings format", smx_settings_format(&settings, text, sizeof(text)));
-  expect("the file names its values", SDL_strstr(text, "window_mode = exclusive\n") != NULL &&
-                                          SDL_strstr(text, "audio_interpolation = cubic\n") != NULL);
+  expect("the file names its values",
+         SDL_strstr(text, "window_mode = exclusive\n") != NULL &&
+             SDL_strstr(text, "audio_interpolation = cubic\n") != NULL);
   smx_settings_defaults(&read);
   smx_settings_parse(&read, text);
   expect("settings read back as written", SDL_memcmp(&read, &settings, sizeof(read)) == 0);

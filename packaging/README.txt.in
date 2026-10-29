@@ -1,0 +1,61 @@
+@PROJECT_NAME@ @PROJECT_VERSION@
+@PROJECT_HOMEPAGE_URL@
+
+Super Metroid, recompiled to run natively on Windows, macOS, and Linux, with
+a sharper picture, cleaner sound, a settings menu, and optional cheats.
+
+
+STARTING THE GAME
+
+macOS    Open the disk image and drag SuperMetroidX to Applications.
+Windows  Unzip the folder and run SuperMetroidX.exe.
+Linux    Unpack the archive and run bin/SuperMetroidX. To add the game to
+         your applications menu, copy the bin and share folders into
+         ~/.local.
+
+A build without the ROM built in looks for SuperMetroid.sfc in the save
+folder (below), or takes a ROM path on the command line.
+
+
+CONTROLS
+
+SNES         Keyboard       Xbox-style gamepad
+D-pad        Arrow keys     D-pad or left stick
+X  (shoot)   S              Y
+A  (jump)    A              B
+B  (run)     Z              A
+Y            X              X
+Select       Right Shift    Back / View
+L / R        Q / W          Shoulders or triggers
+Start        Return         Start / Menu
+
+~ (R3 on a gamepad)   Settings menu: display, sound, and cheats
+F11 or Alt+Return     Fullscreen or window
+F5 / F9               Quick-save / quick-load
+1 to 5                Cheats: life, ammo, items, hyper beam, fly
+Escape                Quit
+
+
+SAVES AND SETTINGS
+
+macOS    ~/Library/Application Support/SuperMetroidX/SuperMetroidX/
+Windows  %APPDATA%\SuperMetroidX\SuperMetroidX\
+Linux    ~/.local/share/SuperMetroidX/SuperMetroidX/
+
+The game saves at save stations, as on a console, to SuperMetroid.srm.
+Settings from the menu are kept in settings.ini. If the window ever ends up
+unusable, start the game with --reset-settings, or delete settings.ini.
+SuperMetroidX --help lists every command-line option.
+
+
+LICENSE
+
+SuperMetroidX is free software under the GNU General Public License,
+version 3, with no warranty: see LICENSE.txt (on Linux,
+share/licenses/SuperMetroidX/LICENSE). Its source code is at the address
+above. The license does not cover Super Metroid: this copy was built from
+its owner's own ROM and contains Nintendo's copyrighted game, so it is for
+that owner's machines only. Do not share it.
+
+Super Metroid is a trademark of Nintendo. SuperMetroidX is not affiliated with
+or endorsed by Nintendo.

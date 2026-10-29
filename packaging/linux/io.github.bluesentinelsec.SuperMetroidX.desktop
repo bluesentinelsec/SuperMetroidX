@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SuperMetroidX
+GenericName=Action-Adventure Game
+Comment=Static recompilation of Super Metroid
+Exec=SuperMetroidX
+Icon=io.github.bluesentinelsec.SuperMetroidX
+Terminal=false
+Categories=Game;ActionGame;AdventureGame;
+Keywords=Metroid;SNES;Samus;
+StartupWMClass=io.github.bluesentinelsec.SuperMetroidX

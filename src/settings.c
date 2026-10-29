@@ -66,7 +66,9 @@ Uint32 smx_settings_choices(SmxSettingId id) {
   return count;
 }
 
-const char *smx_settings_key(SmxSettingId id) { return smx_settings_keys[id].key; }
+const char *smx_settings_key(SmxSettingId id) {
+  return smx_settings_keys[id].key;
+}
 
 const char *smx_settings_value_name(SmxSettingId id, Uint32 value) {
   return smx_settings_keys[id].values[value];
@@ -141,8 +143,9 @@ bool smx_settings_format(const SmxSettings *settings, char *out, Uint32 size) {
   }
   at = (Uint32)wrote;
   for (; index < SMX_SETTINGS_KEYS; index += 1) {
-    wrote = SDL_snprintf(out + at, size - at, "%s = %s\n", smx_settings_keys[index].key,
-                         smx_settings_keys[index].values[smx_settings_get(settings, (SmxSettingId)index)]);
+    wrote = SDL_snprintf(
+        out + at, size - at, "%s = %s\n", smx_settings_keys[index].key,
+        smx_settings_keys[index].values[smx_settings_get(settings, (SmxSettingId)index)]);
     if (wrote < 0 || (Uint32)wrote >= size - at) {
       return false;
     }
