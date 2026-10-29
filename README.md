@@ -9,7 +9,8 @@ On top of the console's behaviour, which it leaves unchanged, the game adds:
 - a picture that fills the screen at a television's 8:7 pixel shape, with CRT scanlines
 - cleaner sound, through sinc interpolation and a long sinc resampler
 - an in-game settings menu (`~`, or R3 on a gamepad) that saves your choices
-- five optional cheats
+- five optional cheats, and turbo at up to four times the speed for elevators and the end credits
+- an intro you can skip by holding any button
 - quick-save states
 
 ## Build it yourself
@@ -167,6 +168,7 @@ The gamepad follows the SNES layout by position, so the buttons' letters differ 
 | F5 | Quick-save |
 | F9 | Quick-load (`--load-state` starts from the quick-save) |
 | 1 to 5 | Switch a cheat (see below) |
+| 6 | Step through turbo's speeds (see below) |
 | ~ (grave) | Open or close the settings menu; R3 (press the right stick) on a gamepad |
 
 ## Settings menu
@@ -179,6 +181,10 @@ The gamepad follows the SNES layout by position, so the buttons' letters differ 
 - Options on the command line apply to that run over the saved settings and are not saved, unless you change the same setting in the menu.
 - If the window ends up unusable (too small, too large, or off screen), start the game with `--reset-settings` to forget the saved settings, or delete `settings.ini`.
 
+## Skipping the intro
+
+A new game opens with the intro, a few minutes of story. Hold any button for a second and a half, on the keyboard or a gamepad, to skip it: a bar in the bottom right fills while you hold, and letting go before it is full keeps watching. The game fades out and starts at Ceres Station, saved just as it would be after the whole intro. A quick tap still turns the intro's pages as usual.
+
 ## Cheats
 
 Cheats are off until you turn them on, in the settings menu, with a number key in play, or with `--cheats` on the command line, such as `SuperMetroidX --cheats life,fly` or `--cheats all`. A message in the bottom left of the picture says when one turns on or off.
@@ -190,8 +196,9 @@ Cheats are off until you turn them on, in the settings menu, with a number key i
 | 3 | `items` | All items: every item, beam, tank, and expansion, full, given once, with every beam equipped but Spazer (the game won't combine it with Plasma). Ammo then counts down as usual unless `ammo` is on. While the hyper beam is on it stays the only beam; switching it off equips these. |
 | 4 | `hyper` | Hyper beam: given as Mother Brain's fight gives it, with Charge, Wave, and Plasma equipped and the rainbow. Off again brings back the beams you had. |
 | 5 | `fly` | Fly mode: hold jump to rise. Walls and ceilings still stop Samus; let go to fall. |
+| 6 | | Turbo: runs the whole game 1.5, 2, 3, or 4 times as fast, to hurry through elevators, long doors, and the end credits. The music and sound speed up with it. Each press of 6 steps to the next speed and then back off; in the menu, left and right choose. |
 
-Cheats work as a cheat cartridge does: between frames, the shell writes the game's memory, and the game does the rest. Items given by a cheat stay in your save if you then save at a save station.
+Cheats work as a cheat cartridge does: between frames, the shell writes the game's memory, and the game does the rest. Turbo writes nothing: it runs the console's frames sooner. Items given by a cheat stay in your save if you then save at a save station.
 
 ## Saves
 

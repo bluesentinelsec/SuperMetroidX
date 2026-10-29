@@ -13,6 +13,9 @@ typedef enum SmxCheatKind {
   SMX_CHEAT_COUNT
 } SmxCheatKind;
 
+/** Turbo's speeds: off, then 1.5, 2, 3, and 4 times the console's. */
+#define SMX_CHEAT_TURBO_SPEEDS 5u
+
 /** The ROM, for the game's own data the cheats copy, such as HUD icons. */
 typedef struct SmxCheatRom {
   const Uint8 *bytes;
@@ -26,9 +29,14 @@ typedef struct SmxCheatRom {
  *
  * Every cheat but `SMX_CHEAT_ITEMS` stays on until switched off. Items are
  * given once, at the next frame in play, and the cheat then turns itself off.
+ *
+ * Turbo is the exception to all of this: the shell runs the console's frames
+ * faster, and plays its sound faster, but writes nothing.
  */
 typedef struct SmxCheats {
   bool on[SMX_CHEAT_COUNT];
+  /** Turbo's speed, from 0 (off) to SMX_CHEAT_TURBO_SPEEDS - 1. */
+  Uint32 turbo;
   SmxCheatRom rom;
   /** The hyper beam is the game's, so switching it off has to clear it once. */
   bool hyper_set;
@@ -46,6 +54,15 @@ const char *smx_cheat_name(SmxCheatKind kind);
 
 /** The cheat's name to show, such as "Infinite life". */
 const char *smx_cheat_title(SmxCheatKind kind);
+
+/** Turbo speed `turbo` in percent of the console's: 100, 150, 200, 300, or 400. */
+Uint32 smx_cheat_turbo_percent(Uint32 turbo);
+
+/** Turbo speed `turbo`'s name to show: "Off", "1.5x", "2x", "3x", or "4x". */
+const char *smx_cheat_turbo_name(Uint32 turbo);
+
+/** The next turbo speed after the current one, back to off after the fastest. */
+void smx_cheat_turbo_next(SmxCheats *cheats);
 
 /** Turn on the cheats in a comma-separated list of names, or "all". */
 bool smx_cheat_parse(SmxCheats *cheats, const char *list);

@@ -138,6 +138,13 @@ void smx_sound_pause(SmxSound *sound, bool paused) {
   }
 }
 
+void smx_sound_set_speed(SmxSound *sound, Uint32 percent) {
+  if (sound->stream != NULL &&
+      !SDL_SetAudioStreamFrequencyRatio(sound->stream, (float)percent / 100.0f)) {
+    SDL_Log("audio speed: %s", SDL_GetError());
+  }
+}
+
 void smx_sound_put(SmxSound *sound, const Sint16 *frames, Uint32 count) {
   Sint16 out[2048 * 2];
   Uint32 at = 0;

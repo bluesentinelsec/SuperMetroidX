@@ -7,9 +7,19 @@
 #define SMX_MENU_TEXT_Y 10.0f
 
 static const char *const smx_menu_labels[SMX_MENU_ROWS] = {
-    "Window",       "Scale",     "Aspect",         "Scanlines",
-    "Sound filter", "Resampler", "Infinite life",  "Infinite ammo",
-    "Hyper beam",   "Fly mode",  "Give all items", "Reset to defaults",
+    "Window",
+    "Scale",
+    "Aspect",
+    "Scanlines",
+    "Sound filter",
+    "Resampler",
+    "Infinite life",
+    "Infinite ammo",
+    "Hyper beam",
+    "Fly mode",
+    "Turbo",
+    "Give all items",
+    "Reset to defaults",
     "Resume",
 };
 
@@ -128,6 +138,11 @@ SmxMenuEvent smx_menu_input(SmxMenu *menu, SmxSettings *settings, SmxCheats *che
     return smx_menu_step(menu, settings, (SmxSettingId)menu->row,
                          input == SMX_MENU_LEFT ? choices - 1u : 1u, now_ms);
   }
+  if (menu->row == SMX_MENU_ROW_TURBO) {
+    Uint32 step = input == SMX_MENU_LEFT ? SMX_CHEAT_TURBO_SPEEDS - 1u : 1u;
+    cheats->turbo = (cheats->turbo + step) % SMX_CHEAT_TURBO_SPEEDS;
+    return SMX_MENU_TURBO;
+  }
   if (cheat != SMX_CHEAT_COUNT) {
     /* Items are an action: left and right do not give them. */
     if (cheat == SMX_CHEAT_ITEMS && input != SMX_MENU_ACCEPT) {
@@ -182,6 +197,9 @@ static const char *smx_menu_value(Uint32 row, const SmxSettings *settings,
 
   if (row < SMX_SETTING_COUNT) {
     return smx_menu_values[row][smx_settings_get(settings, (SmxSettingId)row)];
+  }
+  if (row == SMX_MENU_ROW_TURBO) {
+    return smx_cheat_turbo_name(cheats->turbo);
   }
   if (cheat != SMX_CHEAT_COUNT && cheat != SMX_CHEAT_ITEMS) {
     return cheats->on[cheat] ? "On" : "Off";

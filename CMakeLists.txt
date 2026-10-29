@@ -77,6 +77,7 @@ set(SMX_SOURCES
   src/sound.c
   src/settings.c
   src/menu.c
+  src/skip.c
   src/icon.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
@@ -378,6 +379,10 @@ add_test(NAME settings COMMAND smx_test_settings)
 add_executable(smx_test_menu tests/test_menu.c)
 target_link_libraries(smx_test_menu PRIVATE smx)
 add_test(NAME menu COMMAND smx_test_menu)
+
+add_executable(smx_test_skip tests/test_skip.c)
+target_link_libraries(smx_test_skip PRIVATE smx)
+add_test(NAME skip COMMAND smx_test_skip)
 
 add_executable(smx_test_apu tests/test_apu.c)
 target_link_libraries(smx_test_apu PRIVATE smx)

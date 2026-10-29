@@ -94,6 +94,13 @@ static const struct {
     {"hyper", "Hyper beam"},   {"fly", "Fly mode"},
 };
 
+static const struct {
+  Uint32 percent;
+  const char *name;
+} smx_cheat_turbo_speeds[SMX_CHEAT_TURBO_SPEEDS] = {
+    {100, "Off"}, {150, "1.5x"}, {200, "2x"}, {300, "3x"}, {400, "4x"},
+};
+
 /* The 2x2 HUD icons: where their tiles are in bank $80, and where they go in the HUD. */
 static const struct {
   Uint16 tiles;
@@ -136,6 +143,18 @@ const char *smx_cheat_name(SmxCheatKind kind) {
 
 const char *smx_cheat_title(SmxCheatKind kind) {
   return smx_cheat_names[kind].title;
+}
+
+Uint32 smx_cheat_turbo_percent(Uint32 turbo) {
+  return smx_cheat_turbo_speeds[turbo < SMX_CHEAT_TURBO_SPEEDS ? turbo : 0].percent;
+}
+
+const char *smx_cheat_turbo_name(Uint32 turbo) {
+  return smx_cheat_turbo_speeds[turbo < SMX_CHEAT_TURBO_SPEEDS ? turbo : 0].name;
+}
+
+void smx_cheat_turbo_next(SmxCheats *cheats) {
+  cheats->turbo = (cheats->turbo + 1u) % SMX_CHEAT_TURBO_SPEEDS;
 }
 
 bool smx_cheat_parse(SmxCheats *cheats, const char *list) {

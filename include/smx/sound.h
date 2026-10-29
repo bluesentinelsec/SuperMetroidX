@@ -58,6 +58,12 @@ void smx_sound_set(SmxSound *sound, const SmxSoundOptions *options);
 /** Stop or restart playback, as while the settings menu is open. */
 void smx_sound_pause(SmxSound *sound, bool paused);
 
+/**
+ * Play the queue at `percent` of its rate, for turbo: the console's frames
+ * run that much faster, and their sound goes with them, higher.
+ */
+void smx_sound_set_speed(SmxSound *sound, Uint32 percent);
+
 /** Queue `count` stereo frames at 32040 Hz. */
 void smx_sound_put(SmxSound *sound, const Sint16 *frames, Uint32 count);
 
