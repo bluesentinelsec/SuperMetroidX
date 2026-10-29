@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
   SuperMetroidX
-  VERSION 1.0.0
+  VERSION 1.1.0
   DESCRIPTION "Static recompilation of Super Metroid"
   LANGUAGES C
 )
