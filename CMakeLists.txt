@@ -82,6 +82,8 @@ set(SMX_SOURCES
   src/settings.c
   src/menu.c
   src/skip.c
+  src/touch.c
+  src/touchmenu.c
   src/icon.c
 )
 add_library(smx STATIC ${SMX_SOURCES})
@@ -494,6 +496,10 @@ if(NOT CMAKE_CROSSCOMPILING)
   add_executable(smx_test_skip tests/test_skip.c)
   target_link_libraries(smx_test_skip PRIVATE smx)
   add_test(NAME skip COMMAND smx_test_skip)
+
+  add_executable(smx_test_touch tests/test_touch.c)
+  target_link_libraries(smx_test_touch PRIVATE smx)
+  add_test(NAME touch COMMAND smx_test_touch)
 
   add_executable(smx_test_apu tests/test_apu.c)
   target_link_libraries(smx_test_apu PRIVATE smx)

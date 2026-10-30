@@ -382,8 +382,66 @@ static void smx_present_close_gl(struct SmxPresentGl *gl) {
 }
 #endif
 
+/* The values `smx_present_metal_shader` reads, laid out as Metal lays out its struct. */
+typedef struct SmxPresentMetalPicture {
+  float source_size[2];
+  float output_size[2];
+  float scanlines;
+  float padding;
+} SmxPresentMetalPicture;
+
+/* SDL's GPU renderer, with the Metal scanline shader compiled from its source. */
+static bool smx_present_open_gpu(SmxPresenter *presenter) {
+  SDL_PropertiesID props = SDL_CreateProperties();
+  SDL_GPUDevice *device = NULL;
+  SDL_GPUShaderCreateInfo shader;
+  SDL_GPUShader *compiled = NULL;
+  SDL_GPURenderStateCreateInfo state;
+
+  SDL_SetPointerProperty(props, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, presenter->window);
+  SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING, "gpu");
+  SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_MSL_BOOLEAN, true);
+  SDL_SetNumberProperty(props, SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 1);
+  presenter->renderer = SDL_CreateRendererWithProperties(props);
+  SDL_DestroyProperties(props);
+  if (presenter->renderer == NULL) {
+    SDL_Log("no GPU renderer: %s", SDL_GetError());
+    return false;
+  }
+  device = (SDL_GPUDevice *)SDL_GetPointerProperty(SDL_GetRendererProperties(presenter->renderer),
+                                                   SDL_PROP_RENDERER_GPU_DEVICE_POINTER, NULL);
+  if (device == NULL || (SDL_GetGPUShaderFormats(device) & SDL_GPU_SHADERFORMAT_MSL) == 0) {
+    return true;
+  }
+  SDL_memset(&shader, 0, sizeof(shader));
+  shader.code = smx_present_metal_shader;
+  shader.code_size = sizeof(smx_present_metal_shader) - 1u;
+  shader.entrypoint = "main0";
+  shader.format = SDL_GPU_SHADERFORMAT_MSL;
+  shader.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+  shader.num_samplers = 1;
+  shader.num_uniform_buffers = 1;
+  compiled = SDL_CreateGPUShader(device, &shader);
+  if (compiled == NULL) {
+    SDL_Log("Metal shader did not compile: %s", SDL_GetError());
+    return true;
+  }
+  SDL_memset(&state, 0, sizeof(state));
+  state.fragment_shader = compiled;
+  presenter->shader = SDL_CreateGPURenderState(presenter->renderer, &state);
+  if (presenter->shader == NULL) {
+    SDL_Log("Metal shader unavailable: %s", SDL_GetError());
+    SDL_ReleaseGPUShader(device, compiled);
+    return true;
+  }
+  presenter->shader_code = compiled;
+  return true;
+}
+
 static bool smx_present_open_renderer(SmxPresenter *presenter) {
-  presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
+  if (!smx_present_open_gpu(presenter)) {
+    presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
+  }
   if (presenter->renderer == NULL) {
     SDL_Log("SDL_CreateRenderer failed: %s", SDL_GetError());
     return false;
@@ -395,7 +453,9 @@ static bool smx_present_open_renderer(SmxPresenter *presenter) {
     SDL_Log("SDL_CreateTexture failed: %s", SDL_GetError());
     return false;
   }
-  SDL_SetTextureScaleMode(presenter->texture, SDL_SCALEMODE_PIXELART);
+  /* The shader keeps pixels sharp itself, from linear samples. */
+  SDL_SetTextureScaleMode(presenter->texture, presenter->shader != NULL ? SDL_SCALEMODE_LINEAR
+                                                                        : SDL_SCALEMODE_PIXELART);
   return true;
 }
 
@@ -457,7 +517,6 @@ bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, 
   }
 #endif
   if (presenter->window == NULL) {
-    SDL_Log("presenting without OpenGL, so without scanlines");
     presenter->window = SDL_CreateWindow(title, (int)window_w, (int)window_h, flags);
     if (presenter->window == NULL) {
       SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
@@ -467,6 +526,8 @@ bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, 
       smx_present_close(presenter);
       return false;
     }
+    SDL_Log("presenting through SDL's %s renderer, %s", SDL_GetRendererName(presenter->renderer),
+            presenter->shader != NULL ? "with Metal scanlines" : "without scanlines");
   }
   smx_present_window_mode(presenter, options->window_mode);
   SDL_ShowWindow(presenter->window);
@@ -501,7 +562,25 @@ void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels) {
       dst.y = (float)y;
       dst.w = (float)w;
       dst.h = (float)h;
+      if (presenter->shader != NULL) {
+        SmxPresentMetalPicture picture;
+        picture.source_size[0] = (float)presenter->width;
+        picture.source_size[1] = (float)presenter->height;
+        picture.output_size[0] = (float)w;
+        picture.output_size[1] = (float)h;
+        picture.scanlines = presenter->options.scanlines ? 1.0f : 0.0f;
+        picture.padding = 0.0f;
+        SDL_SetGPURenderStateFragmentUniforms(presenter->shader, 0, &picture,
+                                              (Uint32)sizeof(picture));
+        SDL_SetGPURenderState(presenter->renderer, presenter->shader);
+      }
       SDL_RenderTexture(presenter->renderer, presenter->texture, NULL, &dst);
+      if (presenter->shader != NULL) {
+        SDL_SetGPURenderState(presenter->renderer, NULL);
+      }
+    }
+    if (presenter->draw != NULL) {
+      presenter->draw(presenter->draw_user, presenter->renderer, (Sint32)out_w, (Sint32)out_h);
     }
     SDL_RenderPresent(presenter->renderer);
     return;
@@ -567,6 +646,13 @@ void smx_present_close(SmxPresenter *presenter) {
 #endif
   if (presenter->texture != NULL) {
     SDL_DestroyTexture(presenter->texture);
+  }
+  if (presenter->shader != NULL) {
+    SDL_DestroyGPURenderState(presenter->shader);
+    SDL_ReleaseGPUShader(
+        (SDL_GPUDevice *)SDL_GetPointerProperty(SDL_GetRendererProperties(presenter->renderer),
+                                                SDL_PROP_RENDERER_GPU_DEVICE_POINTER, NULL),
+        presenter->shader_code);
   }
   if (presenter->renderer != NULL) {
     SDL_DestroyRenderer(presenter->renderer);

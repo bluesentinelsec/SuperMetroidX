@@ -23,13 +23,29 @@ typedef struct SmxPresentOptions {
   bool scanlines;
 } SmxPresentOptions;
 
-/** The picture drawn through OpenGL, or through an SDL renderer when OpenGL is unavailable. */
+/**
+ * Draws over the whole window after the picture, such as touch controls,
+ * through `renderer` in pixels of a `width` x `height` window.
+ */
+typedef void (*SmxPresentDraw)(void *user, SDL_Renderer *renderer, Sint32 width, Sint32 height);
+
+/**
+ * The picture drawn through OpenGL, or through an SDL renderer when OpenGL is
+ * unavailable. With SDL's GPU renderer the renderer draws scanlines too, with
+ * a Metal shader; other renderers draw plain pixels.
+ */
 typedef struct SmxPresenter {
   SDL_Window *window;
   SDL_Renderer *renderer;
   SDL_Texture *texture;
   /** The OpenGL presenter; NULL when presenting through `renderer`. */
   struct SmxPresentGl *gl;
+  /** The Metal scanline shader of the GPU renderer and the state that draws with it, or NULL. */
+  SDL_GPUShader *shader_code;
+  SDL_GPURenderState *shader;
+  /** Called for each frame drawn through `renderer`, or NULL. OpenGL frames do not call it. */
+  SmxPresentDraw draw;
+  void *draw_user;
   SmxPresentOptions options;
   Sint32 width;
   Sint32 height;
@@ -72,8 +88,9 @@ void smx_present_window_size(const SmxPresentOptions *options, Sint32 src_w, Sin
                              Sint32 usable_w, Sint32 usable_h, Sint32 *w, Sint32 *h);
 
 /**
- * Open the window for a `width` x `height` XRGB8888 picture. Falls back to an
- * SDL renderer, without scanlines, when OpenGL 3.2 is unavailable.
+ * Open the window for a `width` x `height` XRGB8888 picture. Without OpenGL
+ * 3.2, as on iOS, it draws through SDL's GPU renderer with a Metal shader for
+ * the scanlines, or else through any SDL renderer without them.
  */
 bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, Sint32 height,
                       const SmxPresentOptions *options);

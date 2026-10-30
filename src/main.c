@@ -13,11 +13,21 @@
 #include "smx/sound.h"
 #include "smx/sram.h"
 #include "smx/state.h"
+#include "smx/touch.h"
+#include "smx/touchmenu.h"
 #include "smx/translate.h"
 
 #include <SDL3/SDL.h>
 /* SDL's entry point: WinMain for windowed Windows builds, plain main elsewhere. */
 #include <SDL3/SDL_main.h>
+
+/*
+ * Phones and tablets: touch controls, and a menu of the cheats alone in place
+ * of the settings menu. Desktop builds have neither.
+ */
+#if defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_ANDROID)
+#define SMX_SHELL_TOUCH 1
+#endif
 
 /** Process entry. `int` is required by the C standard. */
 /** Audio queued ahead, in NTSC frames, before the shell waits. */
@@ -207,6 +217,10 @@ typedef struct SmxShellMenu {
   /** The left stick's last direction, so a push moves the menu once. */
   SmxMenuInput stick;
   bool stick_held;
+#ifdef SMX_SHELL_TOUCH
+  SmxTouch touch;
+  SmxTouchMenu cheats_menu;
+#endif
 } SmxShellMenu;
 
 /* Put the settings in effect: display, what is heard, and the resampler. */
@@ -218,8 +232,21 @@ static void smx_shell_apply(SmxShellMenu *shell) {
   smx_sound_set(shell->sound, &shell->settings->sound);
 }
 
+static bool smx_shell_menu_is_open(const SmxShellMenu *shell) {
+#ifdef SMX_SHELL_TOUCH
+  return shell->cheats_menu.open;
+#else
+  return shell->menu.open;
+#endif
+}
+
 static void smx_shell_menu_open(SmxShellMenu *shell) {
+#ifdef SMX_SHELL_TOUCH
+  smx_touchmenu_open(&shell->cheats_menu, shell->cheats);
+  smx_touch_release(&shell->touch);
+#else
   smx_menu_open(&shell->menu);
+#endif
   smx_overlay_clear(shell->overlay);
   smx_sound_pause(shell->sound, true);
 }
@@ -249,6 +276,92 @@ static void smx_shell_menu_event(SmxShellMenu *shell, SmxMenuEvent event) {
     smx_sound_pause(shell->sound, false);
   }
 }
+
+/* Open the menu, or close it and play on. */
+static void smx_shell_menu_toggle(SmxShellMenu *shell) {
+  if (!smx_shell_menu_is_open(shell)) {
+    smx_shell_menu_open(shell);
+    return;
+  }
+#ifdef SMX_SHELL_TOUCH
+  shell->cheats_menu.open = false;
+#else
+  shell->menu.open = false;
+#endif
+  smx_shell_menu_event(shell, SMX_MENU_CLOSED);
+}
+
+static void smx_shell_menu_input(SmxShellMenu *shell, SmxMenuInput input) {
+#ifdef SMX_SHELL_TOUCH
+  smx_shell_menu_event(shell, smx_touchmenu_input(&shell->cheats_menu, shell->cheats, input));
+#else
+  smx_shell_menu_event(
+      shell, smx_menu_input(&shell->menu, shell->settings, shell->cheats, input, SDL_GetTicks()));
+#endif
+}
+
+#ifdef SMX_SHELL_TOUCH
+/* Lay the controls out for the window as it is now, clear of its unsafe edges. */
+static void smx_shell_touch_layout(SmxShellMenu *shell) {
+  SDL_Window *window = shell->presenter->window;
+  float density = SDL_GetWindowPixelDensity(window);
+  int width = 0;
+  int height = 0;
+  SDL_Rect safe;
+
+  SDL_GetWindowSizeInPixels(window, &width, &height);
+  if (!SDL_GetWindowSafeArea(window, &safe)) {
+    safe.x = 0;
+    safe.y = 0;
+    safe.w = (int)((float)width / density);
+    safe.h = (int)((float)height / density);
+  }
+  safe.x = (int)((float)safe.x * density);
+  safe.y = (int)((float)safe.y * density);
+  safe.w = (int)((float)safe.w * density);
+  safe.h = (int)((float)safe.h * density);
+  smx_touch_layout(&shell->touch, (Sint32)width, (Sint32)height, &safe);
+}
+
+/* A finger plays on the controls, or taps the open menu at its place on the picture. */
+static void smx_shell_touch_event(SmxShellMenu *shell, const SDL_Event *event) {
+  if (shell->cheats_menu.open) {
+    Sint32 x = 0;
+    Sint32 y = 0;
+    Sint32 w = 0;
+    Sint32 h = 0;
+    if (event->type != SDL_EVENT_FINGER_DOWN) {
+      return;
+    }
+    smx_present_fit(&shell->presenter->options, SMX_PPU_WIDTH, SMX_PPU_HEIGHT,
+                    (Sint32)shell->touch.width, (Sint32)shell->touch.height, &x, &y, &w, &h);
+    smx_shell_menu_event(
+        shell,
+        smx_touchmenu_tap(
+            &shell->cheats_menu, shell->cheats,
+            (event->tfinger.x * shell->touch.width - (float)x) * SMX_PPU_WIDTH / (float)w,
+            (event->tfinger.y * shell->touch.height - (float)y) * SMX_PPU_HEIGHT / (float)h));
+    return;
+  }
+  if (event->type == SDL_EVENT_FINGER_DOWN) {
+    shell->touch.shown = true;
+  }
+  if (smx_touch_event(&shell->touch, event)) {
+    smx_shell_menu_open(shell);
+  }
+}
+
+/* The presenter's hook: the controls over the window, unless the menu is open. */
+static void smx_shell_touch_draw(void *user, SDL_Renderer *renderer, Sint32 width, Sint32 height) {
+  SmxShellMenu *shell = (SmxShellMenu *)user;
+
+  (void)width;
+  (void)height;
+  if (!shell->cheats_menu.open) {
+    smx_touch_draw(&shell->touch, renderer);
+  }
+}
+#endif
 
 /* The menu input a key gives, if any. */
 static bool smx_shell_menu_key(SDL_Scancode scancode, SmxMenuInput *input) {
@@ -610,6 +723,12 @@ int main(int argc, char **argv) {
   shell.dsp = machine ? &apu.dsp : NULL;
   shell.cheats = &cheats;
   shell.overlay = &overlay;
+#ifdef SMX_SHELL_TOUCH
+  smx_touch_init(&shell.touch);
+  smx_touchmenu_init(&shell.cheats_menu);
+  presenter.draw = smx_shell_touch_draw;
+  presenter.draw_user = &shell;
+#endif
 
   bool running = true;
   /* A phone or tablet has put the game in the background; it waits there. */
@@ -621,44 +740,46 @@ int main(int argc, char **argv) {
   Uint64 next_frame = SDL_GetTicksNS();
   while (running) {
     SDL_Event event;
+#ifdef SMX_SHELL_TOUCH
+    smx_shell_touch_layout(&shell);
+#endif
     while (SDL_PollEvent(&event)) {
       SmxMenuInput input = SMX_MENU_BACK;
+#ifdef SMX_SHELL_TOUCH
+      /* A gamepad in use hides the touch controls; a touch shows them again. */
+      if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+        shell.touch.shown = false;
+      }
+#endif
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
                  event.key.scancode == SDL_SCANCODE_GRAVE) {
         /* ~ opens and closes the settings menu. */
-        if (shell.menu.open) {
-          shell.menu.open = false;
-          smx_shell_menu_event(&shell, SMX_MENU_CLOSED);
-        } else {
-          smx_shell_menu_open(&shell);
-        }
+        smx_shell_menu_toggle(&shell);
       } else if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && playing && pad != NULL &&
                  event.gbutton.which == SDL_GetGamepadID(pad) &&
                  event.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) {
         /* So does pressing the right stick. */
-        if (shell.menu.open) {
-          shell.menu.open = false;
-          smx_shell_menu_event(&shell, SMX_MENU_CLOSED);
-        } else {
-          smx_shell_menu_open(&shell);
-        }
-      } else if (shell.menu.open && event.type == SDL_EVENT_KEY_DOWN &&
+        smx_shell_menu_toggle(&shell);
+      } else if (smx_shell_menu_is_open(&shell) && event.type == SDL_EVENT_KEY_DOWN &&
                  smx_shell_menu_key(event.key.scancode, &input) &&
                  (!event.key.repeat || input < SMX_MENU_ACCEPT)) {
-        smx_shell_menu_event(
-            &shell, smx_menu_input(&shell.menu, &settings, &cheats, input, SDL_GetTicks()));
-      } else if (shell.menu.open && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && pad != NULL &&
-                 event.gbutton.which == SDL_GetGamepadID(pad) &&
+        smx_shell_menu_input(&shell, input);
+      } else if (smx_shell_menu_is_open(&shell) && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
+                 pad != NULL && event.gbutton.which == SDL_GetGamepadID(pad) &&
                  smx_shell_menu_button(event.gbutton.button, &input)) {
-        smx_shell_menu_event(
-            &shell, smx_menu_input(&shell.menu, &settings, &cheats, input, SDL_GetTicks()));
-      } else if (shell.menu.open && event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && pad != NULL &&
-                 event.gaxis.which == SDL_GetGamepadID(pad) &&
+        smx_shell_menu_input(&shell, input);
+      } else if (smx_shell_menu_is_open(&shell) && event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION &&
+                 pad != NULL && event.gaxis.which == SDL_GetGamepadID(pad) &&
                  smx_shell_menu_stick(&shell, pad, &input)) {
-        smx_shell_menu_event(
-            &shell, smx_menu_input(&shell.menu, &settings, &cheats, input, SDL_GetTicks()));
+        smx_shell_menu_input(&shell, input);
+#ifdef SMX_SHELL_TOUCH
+      } else if (playing &&
+                 (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||
+                  event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED)) {
+        smx_shell_touch_event(&shell, &event);
+#endif
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                  event.key.scancode == SDL_SCANCODE_ESCAPE) {
         running = !smx_shell_confirm_quit(presenter.window);
@@ -707,7 +828,7 @@ int main(int argc, char **argv) {
         background = true;
       } else if (event.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
         background = false;
-        if (!shell.menu.open) {
+        if (!smx_shell_menu_is_open(&shell)) {
           smx_sound_pause(&sound, false);
         }
         next_frame = SDL_GetTicksNS();
@@ -728,12 +849,16 @@ int main(int argc, char **argv) {
       continue;
     }
 
-    /* The game waits while the settings menu is open. */
-    if (shell.menu.open) {
+    /* The game waits while the menu is open. */
+    if (smx_shell_menu_is_open(&shell)) {
       Uint64 now = SDL_GetTicks();
       SDL_Renderer *renderer = smx_overlay_begin(&overlay, ppu.picture);
+#ifdef SMX_SHELL_TOUCH
+      smx_touchmenu_draw(&shell.cheats_menu, &cheats, renderer, SMX_PPU_WIDTH, SMX_PPU_HEIGHT);
+#else
       smx_shell_menu_event(&shell, smx_menu_tick(&shell.menu, &settings, now));
       smx_menu_draw(&shell.menu, &settings, &cheats, renderer, SMX_PPU_WIDTH, SMX_PPU_HEIGHT, now);
+#endif
       smx_present_frame(&presenter,
                         renderer != NULL ? smx_overlay_finish(&overlay, now) : ppu.picture);
       SDL_Delay(8);
@@ -796,6 +921,9 @@ int main(int argc, char **argv) {
         }
       }
       joy = (Uint16)(joy | smx_gamepad_joy(pad));
+#ifdef SMX_SHELL_TOUCH
+      joy = (Uint16)(joy | smx_touch_joy(&shell.touch));
+#endif
       clock.joy = joy;
       if (smx_cheat_apply(&cheats, bus.wram, joy)) {
         smx_shell_cheat_shown(&overlay, &cheats, SMX_CHEAT_ITEMS);
