@@ -20,7 +20,8 @@
       <li>A picture that fills the screen at a television's 8:7 pixel shape, with CRT scanlines</li>
       <li>Cleaner sound through sinc interpolation and resampling</li>
       <li>An in-game settings menu that saves your choices</li>
-      <li>Optional cheats and quick-save states</li>
+      <li>Optional cheats, turbo, and quick-save states</li>
+      <li>An intro you can skip by holding any button</li>
     </ul>
     <p>Super Metroid is a trademark of Nintendo. SuperMetroidX is not affiliated with or endorsed by Nintendo.</p>
   </description>

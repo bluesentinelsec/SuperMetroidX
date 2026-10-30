@@ -51,6 +51,15 @@ static void test_parse(void) {
   smx_cheat_init(&cheats, NULL, 0);
   expect("all parses", smx_cheat_parse(&cheats, "all"));
   expect("all turns every cheat on", cheats.on[SMX_CHEAT_AMMO] && cheats.on[SMX_CHEAT_HYPER]);
+  expect("all leaves turbo off", cheats.turbo == 0);
+  expect("turbo speeds", smx_cheat_turbo_percent(0) == 100 && smx_cheat_turbo_percent(1) == 150 &&
+                             smx_cheat_turbo_percent(4) == 400 &&
+                             SDL_strcmp(smx_cheat_turbo_name(2), "2x") == 0);
+  smx_cheat_turbo_next(&cheats);
+  expect("turbo steps", cheats.turbo == 1);
+  cheats.turbo = SMX_CHEAT_TURBO_SPEEDS - 1u;
+  smx_cheat_turbo_next(&cheats);
+  expect("and turns off after the fastest", cheats.turbo == 0);
   expect("names", SDL_strcmp(smx_cheat_name(SMX_CHEAT_FLY), "fly") == 0 &&
                       SDL_strcmp(smx_cheat_title(SMX_CHEAT_LIFE), "Infinite life") == 0);
 }

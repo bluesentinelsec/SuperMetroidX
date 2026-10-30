@@ -15,6 +15,7 @@ typedef enum SmxMenuRow {
   SMX_MENU_ROW_AMMO,
   SMX_MENU_ROW_HYPER,
   SMX_MENU_ROW_FLY,
+  SMX_MENU_ROW_TURBO,
   SMX_MENU_ROW_ITEMS,
   SMX_MENU_ROW_RESET,
   SMX_MENU_ROW_RESUME,
@@ -38,6 +39,8 @@ typedef enum SmxMenuEvent {
   SMX_MENU_SETTING,
   /** A cheat was switched, or items asked for: `SmxMenu.cheat` says which. */
   SMX_MENU_CHEAT,
+  /** Turbo's speed changed: `SmxCheats.turbo`. */
+  SMX_MENU_TURBO,
   /** Every setting back to its default, the file removed, and the cheats off. */
   SMX_MENU_RESET,
   SMX_MENU_CLOSED

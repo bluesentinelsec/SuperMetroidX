@@ -4,6 +4,8 @@
 #define SMX_OVERLAY_MARGIN 8.0f
 #define SMX_OVERLAY_PAD 2.0f
 #define SMX_OVERLAY_LINE 10.0f
+/* The hold's bar, under its label. */
+#define SMX_OVERLAY_BAR_H 4.0f
 
 bool smx_overlay_init(SmxOverlay *overlay, Uint32 width, Uint32 height) {
   SDL_memset(overlay, 0, sizeof(*overlay));
@@ -57,6 +59,7 @@ static void smx_overlay_expire(SmxOverlay *overlay, Uint64 now_ms) {
 
 void smx_overlay_clear(SmxOverlay *overlay) {
   overlay->count = 0;
+  overlay->hold = 0;
 }
 
 void smx_overlay_show(SmxOverlay *overlay, const char *text, Uint64 now_ms) {
@@ -71,6 +74,39 @@ void smx_overlay_show(SmxOverlay *overlay, const char *text, Uint64 now_ms) {
   SDL_strlcpy(overlay->text[overlay->count], text, sizeof(overlay->text[0]));
   overlay->until[overlay->count] = now_ms + SMX_OVERLAY_MS;
   overlay->count += 1u;
+}
+
+void smx_overlay_hold(SmxOverlay *overlay, const char *text, Uint32 done, Uint32 total) {
+  SDL_strlcpy(overlay->hold_text, text, sizeof(overlay->hold_text));
+  overlay->hold = done < total ? done : total;
+  overlay->hold_of = total;
+}
+
+/* The hold's label, and a bar that fills as the hold goes on, in the bottom right. */
+static void smx_overlay_draw_hold(SmxOverlay *overlay) {
+  float width = (float)SDL_strlen(overlay->hold_text) * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE;
+  float x = (float)overlay->width - SMX_OVERLAY_MARGIN - width;
+  float y = (float)overlay->height - SMX_OVERLAY_MARGIN - SMX_OVERLAY_BAR_H - SMX_OVERLAY_PAD -
+            SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE;
+  SDL_FRect box;
+
+  box.x = x - SMX_OVERLAY_PAD;
+  box.y = y - SMX_OVERLAY_PAD;
+  box.w = width + SMX_OVERLAY_PAD * 2.0f;
+  box.h = SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE + SMX_OVERLAY_BAR_H + SMX_OVERLAY_PAD * 3.0f;
+  SDL_SetRenderDrawColor(overlay->renderer, 0, 0, 0, 176);
+  SDL_RenderFillRect(overlay->renderer, &box);
+  SDL_SetRenderDrawColor(overlay->renderer, 255, 255, 255, 255);
+  SDL_RenderDebugText(overlay->renderer, x, y, overlay->hold_text);
+  box.x = x;
+  box.y = y + SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE + SMX_OVERLAY_PAD;
+  box.w = width;
+  box.h = SMX_OVERLAY_BAR_H;
+  SDL_SetRenderDrawColor(overlay->renderer, 70, 70, 90, 255);
+  SDL_RenderFillRect(overlay->renderer, &box);
+  box.w = width * (float)overlay->hold / (float)overlay->hold_of;
+  SDL_SetRenderDrawColor(overlay->renderer, 255, 220, 80, 255);
+  SDL_RenderFillRect(overlay->renderer, &box);
 }
 
 SDL_Renderer *smx_overlay_begin(SmxOverlay *overlay, const Uint8 *picture) {
@@ -101,13 +137,16 @@ const Uint8 *smx_overlay_finish(SmxOverlay *overlay, Uint64 now_ms) {
     SDL_SetRenderDrawColor(overlay->renderer, 255, 255, 255, 255);
     SDL_RenderDebugText(overlay->renderer, SMX_OVERLAY_MARGIN, y, text);
   }
+  if (overlay->hold != 0) {
+    smx_overlay_draw_hold(overlay);
+  }
   SDL_RenderPresent(overlay->renderer);
   return overlay->pixels;
 }
 
 const Uint8 *smx_overlay_draw(SmxOverlay *overlay, const Uint8 *picture, Uint64 now_ms) {
   smx_overlay_expire(overlay, now_ms);
-  if (overlay->count == 0 || smx_overlay_begin(overlay, picture) == NULL) {
+  if ((overlay->count == 0 && overlay->hold == 0) || smx_overlay_begin(overlay, picture) == NULL) {
     return picture;
   }
   return smx_overlay_finish(overlay, now_ms);

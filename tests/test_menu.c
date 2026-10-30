@@ -108,6 +108,13 @@ static void test_cheats_and_reset(void) {
                                  w.menu.cheat == SMX_CHEAT_FLY && w.cheats.on[SMX_CHEAT_FLY]);
   press(&w, SMX_MENU_LEFT, 0);
   expect("and switches back", !w.cheats.on[SMX_CHEAT_FLY]);
+  go_to(&w, SMX_MENU_ROW_TURBO);
+  expect("turbo steps up", press(&w, SMX_MENU_RIGHT, 0) == SMX_MENU_TURBO && w.cheats.turbo == 1);
+  press(&w, SMX_MENU_LEFT, 0);
+  press(&w, SMX_MENU_LEFT, 0);
+  expect("and wraps down to the fastest", w.cheats.turbo == SMX_CHEAT_TURBO_SPEEDS - 1u);
+  expect("accept steps up, back to off",
+         press(&w, SMX_MENU_ACCEPT, 0) == SMX_MENU_TURBO && w.cheats.turbo == 0);
   go_to(&w, SMX_MENU_ROW_ITEMS);
   expect("items need accept",
          press(&w, SMX_MENU_RIGHT, 0) == SMX_MENU_NOTHING && !w.cheats.on[SMX_CHEAT_ITEMS]);

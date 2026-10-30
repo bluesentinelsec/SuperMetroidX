@@ -9,6 +9,7 @@
 #include "smx/ppu.h"
 #include "smx/present.h"
 #include "smx/settings.h"
+#include "smx/skip.h"
 #include "smx/sound.h"
 #include "smx/sram.h"
 #include "smx/state.h"
@@ -178,6 +179,19 @@ static void smx_shell_cheat_shown(SmxOverlay *overlay, const SmxCheats *cheats, 
   smx_overlay_show(overlay, text, SDL_GetTicks());
 }
 
+/* Show turbo's new speed. */
+static void smx_shell_turbo_shown(SmxOverlay *overlay, const SmxCheats *cheats) {
+  char text[48];
+
+  if (cheats->turbo == 0) {
+    SDL_strlcpy(text, "Turbo off", sizeof(text));
+  } else {
+    SDL_snprintf(text, sizeof(text), "Turbo %s", smx_cheat_turbo_name(cheats->turbo));
+  }
+  SDL_Log("cheat: %s", text);
+  smx_overlay_show(overlay, text, SDL_GetTicks());
+}
+
 /* What the settings menu changes, and where it saves. */
 typedef struct SmxShellMenu {
   SmxMenu menu;
@@ -230,6 +244,7 @@ static void smx_shell_menu_event(SmxShellMenu *shell, SmxMenuEvent event) {
     for (; kind < SMX_CHEAT_COUNT; kind += 1) {
       shell->cheats->on[kind] = false;
     }
+    shell->cheats->turbo = 0;
   } else if (event == SMX_MENU_CLOSED) {
     smx_sound_pause(shell->sound, false);
   }
@@ -357,7 +372,8 @@ static void smx_shell_usage(void) {
   SDL_Log("  SuperMetroid.sfc in the working directory or the save folder.");
   SDL_Log("  --load-state        start from the quick-save (F9)");
   SDL_Log("  --cheats LIST       turn on cheats, comma-separated, or all; keys 1-5 switch them:");
-  SDL_Log("                      life (1), ammo (2), items (3), hyper (4), fly (5)");
+  SDL_Log("                      life (1), ammo (2), items (3), hyper (4), fly (5);");
+  SDL_Log("                      6 steps turbo through 1.5x, 2x, 3x, and 4x, then off");
   smx_present_usage();
   smx_sound_usage();
   SDL_Log("  --reset-settings    forget the saved settings and start from the defaults");
@@ -492,6 +508,7 @@ int main(int argc, char **argv) {
   SmxMachine console;
   SmxCheats cheats;
   SmxOverlay overlay;
+  SmxSkip skip;
   Uint32 rom_hash = 0;
   SmxTranslator misses;
   SDL_Gamepad *pad = NULL;
@@ -500,6 +517,7 @@ int main(int argc, char **argv) {
   bool machine = false;
   smx_cart_init(&cart);
   smx_cheat_init(&cheats, NULL, 0);
+  smx_skip_init(&skip);
   SDL_memset(&misses, 0, sizeof(misses));
   if (embedded ? smx_cart_load_bytes(&cart, smx_game_rom, smx_game_rom_size)
                : smx_cart_load_path(&cart, rom_path)) {
@@ -594,6 +612,9 @@ int main(int argc, char **argv) {
   shell.overlay = &overlay;
 
   bool running = true;
+  /* Turbo's speed in percent, and the hundredths of a frame it owes without audio to pace it. */
+  Uint32 speed = 100;
+  Uint32 speed_owed = 0;
   Uint64 started = SDL_GetTicks();
   Uint64 next_frame = SDL_GetTicksNS();
   while (running) {
@@ -669,6 +690,11 @@ int main(int argc, char **argv) {
         if (kind != SMX_CHEAT_ITEMS) {
           smx_shell_cheat_shown(&overlay, &cheats, kind);
         }
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
+                 event.key.scancode == SDL_SCANCODE_1 + SMX_CHEAT_COUNT) {
+        /* The key after the cheats' steps through turbo's speeds. */
+        smx_cheat_turbo_next(&cheats);
+        smx_shell_turbo_shown(&overlay, &cheats);
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
       } else if (event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
@@ -694,13 +720,24 @@ int main(int argc, char **argv) {
       continue;
     }
 
+    /* Turbo plays the queue faster, so the queue's limits grow with it to last as long. */
+    if (smx_cheat_turbo_percent(cheats.turbo) != speed) {
+      speed = smx_cheat_turbo_percent(cheats.turbo);
+      smx_sound_set_speed(&sound, speed);
+    }
+    Uint32 queue_most = SMX_SHELL_QUEUE_SAMPLES(SMX_SHELL_QUEUE_FRAMES) * speed / 100u;
+    Uint32 queue_enough = SMX_SHELL_QUEUE_SAMPLES(SMX_SHELL_QUEUE_FRAMES - 1u) * speed / 100u;
+    Uint32 catch_up = (SMX_SHELL_CATCH_UP_FRAMES * speed + 99u) / 100u;
+    Uint32 due = 1;
+
     /*
      * Pace emulation by the audio queue when there is one, else by the
-     * average NTSC frame of 357366 master clocks.
+     * average NTSC frame of 357366 master clocks, with turbo's extra frames
+     * run in batches.
      */
     if (playing && !smoke) {
       if (audio) {
-        if (smx_sound_queued(&sound) > SMX_SHELL_QUEUE_SAMPLES(SMX_SHELL_QUEUE_FRAMES)) {
+        if (smx_sound_queued(&sound) > queue_most) {
           SDL_DelayNS(1000000);
           continue;
         }
@@ -713,6 +750,9 @@ int main(int argc, char **argv) {
         if (SDL_GetTicksNS() > next_frame + 4u * SMX_SHELL_FRAME_NS) {
           next_frame = SDL_GetTicksNS();
         }
+        speed_owed += speed;
+        due = speed_owed / 100u;
+        speed_owed %= 100u;
       }
     }
 
@@ -739,6 +779,16 @@ int main(int argc, char **argv) {
       if (smx_cheat_apply(&cheats, bus.wram, joy)) {
         smx_shell_cheat_shown(&overlay, &cheats, SMX_CHEAT_ITEMS);
       }
+      switch (smx_skip_apply(&skip, bus.wram, joy)) {
+      case SMX_SKIP_INTRO:
+        smx_overlay_show(&overlay, "Hold any button to skip", SDL_GetTicks());
+        break;
+      case SMX_SKIP_SKIPPED:
+        SDL_Log("intro skipped");
+        break;
+      default:
+        break;
+      }
       if (!smx_clock_frame(&clock)) {
         SDL_Log("cpu stopped at %u:%u", (unsigned)cpu.pb, (unsigned)cpu.pc);
         playing = false;
@@ -755,11 +805,16 @@ int main(int argc, char **argv) {
         smx_sound_put(&sound, frames, count);
       }
       batch += 1;
-      if (smoke || !audio || batch == SMX_SHELL_CATCH_UP_FRAMES ||
-          smx_sound_queued(&sound) >= SMX_SHELL_QUEUE_SAMPLES(SMX_SHELL_QUEUE_FRAMES - 1u)) {
+      if (smoke || (!audio && batch >= due) || batch >= catch_up ||
+          (audio && smx_sound_queued(&sound) >= queue_enough)) {
         break;
       }
     }
+    /* The hold's bar takes the place of the hint to hold. */
+    if (smx_skip_shown(&skip) != 0 && overlay.hold == 0) {
+      smx_overlay_clear(&overlay);
+    }
+    smx_overlay_hold(&overlay, "Hold to skip", smx_skip_shown(&skip), SMX_SKIP_HOLD_FRAMES);
 
     smx_present_frame(&presenter,
                       playing ? smx_overlay_draw(&overlay, ppu.picture, SDL_GetTicks()) : NULL);
