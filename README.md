@@ -130,6 +130,20 @@ The project signs the app for the Apple developer team of a signing certificate 
 
 **Product > Archive** makes a Release archive of the app. In the Organizer, **Distribute App > Direct Distribution** signs it with your Developer ID and has Apple notarize it. That needs a paid developer account. Notarizing uploads the app, and with it the game, to Apple. A notarized build is still a build of Nintendo's game, so as [above](#build-it-yourself), keep it for your own machines. **Custom**, then **Developer ID** and **Export**, signs it with your Developer ID without notarizing it. The App Store and TestFlight aren't supported: putting a build there would be distributing the game.
 
+### iPhone and iPad
+
+`make ios` builds the translator for your Mac, then writes an iOS Xcode project to `build/ios` and opens it. The game is built from your ROM as on the Mac, and signed the same way, for the team of a certificate in your keychain. In Xcode, choose a simulator, or your iPhone or iPad, as the run destination, and press **Run**. A device needs **Developer Mode** on (**Settings > Privacy & Security**) the first time. With a free Apple account, an app on a device stops opening after seven days until you run it from Xcode again; a paid account makes that a year. The simulator needs no account.
+
+On iPhone and iPad:
+
+- **Touch controls** in the colors of the Super Famicom sit beside the picture. The D-pad is on the left with L and R above it, so your left thumb reaches them while your right thumb fires. X, A, B, and Y are on the right in the SNES diamond, and Select and Start are at the bottom in the middle. Several fingers work at once. A thumb can slide from button to button, or rest between two buttons to press both, such as B and Y to run and shoot. A finger that lands on the D-pad keeps steering it even if it slides off.
+- **Controllers:** a controller paired over Bluetooth (Xbox, PlayStation, or MFi) plays as on the Mac. The touch controls hide while you use it and come back when you touch the screen.
+- **Cheats menu:** the button in the top right corner (or R3 on a controller) pauses the game and opens a menu of the cheats, in place of the desktop's settings menu. Each cheat is a switch you tap. Turbo's switch runs at the speed beside it, which you tap to change. All items is a **Give** button, since items are given once. **Done**, or a tap outside the menu, plays on.
+- **Picture:** it fills the screen in landscape at the TV shape, with scanlines drawn by a Metal shader. The simulator can't run SDL's GPU renderer, so there the picture has no scanlines. Display and sound use the defaults.
+- **Saves:** the game saves at save stations, and the save is written out whenever the app goes to the background.
+
+The same rules apply as on the Mac: a build is for your own devices, and the App Store and TestFlight aren't supported.
+
 ## Display
 
 The picture fills the screen at the shape an NTSC television gave it, with CRT scanlines drawn by an OpenGL 3.2 shader built into the program. Each enhancement can be turned off:
