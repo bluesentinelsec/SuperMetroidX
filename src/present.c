@@ -2,6 +2,12 @@
 
 #include "present_shaders.h"
 
+/*
+ * The scanline shader is written for desktop OpenGL 3.2. iOS has only
+ * OpenGL ES, so there the picture goes through the SDL renderer.
+ */
+#ifndef SDL_PLATFORM_IOS
+#define SMX_PRESENT_GL 1
 #include <SDL3/SDL_opengl.h>
 
 /* OpenGL 1.1 entry points; SDL_opengl_glext.h types the later ones. */
@@ -60,6 +66,7 @@ struct SmxPresentGl {
   Uint32 vertex_array;
   Sint32 output_size;
 };
+#endif
 
 /* An NTSC SNES pixel is 8:7 as wide as it is tall. */
 #define SMX_PRESENT_TV_WIDTH 8
@@ -213,6 +220,7 @@ void smx_present_window_size(const SmxPresentOptions *options, Sint32 src_w, Sin
   *w = (Sint32)(((Sint64)*h * num * 2 + den) / (den * 2));
 }
 
+#ifdef SMX_PRESENT_GL
 static bool smx_present_load(struct SmxPresentGl *gl) {
   bool ok = true;
 
@@ -372,6 +380,7 @@ static void smx_present_close_gl(struct SmxPresentGl *gl) {
   SDL_GL_DestroyContext(gl->context);
   SDL_free(gl);
 }
+#endif
 
 static bool smx_present_open_renderer(SmxPresenter *presenter) {
   presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
@@ -430,6 +439,7 @@ bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, 
   smx_present_window_size(options, width, height, (Sint32)usable.w, (Sint32)usable.h, &window_w,
                           &window_h);
 
+#ifdef SMX_PRESENT_GL
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -445,6 +455,7 @@ bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, 
     SDL_DestroyWindow(presenter->window);
     presenter->window = NULL;
   }
+#endif
   if (presenter->window == NULL) {
     SDL_Log("presenting without OpenGL, so without scanlines");
     presenter->window = SDL_CreateWindow(title, (int)window_w, (int)window_h, flags);
@@ -495,6 +506,7 @@ void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels) {
     SDL_RenderPresent(presenter->renderer);
     return;
   }
+#ifdef SMX_PRESENT_GL
   gl->Viewport(0, 0, (GLsizei)out_w, (GLsizei)out_h);
   gl->ClearColor((GLfloat)red / 255.0f, (GLfloat)green / 255.0f, (GLfloat)blue / 255.0f, 1.0f);
   gl->Clear(GL_COLOR_BUFFER_BIT);
@@ -507,6 +519,7 @@ void smx_present_frame(SmxPresenter *presenter, const Uint8 *pixels) {
     gl->DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
   }
   SDL_GL_SwapWindow(presenter->window);
+#endif
 }
 
 void smx_present_set_options(SmxPresenter *presenter, const SmxPresentOptions *options) {
@@ -514,10 +527,14 @@ void smx_present_set_options(SmxPresenter *presenter, const SmxPresentOptions *o
   bool window = options->window_mode != presenter->options.window_mode;
 
   presenter->options = *options;
+#ifdef SMX_PRESENT_GL
   if (gl != NULL) {
     gl->Uniform1f(gl->GetUniformLocation((GLuint)gl->program, "scanlines"),
                   options->scanlines ? 1.0f : 0.0f);
   }
+#else
+  (void)gl;
+#endif
   if (window) {
     smx_present_window_mode(presenter, options->window_mode);
   }
@@ -543,9 +560,11 @@ void smx_present_event(SmxPresenter *presenter, const SDL_Event *event) {
 }
 
 void smx_present_close(SmxPresenter *presenter) {
+#ifdef SMX_PRESENT_GL
   if (presenter->gl != NULL) {
     smx_present_close_gl(presenter->gl);
   }
+#endif
   if (presenter->texture != NULL) {
     SDL_DestroyTexture(presenter->texture);
   }

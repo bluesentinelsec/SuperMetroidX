@@ -1,8 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 
-# The oldest macOS the app runs on; set before project() so it reaches SDL too.
+# The oldest macOS or iOS the app runs on; set before project() so it reaches SDL too.
 if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS the game supports" FORCE)
+  if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Oldest iOS the game supports" FORCE)
+  else()
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS the game supports" FORCE)
+  endif()
 endif()
 
 project(
@@ -86,32 +90,47 @@ target_include_directories(
 )
 target_link_libraries(smx PUBLIC SDL3::SDL3)
 
-# The translator runs the ROM in the interpreter to find entry points, so its
-# copy of the runtime is optimized even in Debug builds.
-add_library(smx_tool STATIC ${SMX_SOURCES})
-target_include_directories(smx_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(smx_tool PUBLIC SDL3::SDL3)
-if(MSVC)
-  target_compile_options(smx_tool PRIVATE /O2)
+if(CMAKE_CROSSCOMPILING)
+  # A build for another system, such as iOS, runs the tools of a build for
+  # this machine: `make ios` builds them in build/release first.
+  set(SMX_HOST_TOOLS "" CACHE PATH "Folder with smxrecomp, smxembed, and smxicon for this machine")
+  foreach(tool smxrecomp smxembed smxicon)
+    if(NOT EXISTS "${SMX_HOST_TOOLS}/${tool}")
+      message(FATAL_ERROR "A cross build needs SMX_HOST_TOOLS, a folder with ${tool} built for "
+                          "this machine, such as build/release."
+      )
+    endif()
+    add_executable(${tool} IMPORTED)
+    set_target_properties(${tool} PROPERTIES IMPORTED_LOCATION "${SMX_HOST_TOOLS}/${tool}")
+  endforeach()
 else()
-  target_compile_options(smx_tool PRIVATE -O2)
+  # The translator runs the ROM in the interpreter to find entry points, so its
+  # copy of the runtime is optimized even in Debug builds.
+  add_library(smx_tool STATIC ${SMX_SOURCES})
+  target_include_directories(smx_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(smx_tool PUBLIC SDL3::SDL3)
+  if(MSVC)
+    target_compile_options(smx_tool PRIVATE /O2)
+  else()
+    target_compile_options(smx_tool PRIVATE -O2)
+  endif()
+
+  add_executable(smxrecomp src/recomp_main.c)
+  target_link_libraries(smxrecomp PRIVATE smx_tool)
+
+  # smxembed turns the ROM into C for builds with SMX_EMBED_ROM.
+  add_executable(smxembed src/embed_main.c)
+  target_link_libraries(smxembed PRIVATE SDL3::SDL3)
+
+  # smxicon draws the game's icon as the .icns, .ico, and PNG files of the packages.
+  add_executable(smxicon src/icon_main.c src/icon.c)
+  target_include_directories(smxicon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(smxicon PRIVATE SDL3::SDL3)
+
+  # smxsave plays the ROM headless to write play-test saves; see playtest.sh.
+  add_executable(smxsave src/save_main.c)
+  target_link_libraries(smxsave PRIVATE smx_tool)
 endif()
-
-add_executable(smxrecomp src/recomp_main.c)
-target_link_libraries(smxrecomp PRIVATE smx_tool)
-
-# smxembed turns the ROM into C for builds with SMX_EMBED_ROM.
-add_executable(smxembed src/embed_main.c)
-target_link_libraries(smxembed PRIVATE SDL3::SDL3)
-
-# smxicon draws the game's icon as the .icns, .ico, and PNG files of the packages.
-add_executable(smxicon src/icon_main.c src/icon.c)
-target_include_directories(smxicon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(smxicon PRIVATE SDL3::SDL3)
-
-# smxsave plays the ROM headless to write play-test saves; see playtest.sh.
-add_executable(smxsave src/save_main.c)
-target_link_libraries(smxsave PRIVATE smx_tool)
 
 # The C files smxrecomp writes into `dir`.
 function(smx_game_sources dir out)
@@ -179,7 +198,39 @@ target_compile_definitions(
 # The icons and metadata of the packages, generated under the build tree.
 set(SMX_PACKAGING_DIR "${CMAKE_BINARY_DIR}/packaging")
 configure_file(packaging/README.txt.in "${SMX_PACKAGING_DIR}/README.txt" @ONLY)
-if(APPLE)
+if(IOS)
+  # iPhone and iPad icons, as PNG files in the bundle that its Info.plist names.
+  set(SMX_IOS_ICONS "")
+  foreach(icon "AppIcon60x60@2x:120" "AppIcon60x60@3x:180" "AppIcon76x76@2x:152"
+               "AppIcon83.5x83.5@2x:167"
+  )
+    string(REPLACE ":" ";" icon "${icon}")
+    list(GET icon 0 name)
+    list(GET icon 1 size)
+    set(png "${SMX_PACKAGING_DIR}/ios/${name}.png")
+    add_custom_command(
+      OUTPUT "${png}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${SMX_PACKAGING_DIR}/ios"
+      COMMAND smxicon png ${size} "${png}"
+      DEPENDS smxicon
+      VERBATIM
+    )
+    list(APPEND SMX_IOS_ICONS "${png}")
+  endforeach()
+  target_sources(SuperMetroidX PRIVATE ${SMX_IOS_ICONS})
+  set_source_files_properties(${SMX_IOS_ICONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+  set_target_properties(
+    SuperMetroidX
+    PROPERTIES
+      MACOSX_BUNDLE TRUE
+      MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/ios/Info.plist.in"
+      MACOSX_BUNDLE_BUNDLE_NAME "SuperMetroidX"
+      MACOSX_BUNDLE_GUI_IDENTIFIER "${SMX_APP_ID}"
+      MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+      MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+      MACOSX_BUNDLE_COPYRIGHT "${SMX_COPYRIGHT}"
+  )
+elseif(APPLE)
   set(SMX_ICNS "${SMX_PACKAGING_DIR}/SuperMetroidX.icns")
   add_custom_command(
     OUTPUT "${SMX_ICNS}"
@@ -201,53 +252,6 @@ if(APPLE)
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
       MACOSX_BUNDLE_COPYRIGHT "${SMX_COPYRIGHT}"
   )
-  if(CMAKE_GENERATOR STREQUAL "Xcode")
-    # `make xcode`: Xcode builds, runs, and debugs the game, signs it, and
-    # archives it. The other targets are build steps, so only the app is
-    # installed into an archive. The team comes from the keychain's signing
-    # certificates unless SMX_APPLE_TEAM names one; with a team the app has
-    # Xcode's automatic signing and the hardened runtime that notarization asks
-    # for, and without one it is signed to run locally.
-    set(SMX_APPLE_TEAM "" CACHE STRING "Apple developer team ID; empty finds it in the keychain")
-    set(SMX_TEAM "${SMX_APPLE_TEAM}")
-    if(NOT SMX_TEAM)
-      include(cmake/AppleTeam.cmake)
-      smx_apple_team(SMX_TEAM)
-    endif()
-    if(SMX_TEAM)
-      message(STATUS "Signing for Apple developer team ${SMX_TEAM}")
-    else()
-      message(
-        STATUS
-          "No Apple signing certificate: the app is signed to run on this Mac. To sign with your "
-          "team, add an Apple Development certificate in Xcode > Settings > Accounts > Manage "
-          "Certificates and run make xcode again."
-      )
-    endif()
-    set(CMAKE_XCODE_ATTRIBUTE_SKIP_INSTALL YES)
-    set(CMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS macosx)
-    set_target_properties(
-      SuperMetroidX
-      PROPERTIES
-        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${SMX_APP_ID}"
-        XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_SKIP_INSTALL NO
-        XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)"
-        XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
-        XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
-        XCODE_GENERATE_SCHEME ON
-        XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-    if(SMX_TEAM)
-      set_target_properties(
-        SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${SMX_TEAM}"
-                                 XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
-      )
-    else()
-      set_target_properties(SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-")
-    endif()
-  endif()
 elseif(WIN32)
   set(SMX_ICO "${SMX_PACKAGING_DIR}/SuperMetroidX.ico")
   set(SMX_MANIFEST "${CMAKE_SOURCE_DIR}/packaging/windows/SuperMetroidX.manifest")
@@ -290,154 +294,220 @@ else()
   )
 endif()
 
-enable_testing()
-add_executable(smx_tests tests/test_present.c)
-target_link_libraries(smx_tests PRIVATE smx)
-add_test(NAME present COMMAND smx_tests)
-
-add_executable(smx_test_cart tests/test_cart.c)
-target_link_libraries(smx_test_cart PRIVATE smx)
-add_test(NAME cart COMMAND smx_test_cart)
-set_tests_properties(cart PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-add_executable(smx_test_bus tests/test_bus.c)
-target_link_libraries(smx_test_bus PRIVATE smx)
-add_test(NAME bus COMMAND smx_test_bus)
-set_tests_properties(bus PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-add_executable(smx_test_cpu tests/test_cpu.c)
-target_link_libraries(smx_test_cpu PRIVATE smx)
-add_test(NAME cpu COMMAND smx_test_cpu)
-set_tests_properties(cpu PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-add_executable(smx_test_dma tests/test_dma.c)
-target_link_libraries(smx_test_dma PRIVATE smx)
-add_test(NAME dma COMMAND smx_test_dma)
-
-add_executable(smx_test_ppu tests/test_ppu.c)
-target_link_libraries(smx_test_ppu PRIVATE smx)
-add_test(NAME ppu COMMAND smx_test_ppu)
-
-add_executable(smx_test_clock tests/test_clock.c)
-target_link_libraries(smx_test_clock PRIVATE smx)
-add_test(NAME clock COMMAND smx_test_clock)
-set_tests_properties(clock PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-add_executable(smx_test_dsp tests/test_dsp.c)
-target_link_libraries(smx_test_dsp PRIVATE smx)
-add_test(NAME dsp COMMAND smx_test_dsp)
-
-# The translator test translates a synthetic ROM, then checks every opcode
-# against the interpreter.
-set(SMX_TROM_DIR "${CMAKE_BINARY_DIR}/translate_test")
-add_executable(smx_test_translate_rom tests/translate_romgen.c)
-target_link_libraries(smx_test_translate_rom PRIVATE smx)
-target_include_directories(smx_test_translate_rom PRIVATE tests)
-add_custom_command(
-  OUTPUT "${SMX_TROM_DIR}/test.sfc" "${SMX_TROM_DIR}/seeds.txt"
-  COMMAND smx_test_translate_rom "${SMX_TROM_DIR}"
-  DEPENDS smx_test_translate_rom
-  VERBATIM
-)
-smx_game_sources("${SMX_TROM_DIR}/game" SMX_TROM_SOURCES)
-add_custom_command(
-  OUTPUT ${SMX_TROM_SOURCES}
-  COMMAND smxrecomp --no-trace --seeds "${SMX_TROM_DIR}/seeds.txt" "${SMX_TROM_DIR}/test.sfc"
-          "${SMX_TROM_DIR}/game"
-  DEPENDS smxrecomp "${SMX_TROM_DIR}/test.sfc" "${SMX_TROM_DIR}/seeds.txt"
-  VERBATIM
-)
-add_library(smx_test_game STATIC ${SMX_TROM_SOURCES})
-target_link_libraries(smx_test_game PUBLIC smx)
-add_executable(smx_test_translate tests/test_translate.c)
-target_link_libraries(smx_test_translate PRIVATE smx_test_game smx)
-target_include_directories(smx_test_translate PRIVATE tests)
-add_test(NAME translate COMMAND smx_test_translate)
-
-add_executable(smx_test_save tests/test_save.c)
-target_link_libraries(smx_test_save PRIVATE smx)
-add_test(NAME save COMMAND smx_test_save)
-
-add_executable(smx_test_state tests/test_state.c)
-target_link_libraries(smx_test_state PRIVATE smx)
-add_test(NAME state COMMAND smx_test_state)
-
-add_executable(smx_test_sram tests/test_sram.c)
-target_link_libraries(smx_test_sram PRIVATE smx)
-add_test(NAME sram COMMAND smx_test_sram)
-
-# Tests that need the ROM. They run where one is given, such as on the
-# self-hosted runner, and never print or store its bytes.
-if(EXISTS "${SMX_ROM}")
-  add_executable(smx_test_game_run tests/test_game.c)
-  target_link_libraries(smx_test_game_run PRIVATE smx_game smx)
-  target_include_directories(smx_test_game_run PRIVATE tests)
-  foreach(run idle new-game interpreted)
-    add_test(NAME "game_${run}" COMMAND smx_test_game_run ${run} "${SMX_ROM}")
-    set_tests_properties("game_${run}" PROPERTIES LABELS rom TIMEOUT 1800)
-  endforeach()
-
-  # smxsave reaches play from each section's save station.
-  foreach(section ceres landing crateria brinstar norfair wrecked-ship maridia tourian)
-    add_test(
-      NAME "section_${section}"
-      COMMAND smxsave --section ${section} "${SMX_ROM}" "${CMAKE_BINARY_DIR}/test_sections/${section}"
-    )
-    set_tests_properties("section_${section}" PROPERTIES LABELS rom TIMEOUT 600)
-  endforeach()
-
-  # The shell starts on its own ROM, or on the file when the ROM is not built in.
-  if(SMX_EMBED_ROM)
-    set(SMX_SMOKE_ROM "")
-    set(SMX_SMOKE_LOADED "loaded Super Metroid *\\(built in\\)")
-  else()
-    set(SMX_SMOKE_ROM "${SMX_ROM}")
-    set(SMX_SMOKE_LOADED "loaded Super Metroid")
+# `make xcode` and `make ios`: Xcode builds, runs, and debugs the game, signs
+# it, and archives it. The other targets are build steps, so only the app is
+# installed into an archive. The team comes from the keychain's signing
+# certificates unless SMX_APPLE_TEAM names one. With a team the app has Xcode's
+# automatic signing, and on macOS the hardened runtime that notarization asks
+# for; without one it is signed to run on this Mac or in the iOS Simulator.
+if(APPLE AND CMAKE_GENERATOR STREQUAL "Xcode")
+  set(SMX_APPLE_TEAM "" CACHE STRING "Apple developer team ID; empty finds it in the keychain")
+  set(SMX_TEAM "${SMX_APPLE_TEAM}")
+  if(NOT SMX_TEAM)
+    include(cmake/AppleTeam.cmake)
+    smx_apple_team(SMX_TEAM)
   endif()
-  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test_smoke")
-  add_test(NAME smoke_rom COMMAND SuperMetroidX --smoke ${SMX_SMOKE_ROM})
-  set_tests_properties(
-    smoke_rom
+  if(SMX_TEAM)
+    message(STATUS "Signing for Apple developer team ${SMX_TEAM}")
+  else()
+    message(
+      STATUS
+        "No Apple signing certificate: the app is signed to run on this Mac or in the iOS "
+        "Simulator. To sign with your team, add an Apple Development certificate in Xcode > "
+        "Settings > Accounts > Manage Certificates and configure again."
+    )
+  endif()
+  set(CMAKE_XCODE_ATTRIBUTE_SKIP_INSTALL YES)
+  set_target_properties(
+    SuperMetroidX
     PROPERTIES
-      LABELS rom
-      WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test_smoke"
-      ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SMX_DATA_DIR=${CMAKE_BINARY_DIR}/test_smoke"
-      PASS_REGULAR_EXPRESSION "${SMX_SMOKE_LOADED}"
-      FAIL_REGULAR_EXPRESSION "translated, [1-9][0-9]* interpreted"
+      XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${SMX_APP_ID}"
+      XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
+      XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${PROJECT_VERSION}"
+      XCODE_ATTRIBUTE_SKIP_INSTALL NO
+      XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)"
+      XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
+      XCODE_GENERATE_SCHEME ON
+      XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
+  if(IOS)
+    # iPhone and iPad, on devices and in the Simulator.
+    set(CMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator")
+    # Keep the @2x and @3x icons apart: iOS reads PNGs, not a combined TIFF.
+    set_target_properties(
+      SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+                               XCODE_ATTRIBUTE_COMBINE_HIDPI_IMAGES NO
+    )
+  else()
+    set(CMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS macosx)
+    set_target_properties(SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES)
+  endif()
+  if(SMX_TEAM)
+    set_target_properties(
+      SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${SMX_TEAM}"
+                               XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
+    )
+  else()
+    set_target_properties(SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-")
+  endif()
 endif()
 
-add_executable(smx_test_cheat tests/test_cheat.c)
-target_link_libraries(smx_test_cheat PRIVATE smx_game smx)
-add_test(NAME cheat COMMAND smx_test_cheat)
-if(EXISTS "${SMX_ROM}")
-  add_test(NAME cheat_rom COMMAND smx_test_cheat "${SMX_ROM}")
-  set_tests_properties(cheat_rom PROPERTIES LABELS rom TIMEOUT 600)
+# Tests run on this machine, so a cross build has none.
+if(NOT CMAKE_CROSSCOMPILING)
+  enable_testing()
+  add_executable(smx_tests tests/test_present.c)
+  target_link_libraries(smx_tests PRIVATE smx)
+  add_test(NAME present COMMAND smx_tests)
+
+  add_executable(smx_test_cart tests/test_cart.c)
+  target_link_libraries(smx_test_cart PRIVATE smx)
+  add_test(NAME cart COMMAND smx_test_cart)
+  set_tests_properties(cart PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+  add_executable(smx_test_bus tests/test_bus.c)
+  target_link_libraries(smx_test_bus PRIVATE smx)
+  add_test(NAME bus COMMAND smx_test_bus)
+  set_tests_properties(bus PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+  add_executable(smx_test_cpu tests/test_cpu.c)
+  target_link_libraries(smx_test_cpu PRIVATE smx)
+  add_test(NAME cpu COMMAND smx_test_cpu)
+  set_tests_properties(cpu PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+  add_executable(smx_test_dma tests/test_dma.c)
+  target_link_libraries(smx_test_dma PRIVATE smx)
+  add_test(NAME dma COMMAND smx_test_dma)
+
+  add_executable(smx_test_ppu tests/test_ppu.c)
+  target_link_libraries(smx_test_ppu PRIVATE smx)
+  add_test(NAME ppu COMMAND smx_test_ppu)
+
+  add_executable(smx_test_clock tests/test_clock.c)
+  target_link_libraries(smx_test_clock PRIVATE smx)
+  add_test(NAME clock COMMAND smx_test_clock)
+  set_tests_properties(clock PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+  add_executable(smx_test_dsp tests/test_dsp.c)
+  target_link_libraries(smx_test_dsp PRIVATE smx)
+  add_test(NAME dsp COMMAND smx_test_dsp)
+
+  # The translator test translates a synthetic ROM, then checks every opcode
+  # against the interpreter.
+  set(SMX_TROM_DIR "${CMAKE_BINARY_DIR}/translate_test")
+  add_executable(smx_test_translate_rom tests/translate_romgen.c)
+  target_link_libraries(smx_test_translate_rom PRIVATE smx)
+  target_include_directories(smx_test_translate_rom PRIVATE tests)
+  add_custom_command(
+    OUTPUT "${SMX_TROM_DIR}/test.sfc" "${SMX_TROM_DIR}/seeds.txt"
+    COMMAND smx_test_translate_rom "${SMX_TROM_DIR}"
+    DEPENDS smx_test_translate_rom
+    VERBATIM
+  )
+  smx_game_sources("${SMX_TROM_DIR}/game" SMX_TROM_SOURCES)
+  add_custom_command(
+    OUTPUT ${SMX_TROM_SOURCES}
+    COMMAND smxrecomp --no-trace --seeds "${SMX_TROM_DIR}/seeds.txt" "${SMX_TROM_DIR}/test.sfc"
+            "${SMX_TROM_DIR}/game"
+    DEPENDS smxrecomp "${SMX_TROM_DIR}/test.sfc" "${SMX_TROM_DIR}/seeds.txt"
+    VERBATIM
+  )
+  add_library(smx_test_game STATIC ${SMX_TROM_SOURCES})
+  target_link_libraries(smx_test_game PUBLIC smx)
+  add_executable(smx_test_translate tests/test_translate.c)
+  target_link_libraries(smx_test_translate PRIVATE smx_test_game smx)
+  target_include_directories(smx_test_translate PRIVATE tests)
+  add_test(NAME translate COMMAND smx_test_translate)
+
+  add_executable(smx_test_save tests/test_save.c)
+  target_link_libraries(smx_test_save PRIVATE smx)
+  add_test(NAME save COMMAND smx_test_save)
+
+  add_executable(smx_test_state tests/test_state.c)
+  target_link_libraries(smx_test_state PRIVATE smx)
+  add_test(NAME state COMMAND smx_test_state)
+
+  add_executable(smx_test_sram tests/test_sram.c)
+  target_link_libraries(smx_test_sram PRIVATE smx)
+  add_test(NAME sram COMMAND smx_test_sram)
+
+  # Tests that need the ROM. They run where one is given, such as on the
+  # self-hosted runner, and never print or store its bytes.
+  if(EXISTS "${SMX_ROM}")
+    add_executable(smx_test_game_run tests/test_game.c)
+    target_link_libraries(smx_test_game_run PRIVATE smx_game smx)
+    target_include_directories(smx_test_game_run PRIVATE tests)
+    foreach(run idle new-game interpreted)
+      add_test(NAME "game_${run}" COMMAND smx_test_game_run ${run} "${SMX_ROM}")
+      set_tests_properties("game_${run}" PROPERTIES LABELS rom TIMEOUT 1800)
+    endforeach()
+
+    # smxsave reaches play from each section's save station.
+    foreach(section ceres landing crateria brinstar norfair wrecked-ship maridia tourian)
+      add_test(
+        NAME "section_${section}"
+        COMMAND smxsave --section ${section} "${SMX_ROM}" "${CMAKE_BINARY_DIR}/test_sections/${section}"
+      )
+      set_tests_properties("section_${section}" PROPERTIES LABELS rom TIMEOUT 600)
+    endforeach()
+
+    # The shell starts on its own ROM, or on the file when the ROM is not built in.
+    if(SMX_EMBED_ROM)
+      set(SMX_SMOKE_ROM "")
+      set(SMX_SMOKE_LOADED "loaded Super Metroid *\\(built in\\)")
+    else()
+      set(SMX_SMOKE_ROM "${SMX_ROM}")
+      set(SMX_SMOKE_LOADED "loaded Super Metroid")
+    endif()
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test_smoke")
+    add_test(NAME smoke_rom COMMAND SuperMetroidX --smoke ${SMX_SMOKE_ROM})
+    set_tests_properties(
+      smoke_rom
+      PROPERTIES
+        LABELS rom
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test_smoke"
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SMX_DATA_DIR=${CMAKE_BINARY_DIR}/test_smoke"
+        PASS_REGULAR_EXPRESSION "${SMX_SMOKE_LOADED}"
+        FAIL_REGULAR_EXPRESSION "translated, [1-9][0-9]* interpreted"
+    )
+  endif()
+
+  add_executable(smx_test_cheat tests/test_cheat.c)
+  target_link_libraries(smx_test_cheat PRIVATE smx_game smx)
+  add_test(NAME cheat COMMAND smx_test_cheat)
+  if(EXISTS "${SMX_ROM}")
+    add_test(NAME cheat_rom COMMAND smx_test_cheat "${SMX_ROM}")
+    set_tests_properties(cheat_rom PROPERTIES LABELS rom TIMEOUT 600)
+  endif()
+
+  add_executable(smx_test_resample tests/test_resample.c)
+  target_link_libraries(smx_test_resample PRIVATE smx)
+  add_test(NAME resample COMMAND smx_test_resample)
+
+  add_executable(smx_test_settings tests/test_settings.c)
+  target_link_libraries(smx_test_settings PRIVATE smx)
+  add_test(NAME settings COMMAND smx_test_settings)
+
+  add_executable(smx_test_menu tests/test_menu.c)
+  target_link_libraries(smx_test_menu PRIVATE smx)
+  add_test(NAME menu COMMAND smx_test_menu)
+
+  add_executable(smx_test_skip tests/test_skip.c)
+  target_link_libraries(smx_test_skip PRIVATE smx)
+  add_test(NAME skip COMMAND smx_test_skip)
+
+  add_executable(smx_test_apu tests/test_apu.c)
+  target_link_libraries(smx_test_apu PRIVATE smx)
+  add_test(NAME apu COMMAND smx_test_apu)
+
+  add_executable(smx_test_icon tests/test_icon.c)
+  target_link_libraries(smx_test_icon PRIVATE smx)
+  add_test(NAME icon COMMAND smx_test_icon)
 endif()
 
-add_executable(smx_test_resample tests/test_resample.c)
-target_link_libraries(smx_test_resample PRIVATE smx)
-add_test(NAME resample COMMAND smx_test_resample)
-
-add_executable(smx_test_settings tests/test_settings.c)
-target_link_libraries(smx_test_settings PRIVATE smx)
-add_test(NAME settings COMMAND smx_test_settings)
-
-add_executable(smx_test_menu tests/test_menu.c)
-target_link_libraries(smx_test_menu PRIVATE smx)
-add_test(NAME menu COMMAND smx_test_menu)
-
-add_executable(smx_test_skip tests/test_skip.c)
-target_link_libraries(smx_test_skip PRIVATE smx)
-add_test(NAME skip COMMAND smx_test_skip)
-
-add_executable(smx_test_apu tests/test_apu.c)
-target_link_libraries(smx_test_apu PRIVATE smx)
-add_test(NAME apu COMMAND smx_test_apu)
-
-add_executable(smx_test_icon tests/test_icon.c)
-target_link_libraries(smx_test_icon PRIVATE smx)
-add_test(NAME icon COMMAND smx_test_icon)
+# An iOS app goes to a device through Xcode, so it has no package.
+if(IOS)
+  return()
+endif()
 
 # `make package` installs into CPack's staging folder and archives it: a
 # disk image on macOS, a zip on Windows, and a tarball in the usual Linux

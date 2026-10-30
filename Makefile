@@ -4,6 +4,7 @@ BUILD_DIR := build
 DEBUG_DIR := $(BUILD_DIR)/debug
 RELEASE_DIR := $(BUILD_DIR)/release
 XCODE_DIR := $(BUILD_DIR)/xcode
+IOS_DIR := $(BUILD_DIR)/ios
 
 CMAKE ?= cmake
 NINJA ?= ninja
@@ -33,7 +34,7 @@ CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA) $(CMAKE_ARGS)
 
 .DEFAULT_GOAL := build
 
-.PHONY: build release play run debug fmt test test-release docs clean package dist xcode configure-debug configure-release
+.PHONY: build release play run debug fmt test test-release docs clean package dist xcode ios configure-debug configure-release
 
 build: configure-debug
 	$(CMAKE) --build $(DEBUG_DIR)
@@ -95,4 +96,18 @@ ifneq ($(shell uname -s),Darwin)
 else
 	$(CMAKE) -S . -B $(XCODE_DIR) -G Xcode $(CMAKE_ARGS) $(if $(TEAM),-DSMX_APPLE_TEAM=$(TEAM))
 	open $(XCODE_DIR)/SuperMetroidX.xcodeproj
+endif
+
+# An Xcode project for iPhone and iPad in build/ios, opened in Xcode. The translator and
+# the icon tool run on this Mac, so the Release build makes them first.
+ios:
+ifneq ($(shell uname -s),Darwin)
+	@echo "make ios needs macOS and Xcode" >&2; exit 1
+else
+	$(MAKE) configure-release
+	$(CMAKE) --build $(RELEASE_DIR) --target smxrecomp smxembed smxicon
+	$(CMAKE) -S . -B $(IOS_DIR) -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DSMX_HOST_TOOLS=$(abspath $(RELEASE_DIR)) $(CMAKE_ARGS) $(if $(TEAM),-DSMX_APPLE_TEAM=$(TEAM))
+ifneq ($(OPEN),0)
+	open $(IOS_DIR)/SuperMetroidX.xcodeproj
+endif
 endif

@@ -130,6 +130,18 @@ The project signs the app for the Apple developer team of a signing certificate 
 
 **Product > Archive** makes a Release archive of the app. In the Organizer, **Distribute App > Direct Distribution** signs it with your Developer ID and has Apple notarize it. That needs a paid developer account. Notarizing uploads the app, and with it the game, to Apple. A notarized build is still a build of Nintendo's game, so as [above](#build-it-yourself), keep it for your own machines. **Custom**, then **Developer ID** and **Export**, signs it with your Developer ID without notarizing it. The App Store and TestFlight aren't supported: putting a build there would be distributing the game.
 
+### iPhone and iPad
+
+`make ios` builds the translator for your Mac, then writes an iOS Xcode project to `build/ios` and opens it. The game is built from your ROM as on the Mac, and signed the same way, for the team of a certificate in your keychain. In Xcode, choose a simulator, or your iPhone or iPad, as the run destination, and press **Run**. A device needs **Developer Mode** on (**Settings > Privacy & Security**) the first time. With a free Apple account, an app on a device stops opening after seven days until you run it from Xcode again; a paid account makes that a year. The simulator needs no account.
+
+The iOS version is new and not finished:
+
+- **Controls:** there are no touch controls yet. Pair a controller over Bluetooth, such as an Xbox, PlayStation, or other MFi controller. It plays as on the Mac, and pressing the right stick opens the settings menu.
+- **Picture:** it fills the screen in landscape at the TV shape, but without scanlines. Scanlines need OpenGL 3.2, which iOS doesn't have.
+- **Saves:** the game saves at save stations, and the save is written out whenever the app goes to the background.
+
+The same rules apply as on the Mac: a build is for your own devices, and the App Store and TestFlight aren't supported.
+
 ## Display
 
 The picture fills the screen at the shape an NTSC television gave it, with CRT scanlines drawn by an OpenGL 3.2 shader built into the program. Each enhancement can be turned off:

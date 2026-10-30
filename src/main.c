@@ -612,6 +612,8 @@ int main(int argc, char **argv) {
   shell.overlay = &overlay;
 
   bool running = true;
+  /* A phone or tablet has put the game in the background; it waits there. */
+  bool background = false;
   /* Turbo's speed in percent, and the hundredths of a frame it owes without audio to pace it. */
   Uint32 speed = 100;
   Uint32 speed_owed = 0;
@@ -695,6 +697,20 @@ int main(int argc, char **argv) {
         /* The key after the cheats' steps through turbo's speeds. */
         smx_cheat_turbo_next(&cheats);
         smx_shell_turbo_shown(&overlay, &cheats);
+      } else if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+                 event.type == SDL_EVENT_TERMINATING) {
+        /* iOS can end a suspended app without warning, so the save goes out first. */
+        if (machine) {
+          smx_sram_flush(&sram, &bus);
+        }
+        smx_sound_pause(&sound, true);
+        background = true;
+      } else if (event.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+        background = false;
+        if (!shell.menu.open) {
+          smx_sound_pause(&sound, false);
+        }
+        next_frame = SDL_GetTicksNS();
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
       } else if (event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
@@ -705,6 +721,11 @@ int main(int argc, char **argv) {
         SDL_CloseGamepad(pad);
         pad = NULL;
       }
+    }
+
+    if (background) {
+      SDL_Delay(16);
+      continue;
     }
 
     /* The game waits while the settings menu is open. */
