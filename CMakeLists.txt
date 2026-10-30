@@ -217,7 +217,12 @@ if(APPLE)
     if(SMX_TEAM)
       message(STATUS "Signing for Apple developer team ${SMX_TEAM}")
     else()
-      message(STATUS "No Apple signing certificate: the app is signed to run on this Mac")
+      message(
+        STATUS
+          "No Apple signing certificate: the app is signed to run on this Mac. To sign with your "
+          "team, add an Apple Development certificate in Xcode > Settings > Accounts > Manage "
+          "Certificates and run make xcode again."
+      )
     endif()
     set(CMAKE_XCODE_ATTRIBUTE_SKIP_INSTALL YES)
     set(CMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS macosx)
