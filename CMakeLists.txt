@@ -11,7 +11,7 @@ endif()
 
 project(
   SuperMetroidX
-  VERSION 1.1.0
+  VERSION 1.2.0
   DESCRIPTION "Static recompilation of Super Metroid"
   HOMEPAGE_URL "https://github.com/bluesentinelsec/SuperMetroidX"
   LANGUAGES C
@@ -21,7 +21,7 @@ if(WIN32)
 endif()
 
 # What the packages say about the game. Change SMX_RELEASE_DATE with the version.
-set(SMX_RELEASE_DATE "2026-10-28")
+set(SMX_RELEASE_DATE "2026-10-29")
 set(SMX_APP_ID "io.github.bluesentinelsec.SuperMetroidX")
 set(SMX_VENDOR "bluesentinelsec")
 set(SMX_COPYRIGHT "Copyright © 2026 bluesentinelsec. Licensed under the GNU GPL version 3.")

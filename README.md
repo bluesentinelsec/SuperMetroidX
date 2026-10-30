@@ -2,7 +2,7 @@
 
 ![SuperMetroidX trailer: the title screen, Brinstar, Norfair, Kraid, Phantoon, Mother Brain, Ridley, the five cheats, scanlines, and sound](media/trailer.gif)
 
-A static recompilation of Super Metroid for Windows, macOS, and Linux. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
+A static recompilation of Super Metroid for Windows, macOS, and Linux, and for iPhone and iPad. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
 
 On top of the console's behaviour, which it leaves unchanged, the game adds:
 
@@ -11,6 +11,8 @@ On top of the console's behaviour, which it leaves unchanged, the game adds:
 - an in-game settings menu (`~`, or R3 on a gamepad) that saves your choices
 - five optional cheats, and turbo at up to four times the speed for elevators and the end credits
 - an intro you can skip by holding any button
+- an iPhone and iPad version with touch controls in the Super Famicom's colors
+- an Xcode project that builds, debugs, signs, and notarizes the Mac app
 - quick-save states
 
 ## Build it yourself
