@@ -3,6 +3,7 @@
 BUILD_DIR := build
 DEBUG_DIR := $(BUILD_DIR)/debug
 RELEASE_DIR := $(BUILD_DIR)/release
+XCODE_DIR := $(BUILD_DIR)/xcode
 
 CMAKE ?= cmake
 NINJA ?= ninja
@@ -13,6 +14,8 @@ ARGS ?=
 # Extra CMake cache settings, such as -DSMX_EMBED_ROM=OFF, and extra ctest flags, such as -LE rom.
 CMAKE_ARGS ?=
 CTEST_ARGS ?=
+# The Apple developer team that signs the Xcode project's app, when not the keychain's; kept once given.
+TEAM ?=
 
 ifeq ($(OS),Windows_NT)
   BIN := SuperMetroidX.exe
@@ -30,7 +33,7 @@ CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA) $(CMAKE_ARGS)
 
 .DEFAULT_GOAL := build
 
-.PHONY: build release play run debug fmt test test-release docs clean package dist configure-debug configure-release
+.PHONY: build release play run debug fmt test test-release docs clean package dist xcode configure-debug configure-release
 
 build: configure-debug
 	$(CMAKE) --build $(DEBUG_DIR)
@@ -84,3 +87,12 @@ package: release
 	@ls $(RELEASE_DIR)/dist | grep -v '^_CPack_Packages$$'
 
 dist: package
+
+# An Xcode project in build/xcode, opened in Xcode, that builds, runs, debugs, signs, and archives the app.
+xcode:
+ifneq ($(shell uname -s),Darwin)
+	@echo "make xcode needs macOS and Xcode" >&2; exit 1
+else
+	$(CMAKE) -S . -B $(XCODE_DIR) -G Xcode $(CMAKE_ARGS) $(if $(TEAM),-DSMX_APPLE_TEAM=$(TEAM))
+	open $(XCODE_DIR)/SuperMetroidX.xcodeproj
+endif

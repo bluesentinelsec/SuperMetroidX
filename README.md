@@ -120,7 +120,15 @@ With the ROM built in, the game also starts from Finder or Explorer as it is. Wi
 
 Each package has a short `README.txt` for players and the GNU GPL as `LICENSE.txt`. The icon is drawn in code (`src/icon.c`), and `smxicon` writes it as `.icns`, `.ico`, and PNG files at build time. The metadata templates are in `packaging/`, filled in from the version in `CMakeLists.txt`. A Linux package runs on distributions with the same or a newer glibc than the one it was built on.
 
-A package is a build, so it contains the ROM's translated code, and the ROM itself unless `SMX_EMBED_ROM` is off. As [above](#build-it-yourself), it is for your own machines. The app is not signed or notarized, which a build you make yourself doesn't need.
+A package is a build, so it contains the ROM's translated code, and the ROM itself unless `SMX_EMBED_ROM` is off. As [above](#build-it-yourself), it is for your own machines. The app is not signed or notarized, which a build you make yourself doesn't need. To sign or notarize it anyway, use [Xcode](#xcode).
+
+### Xcode
+
+On macOS, `make xcode` writes an Xcode project to `build/xcode` and opens it. The first run takes several minutes while CMake configures SDL for Xcode. The `SuperMetroidX` scheme builds, runs, and debugs the game, with the repository root as its working directory. That includes breakpoints in the translated code, Instruments, and the GPU frame debugger. The project comes from CMake, so change `CMakeLists.txt` rather than the project's settings, which the next configure would overwrite.
+
+The project signs the app for the Apple developer team of a signing certificate in your keychain, preferring a Developer ID certificate, and the configure step names the team it chose. To get a certificate, sign in to Xcode with your Apple ID (**Settings > Accounts**, a free account or a paid one), choose **Manage Certificates**, add an **Apple Development** certificate, and run `make xcode` again. The app then uses Xcode's automatic signing and the hardened runtime, and Debug builds still let the debugger attach. With no certificate, it is signed to run on your Mac only. If you belong to more than one team, choose one once with `make xcode TEAM=ABCDE12345`; the project keeps it. Choose the team here rather than in Xcode's **Signing & Capabilities**, because CMake rewrites the project whenever `CMakeLists.txt` changes.
+
+**Product > Archive** makes a Release archive of the app. In the Organizer, **Distribute App > Direct Distribution** signs it with your Developer ID and has Apple notarize it. That needs a paid developer account. Notarizing uploads the app, and with it the game, to Apple. A notarized build is still a build of Nintendo's game, so as [above](#build-it-yourself), keep it for your own machines. **Custom**, then **Developer ID** and **Export**, signs it with your Developer ID without notarizing it. The App Store and TestFlight aren't supported: putting a build there would be distributing the game.
 
 ## Display
 
