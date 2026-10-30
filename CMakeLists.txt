@@ -201,6 +201,37 @@ if(APPLE)
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
       MACOSX_BUNDLE_COPYRIGHT "${SMX_COPYRIGHT}"
   )
+  if(CMAKE_GENERATOR STREQUAL "Xcode")
+    # `make xcode`: Xcode builds, runs, and debugs the game, signs it, and
+    # archives it. The other targets are build steps, so only the app is
+    # installed into an archive; with a team the app has Xcode's automatic
+    # signing and the hardened runtime that notarization asks for, and without
+    # one it is signed to run locally.
+    set(SMX_APPLE_TEAM "" CACHE STRING "Apple developer team ID for Xcode's automatic signing")
+    set(CMAKE_XCODE_ATTRIBUTE_SKIP_INSTALL YES)
+    set(CMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS macosx)
+    set_target_properties(
+      SuperMetroidX
+      PROPERTIES
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${SMX_APP_ID}"
+        XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${PROJECT_VERSION}"
+        XCODE_ATTRIBUTE_SKIP_INSTALL NO
+        XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)"
+        XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
+        XCODE_ATTRIBUTE_CODE_SIGN_STYLE Automatic
+        XCODE_GENERATE_SCHEME ON
+        XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    if(SMX_APPLE_TEAM)
+      set_target_properties(
+        SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${SMX_APPLE_TEAM}"
+                                 XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
+      )
+    else()
+      set_target_properties(SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-")
+    endif()
+  endif()
 elseif(WIN32)
   set(SMX_ICO "${SMX_PACKAGING_DIR}/SuperMetroidX.ico")
   set(SMX_MANIFEST "${CMAKE_SOURCE_DIR}/packaging/windows/SuperMetroidX.manifest")

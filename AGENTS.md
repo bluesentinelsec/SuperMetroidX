@@ -64,6 +64,7 @@ CMake is the build description. The Makefile is the only interface people should
 - `make docs` — Doxygen HTML under `docs/html`
 - `make clean` — delete `build/` and `docs/html`
 - `make package` (or `make dist`) — Release build, tests, and a CPack package in `build/release/dist`: a `.dmg` of the app bundle, a `.zip` of the `.exe`, or a `.tar.gz` in the Linux `bin/` and `share/` layout
+- `make xcode` — macOS: an Xcode project in `build/xcode`, opened in Xcode, to build, run, debug, sign, and archive the app; `TEAM=<team ID>` signs with that Apple developer team. Its settings come from `CMakeLists.txt`, never from edits to the generated project
 
 Generated files stay under `build/`. Do not commit them. That includes `build/*/game/`, the translation of the ROM, and its `trace.txt`.
 
