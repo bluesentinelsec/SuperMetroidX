@@ -126,13 +126,7 @@ A package is a build, so it contains the ROM's translated code, and the ROM itse
 
 On macOS, `make xcode` writes an Xcode project to `build/xcode` and opens it. The first run takes several minutes while CMake configures SDL for Xcode. The `SuperMetroidX` scheme builds, runs, and debugs the game, with the repository root as its working directory. That includes breakpoints in the translated code, Instruments, and the GPU frame debugger. The project comes from CMake, so change `CMakeLists.txt` rather than the project's settings, which the next configure would overwrite.
 
-Give your Apple developer team ID to sign with it, once; the project keeps it:
-
-```sh
-make xcode TEAM=ABCDE12345
-```
-
-`security find-identity -v -p codesigning` lists your certificates, with the team ID in parentheses after a Developer ID certificate's name. With a team, the app uses Xcode's automatic signing and the hardened runtime, and Debug builds still let the debugger attach. Without one, it is signed to run on your Mac only.
+The project signs the app for the Apple developer team of a signing certificate in your keychain, preferring a Developer ID certificate, and the configure step names the team it chose. Signing in to Xcode with your Apple ID (**Settings > Accounts**) makes the certificates, with a free account or a paid one. The app then uses Xcode's automatic signing and the hardened runtime, and Debug builds still let the debugger attach. With no certificate, it is signed to run on your Mac only. If you belong to more than one team, choose one once with `make xcode TEAM=ABCDE12345`; the project keeps it. Choose the team here rather than in Xcode's **Signing & Capabilities**, because CMake rewrites the project whenever `CMakeLists.txt` changes.
 
 **Product > Archive** makes a Release archive of the app. In the Organizer, **Distribute App > Direct Distribution** signs it with your Developer ID and has Apple notarize it. That needs a paid developer account. Notarizing uploads the app, and with it the game, to Apple. A notarized build is still a build of Nintendo's game, so as [above](#build-it-yourself), keep it for your own machines. **Custom**, then **Developer ID** and **Export**, signs it with your Developer ID without notarizing it. The App Store and TestFlight aren't supported: putting a build there would be distributing the game.
 

@@ -204,10 +204,21 @@ if(APPLE)
   if(CMAKE_GENERATOR STREQUAL "Xcode")
     # `make xcode`: Xcode builds, runs, and debugs the game, signs it, and
     # archives it. The other targets are build steps, so only the app is
-    # installed into an archive; with a team the app has Xcode's automatic
-    # signing and the hardened runtime that notarization asks for, and without
-    # one it is signed to run locally.
-    set(SMX_APPLE_TEAM "" CACHE STRING "Apple developer team ID for Xcode's automatic signing")
+    # installed into an archive. The team comes from the keychain's signing
+    # certificates unless SMX_APPLE_TEAM names one; with a team the app has
+    # Xcode's automatic signing and the hardened runtime that notarization asks
+    # for, and without one it is signed to run locally.
+    set(SMX_APPLE_TEAM "" CACHE STRING "Apple developer team ID; empty finds it in the keychain")
+    set(SMX_TEAM "${SMX_APPLE_TEAM}")
+    if(NOT SMX_TEAM)
+      include(cmake/AppleTeam.cmake)
+      smx_apple_team(SMX_TEAM)
+    endif()
+    if(SMX_TEAM)
+      message(STATUS "Signing for Apple developer team ${SMX_TEAM}")
+    else()
+      message(STATUS "No Apple signing certificate: the app is signed to run on this Mac")
+    endif()
     set(CMAKE_XCODE_ATTRIBUTE_SKIP_INSTALL YES)
     set(CMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS macosx)
     set_target_properties(
@@ -223,9 +234,9 @@ if(APPLE)
         XCODE_GENERATE_SCHEME ON
         XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
-    if(SMX_APPLE_TEAM)
+    if(SMX_TEAM)
       set_target_properties(
-        SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${SMX_APPLE_TEAM}"
+        SuperMetroidX PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${SMX_TEAM}"
                                  XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
       )
     else()

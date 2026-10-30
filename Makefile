@@ -14,7 +14,7 @@ ARGS ?=
 # Extra CMake cache settings, such as -DSMX_EMBED_ROM=OFF, and extra ctest flags, such as -LE rom.
 CMAKE_ARGS ?=
 CTEST_ARGS ?=
-# The Apple developer team that signs the Xcode project's app; kept in its cache once given.
+# The Apple developer team that signs the Xcode project's app, when not the keychain's; kept once given.
 TEAM ?=
 
 ifeq ($(OS),Windows_NT)
