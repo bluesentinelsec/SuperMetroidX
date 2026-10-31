@@ -38,6 +38,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 if(MSVC)
+  # Keep Windows packages self-contained instead of requiring the VC runtime.
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   set(CMAKE_C_FLAGS_DEBUG "/Od /Zi /DDEBUG")
   set(CMAKE_C_FLAGS_RELEASE "/O2 /DNDEBUG")
 else()
@@ -279,6 +281,10 @@ elseif(WIN32)
   configure_file(packaging/windows/SuperMetroidX.rc.in "${SMX_RC}" @ONLY)
   target_sources(SuperMetroidX PRIVATE "${SMX_RC}")
   set_source_files_properties("${SMX_RC}" PROPERTIES OBJECT_DEPENDS "${SMX_ICO};${SMX_MANIFEST}")
+  # The resource script embeds our manifest; do not let MSVC add a second copy.
+  if(MSVC)
+    target_link_options(SuperMetroidX PRIVATE /MANIFEST:NO)
+  endif()
   # Release builds are windowed programs; Debug keeps a console for the log.
   if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set_target_properties(SuperMetroidX PROPERTIES WIN32_EXECUTABLE TRUE)

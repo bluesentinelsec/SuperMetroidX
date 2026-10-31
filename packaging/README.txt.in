@@ -16,6 +16,9 @@ Linux    Unpack the archive and run bin/SuperMetroidX. To add the game to
 A build without the ROM built in looks for SuperMetroid.sfc in the save
 folder (below), or takes a ROM path on the command line.
 
+If another program is saturating the GPU and the picture stalls, start with
+--renderer software. This presents through the CPU and disables scanlines.
+
 
 CONTROLS
 

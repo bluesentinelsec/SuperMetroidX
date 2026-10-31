@@ -72,15 +72,17 @@ static bool test_options(void) {
   char *fullscreen[] = {"--window-mode", "fullscreen"};
   char *windowed[] = {"--window-mode", "windowed"};
   char *borderless[] = {"--window-mode", "borderless"};
+  char *software[] = {"--renderer", "software"};
+  char *automatic[] = {"--renderer", "auto"};
   char *scale[] = {"--scale", "integer"};
   char *aspect[] = {"--aspect", "square"};
   char *scanlines[] = {"--scanlines", "off"};
-  char *bad[] = {"--scanlines", "maybe"};
+  char *bad[] = {"--renderer", "maybe"};
   char *missing[] = {"--aspect"};
   char *other[] = {"--load-state", "rom.sfc"};
 
   smx_present_defaults(&options);
-  if (!options.fill || !options.tv_aspect || !options.scanlines) {
+  if (options.software_renderer || !options.fill || !options.tv_aspect || !options.scanlines) {
     SDL_Log("enhancements should default on");
     return false;
   }
@@ -109,6 +111,11 @@ static bool test_options(void) {
       smx_present_option(&options, 2, aspect) != 2 || options.tv_aspect ||
       smx_present_option(&options, 2, scanlines) != 2 || options.scanlines) {
     SDL_Log("enhancement switches not applied");
+    return false;
+  }
+  if (smx_present_option(&options, 2, software) != 2 || !options.software_renderer ||
+      smx_present_option(&options, 2, automatic) != 2 || options.software_renderer) {
+    SDL_Log("--renderer not applied");
     return false;
   }
   if (smx_present_option(&options, 2, bad) != -1 ||

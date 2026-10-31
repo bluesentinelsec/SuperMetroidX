@@ -51,7 +51,7 @@ The executable target is `SuperMetroidX`. The static library target is `smx`. Th
 
 ## Build
 
-CMake is the build description. The Makefile is the only interface people should need.
+CMake is the build description. The Makefile is the interface on macOS, Linux, and MSYS2; `build.bat` provides the same common commands in native Windows shells.
 
 - `make build` — Debug: no optimization, debug symbols
 - `make release` — optimized, `NDEBUG`
@@ -64,6 +64,7 @@ CMake is the build description. The Makefile is the only interface people should
 - `make docs` — Doxygen HTML under `docs/html`
 - `make clean` — delete `build/` and `docs/html`
 - `make package` (or `make dist`) — Release build, tests, and a CPack package in `build/release/dist`: a `.dmg` of the app bundle, a `.zip` of the `.exe`, or a `.tar.gz` in the Linux `bin/` and `share/` layout
+- `build.bat <command>` — native Windows equivalents for `build`, `release`, `play`, `run`, `test`, `test-release`, `package`/`dist`, and `clean`; optional settings use the same `CMAKE_ARGS`, `CTEST_ARGS`, `ROM`, and `ARGS` environment variables
 - `make xcode` — macOS: an Xcode project in `build/xcode`, opened in Xcode, to build, run, debug, sign, and archive the app; it signs for the team of a signing certificate in the keychain (`cmake/AppleTeam.cmake`), or `TEAM=<team ID>`. Its settings come from `CMakeLists.txt`, never from edits to the generated project
 - `make ios` — the same for iPhone and iPad in `build/ios`. A cross build (`CMAKE_CROSSCOMPILING`) imports `smxrecomp`, `smxembed`, and `smxicon` from `SMX_HOST_TOOLS` (the Release build) and has no tests or package
 - `make android` — a Release cross build with the NDK in `build/android`: the game as `libmain.so`, packed into `SuperMetroidX.apk` with SDL's Java activity by the SDK's own tools (`cmake/AndroidApk.cmake`; no Gradle), signed with the SDK's debug key. It takes the SDK from `ANDROID_SDK` (default `~/Library/Android/sdk` or `~/Android/Sdk`), its newest NDK, one `ANDROID_ABI` (default `arm64-v8a`), and a JDK 17 when there is one, because the d8 of build-tools before 35 can't read classes from javac 21 or later

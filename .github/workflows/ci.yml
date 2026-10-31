@@ -43,7 +43,7 @@ jobs:
       - name: Install tools (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install -y ninja make
+        run: choco install -y ninja
 
       - name: Cache SDL
         uses: actions/cache@v4
@@ -53,11 +53,9 @@ jobs:
 
       # Hosted runners never have the ROM; embedding is off so a stray one is never linked in.
       - name: Build and test
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            export PATH="/c/ProgramData/chocolatey/bin:/c/Program Files/Git/usr/bin:$PATH"
-          fi
           make test CMAKE_ARGS=-DSMX_EMBED_ROM=OFF
           if [ -d build/debug/SuperMetroidX.app ]; then
             bin=build/debug/SuperMetroidX.app/Contents/MacOS/SuperMetroidX
@@ -68,16 +66,31 @@ jobs:
           fi
           SDL_VIDEODRIVER=dummy "$bin" --smoke
 
+      - name: Build and test (Windows wrapper)
+        if: runner.os == 'Windows'
+        shell: cmd
+        env:
+          CMAKE_ARGS: -DSMX_EMBED_ROM=OFF
+        run: |
+          call build.bat test
+          set SDL_VIDEODRIVER=dummy
+          build\debug\SuperMetroidX.exe --smoke
+
       # The package each system's players would download, built without the
       # ROM and checked, never uploaded.
       - name: Package
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            export PATH="/c/ProgramData/chocolatey/bin:/c/Program Files/Git/usr/bin:$PATH"
-          fi
           make package CMAKE_ARGS=-DSMX_EMBED_ROM=OFF
           ls -l build/release/dist
+
+      - name: Package (Windows wrapper)
+        if: runner.os == 'Windows'
+        shell: cmd
+        env:
+          CMAKE_ARGS: -DSMX_EMBED_ROM=OFF
+        run: build.bat package
 
       - name: Check the package (Linux)
         if: runner.os == 'Linux'
@@ -115,7 +128,7 @@ jobs:
           objdump -p "$exe" > imports.txt
           grep -q "Windows GUI" imports.txt
           grep "DLL Name" imports.txt
-          if grep -Ei "DLL Name: (libgcc|libwinpthread|libstdc|SDL3)" imports.txt; then exit 1; fi
+          if grep -Ei "DLL Name: (libgcc|libwinpthread|libstdc|msvcp|vcruntime|ucrtbase|SDL3)" imports.txt; then exit 1; fi
           test -f pkg/*/README.txt
           test -f pkg/*/LICENSE.txt
 

@@ -845,8 +845,7 @@ int main(int argc, char **argv) {
         next_frame = SDL_GetTicksNS();
       } else if (event.type == SDL_EVENT_GAMEPAD_ADDED && pad == NULL) {
         pad = SDL_OpenGamepad(event.gdevice.which);
-      } else if (event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
-                 event.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN) {
+      } else if (event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST) {
         smx_present_event(&presenter, &event);
       } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED && pad != NULL &&
                  SDL_GetGamepadID(pad) == event.gdevice.which) {
