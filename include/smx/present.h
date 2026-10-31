@@ -15,6 +15,8 @@ typedef enum SmxWindowMode {
 /** Display options. Each enhancement has a command-line switch to turn it off. */
 typedef struct SmxPresentOptions {
   SmxWindowMode window_mode;
+  /** Use SDL's CPU renderer instead of an accelerated renderer. */
+  bool software_renderer;
   /** Scale to fill the window; false keeps whole-number scales. */
   bool fill;
   /** Show pixels 8:7 wide, as an NTSC television did; false shows them square. */
@@ -40,6 +42,10 @@ typedef struct SmxPresenter {
   SDL_Texture *texture;
   /** The OpenGL presenter; NULL when presenting through `renderer`. */
   struct SmxPresentGl *gl;
+#ifdef SDL_PLATFORM_WINDOWS
+  /** A one-pixel overlay that keeps Windows' fullscreen OpenGL path composed. */
+  SDL_Window *fullscreen_guard;
+#endif
   /** The Metal scanline shader of the GPU renderer and the state that draws with it, or NULL. */
   SDL_GPUShader *shader_code;
   SDL_GPURenderState *shader;
@@ -88,9 +94,9 @@ void smx_present_window_size(const SmxPresentOptions *options, Sint32 src_w, Sin
                              Sint32 usable_w, Sint32 usable_h, Sint32 *w, Sint32 *h);
 
 /**
- * Open the window for a `width` x `height` XRGB8888 picture. Without OpenGL
- * 3.2, as on iOS, it draws through SDL's GPU renderer with a Metal shader for
- * the scanlines, or else through any SDL renderer without them.
+ * Open the window for a `width` x `height` XRGB8888 picture. It uses OpenGL or
+ * SDL's GPU renderer when available, and SDL's software renderer when asked
+ * or as a fallback. The software renderer has no scanlines.
  */
 bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, Sint32 height,
                       const SmxPresentOptions *options);

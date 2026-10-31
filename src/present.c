@@ -87,6 +87,7 @@ void smx_present_defaults(SmxPresentOptions *options) {
 #else
   options->window_mode = SMX_WINDOW_WINDOWED;
 #endif
+  options->software_renderer = false;
   options->fill = true;
   options->tv_aspect = true;
   options->scanlines = true;
@@ -122,6 +123,12 @@ Sint32 smx_present_option(SmxPresentOptions *options, Sint32 count, char **args)
       options->window_mode = SMX_WINDOW_EXCLUSIVE;
       return 2;
     }
+  } else if (SDL_strcmp(name, "--renderer") == 0) {
+    known = true;
+    if (value != NULL &&
+        smx_present_choice(value, "software", "auto", &options->software_renderer)) {
+      return 2;
+    }
   } else if (SDL_strcmp(name, "--scale") == 0) {
     known = true;
     if (value != NULL && smx_present_choice(value, "fit", "integer", &options->fill)) {
@@ -148,6 +155,7 @@ void smx_present_usage(void) {
   SDL_Log("  --window-mode MODE  windowed, borderless (fullscreen at the desktop's mode), or");
   SDL_Log("                      exclusive (fullscreen at its own mode); default %s",
           defaults.window_mode == SMX_WINDOW_WINDOWED ? "windowed" : "borderless");
+  SDL_Log("  --renderer MODE     auto, or software to avoid a busy GPU; default auto");
   SDL_Log("  --scale fit|integer fill the window, or keep whole-number scales; default fit");
   SDL_Log("  --aspect tv|square  8:7 pixels as on an NTSC television, or square; default tv");
   SDL_Log("  --scanlines on|off  CRT scanlines through OpenGL; default on");
@@ -441,14 +449,18 @@ static bool smx_present_open_gpu(SmxPresenter *presenter) {
 #endif
 
 static bool smx_present_open_renderer(SmxPresenter *presenter) {
+  if (presenter->options.software_renderer) {
+    presenter->renderer = SDL_CreateRenderer(presenter->window, "software");
+  } else {
 #ifdef SDL_PLATFORM_ANDROID
-  /* The scanline shader is Metal's alone, so Android takes SDL's OpenGL ES renderer. */
-  presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
-#else
-  if (!smx_present_open_gpu(presenter)) {
+    /* The scanline shader is Metal's alone, so Android takes SDL's OpenGL ES renderer. */
     presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
-  }
+#else
+    if (!smx_present_open_gpu(presenter)) {
+      presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
+    }
 #endif
+  }
   if (presenter->renderer == NULL) {
     SDL_Log("SDL_CreateRenderer failed: %s", SDL_GetError());
     return false;
@@ -507,20 +519,22 @@ bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, 
                           &window_h);
 
 #ifdef SMX_PRESENT_GL
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-  presenter->window =
-      SDL_CreateWindow(title, (int)window_w, (int)window_h, flags | SDL_WINDOW_OPENGL);
-  if (presenter->window != NULL && !smx_present_open_gl(presenter)) {
-    if (presenter->gl != NULL) {
-      smx_present_close_gl(presenter->gl);
-      presenter->gl = NULL;
+  if (!options->software_renderer) {
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    presenter->window =
+        SDL_CreateWindow(title, (int)window_w, (int)window_h, flags | SDL_WINDOW_OPENGL);
+    if (presenter->window != NULL && !smx_present_open_gl(presenter)) {
+      if (presenter->gl != NULL) {
+        smx_present_close_gl(presenter->gl);
+        presenter->gl = NULL;
+      }
+      SDL_DestroyWindow(presenter->window);
+      presenter->window = NULL;
     }
-    SDL_DestroyWindow(presenter->window);
-    presenter->window = NULL;
   }
 #endif
   if (presenter->window == NULL) {
@@ -636,16 +650,70 @@ void smx_present_toggle_fullscreen(SmxPresenter *presenter) {
   }
 }
 
+#ifdef SDL_PLATFORM_WINDOWS
+/*
+ * Windows 11 can put an unobscured fullscreen OpenGL window on its independent-flip path.
+ * That path flickers black on some hybrid-GPU systems. A one-pixel topmost utility window
+ * keeps DWM composing the picture without changing the renderer or the visible layout.
+ */
+static void smx_present_fullscreen_guard(SmxPresenter *presenter, bool shown) {
+  SDL_Rect bounds;
+
+  if (presenter->gl == NULL) {
+    return;
+  }
+  if (!shown) {
+    if (presenter->fullscreen_guard != NULL) {
+      SDL_HideWindow(presenter->fullscreen_guard);
+    }
+    return;
+  }
+  if (presenter->fullscreen_guard == NULL) {
+    SDL_WindowFlags flags = SDL_WINDOW_ALWAYS_ON_TOP | SDL_WINDOW_BORDERLESS | SDL_WINDOW_HIDDEN |
+                            SDL_WINDOW_NOT_FOCUSABLE | SDL_WINDOW_UTILITY;
+    presenter->fullscreen_guard = SDL_CreateWindow("", 1, 1, flags);
+    if (presenter->fullscreen_guard == NULL) {
+      SDL_Log("fullscreen compositor guard unavailable: %s", SDL_GetError());
+      return;
+    }
+    SDL_SetWindowOpacity(presenter->fullscreen_guard, 0.01f);
+  }
+  if (SDL_GetDisplayBounds(SDL_GetDisplayForWindow(presenter->window), &bounds)) {
+    SDL_SetWindowPosition(presenter->fullscreen_guard, bounds.x, bounds.y);
+  }
+  SDL_ShowWindow(presenter->fullscreen_guard);
+}
+#endif
+
 void smx_present_event(SmxPresenter *presenter, const SDL_Event *event) {
-  (void)presenter;
+  if (event->window.windowID != SDL_GetWindowID(presenter->window)) {
+    return;
+  }
   if (event->type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN) {
     SDL_HideCursor();
+#ifdef SDL_PLATFORM_WINDOWS
+    smx_present_fullscreen_guard(
+        presenter, (SDL_GetWindowFlags(presenter->window) & SDL_WINDOW_INPUT_FOCUS) != 0);
+#endif
   } else if (event->type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN) {
     SDL_ShowCursor();
+#ifdef SDL_PLATFORM_WINDOWS
+    smx_present_fullscreen_guard(presenter, false);
+  } else if (event->type == SDL_EVENT_WINDOW_FOCUS_GAINED &&
+             (SDL_GetWindowFlags(presenter->window) & SDL_WINDOW_FULLSCREEN) != 0) {
+    smx_present_fullscreen_guard(presenter, true);
+  } else if (event->type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+    smx_present_fullscreen_guard(presenter, false);
+#endif
   }
 }
 
 void smx_present_close(SmxPresenter *presenter) {
+#ifdef SDL_PLATFORM_WINDOWS
+  if (presenter->fullscreen_guard != NULL) {
+    SDL_DestroyWindow(presenter->fullscreen_guard);
+  }
+#endif
 #ifdef SMX_PRESENT_GL
   if (presenter->gl != NULL) {
     smx_present_close_gl(presenter->gl);

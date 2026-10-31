@@ -173,11 +173,14 @@ The picture fills the screen at the shape an NTSC television gave it, with CRT s
 | Option | Values | Default |
 | --- | --- | --- |
 | `--window-mode` | `windowed`; `borderless`, fullscreen at the desktop's resolution; `exclusive` (or `fullscreen`), fullscreen at its own display mode | `borderless` in release builds, `windowed` in debug builds |
+| `--renderer` | `auto`; `software`, a CPU fallback for a busy or incompatible GPU | `auto` |
 | `--scale` | `fit` fills the window; `integer` keeps whole-number scales | `fit` |
 | `--aspect` | `tv` shows pixels 8:7 wide, as a television did; `square` | `tv` |
 | `--scanlines` | `on`, `off` | `on` |
 
-For example, `SuperMetroidX --window-mode windowed --scale integer --aspect square --scanlines off` shows the raw picture in a window. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option, and the [settings menu](#settings-menu) changes them while you play.
+For example, `SuperMetroidX --window-mode windowed --scale integer --aspect square --scanlines off` shows the raw picture in a window. Scanlines fade out when a window is too small to draw them, below about twice the SNES's 224 lines. Without OpenGL 3.2, the game draws through SDL's renderer without scanlines. `--help` lists every option. The [settings menu](#settings-menu) changes the window, scale, aspect, and scanline options while you play.
+
+If another program is saturating the GPU, `SuperMetroidX --renderer software` keeps the game responsive by presenting through the CPU. The software renderer does not draw scanlines.
 
 ## Sound
 
@@ -217,7 +220,7 @@ The gamepad follows the SNES layout by position, so the buttons' letters differ 
 
 ## Settings menu
 
-`~` on the keyboard or R3 on a gamepad pauses the game and opens the settings menu over it. It has every display and sound option above and the cheats. Up and down choose; left and right, or Enter (A on a gamepad), change a setting; Escape (B) or `~` again closes it.
+`~` on the keyboard or R3 on a gamepad pauses the game and opens the settings menu over it. It has the window, scale, aspect, scanline, and sound options above and the cheats. Up and down choose; left and right, or Enter (A on a gamepad), change a setting; Escape (B) or `~` again closes it.
 
 - Changes apply at once and are saved in `settings.ini` in the save folder (below). Cheats are not saved: they last until you quit.
 - A new window mode asks to be kept and goes back by itself after ten seconds, so a mode your display cannot show undoes itself.
