@@ -27,12 +27,13 @@ static void test_full(void) {
     return;
   }
   smx_icon_draw(size, SMX_ICON_FULL, rgba);
-  expect("the rounded corners are clear", pixel(rgba, size, 0, 0)[3] == 0 &&
-                                              pixel(rgba, size, size - 1, size - 1)[3] == 0);
+  expect("the rounded corners are clear",
+         pixel(rgba, size, 0, 0)[3] == 0 && pixel(rgba, size, size - 1, size - 1)[3] == 0);
   expect("the tile is opaque", pixel(rgba, size, size / 2, size / 2)[3] == 255 &&
                                    pixel(rgba, size, size / 2, 8)[3] == 255);
-  expect("the beams cross bright in the middle", pixel(rgba, size, size / 2, size / 2)[0] > 200 &&
-                                                     pixel(rgba, size, size / 2, size / 2)[2] > 200);
+  expect("the beams cross bright in the middle",
+         pixel(rgba, size, size / 2, size / 2)[0] > 200 &&
+             pixel(rgba, size, size / 2, size / 2)[2] > 200);
   smx_icon_draw(size, SMX_ICON_FULL, again);
   expect("the icon draws the same every time", SDL_memcmp(rgba, again, size * size * 4u) == 0);
   SDL_free(rgba);
@@ -48,13 +49,13 @@ static void test_macos(void) {
     return;
   }
   smx_icon_draw(size, SMX_ICON_MACOS, rgba);
-  expect("Apple's margin is clear", pixel(rgba, size, 50, 512)[3] == 0 &&
-                                        pixel(rgba, size, 512, 50)[3] == 0);
-  expect("the tile fills Apple's grid", pixel(rgba, size, 110, 512)[3] == 255 &&
-                                            pixel(rgba, size, 913, 512)[3] == 255);
-  expect("a shadow falls below the tile",
-         pixel(rgba, size, 512, 930)[3] > 0 && pixel(rgba, size, 512, 930)[3] < 255 &&
-             pixel(rgba, size, 512, 930)[0] == 0);
+  expect("Apple's margin is clear",
+         pixel(rgba, size, 50, 512)[3] == 0 && pixel(rgba, size, 512, 50)[3] == 0);
+  expect("the tile fills Apple's grid",
+         pixel(rgba, size, 110, 512)[3] == 255 && pixel(rgba, size, 913, 512)[3] == 255);
+  expect("a shadow falls below the tile", pixel(rgba, size, 512, 930)[3] > 0 &&
+                                              pixel(rgba, size, 512, 930)[3] < 255 &&
+                                              pixel(rgba, size, 512, 930)[0] == 0);
   SDL_free(rgba);
 }
 

@@ -259,8 +259,8 @@ void smx_touch_fill_capsule(SDL_Renderer *renderer, float x, float y, float w, f
   for (end = 0; end < 2u; end += 1) {
     float cx = end == 0 ? x + reach : x - reach;
     for (index = 0; index < SMX_TOUCH_ROUND_POINTS; index += 1) {
-      float angle = SDL_PI_F * ((float)index / (float)(SMX_TOUCH_ROUND_POINTS - 1u) - 0.5f +
-                                (float)end);
+      float angle =
+          SDL_PI_F * ((float)index / (float)(SMX_TOUCH_ROUND_POINTS - 1u) - 0.5f + (float)end);
       vertices[count].position.x = cx + r * SDL_cosf(angle);
       vertices[count].position.y = y + r * SDL_sinf(angle);
       vertices[count].color = color;

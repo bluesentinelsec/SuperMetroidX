@@ -22,9 +22,13 @@ static float smx_icon_smooth(float edge0, float edge1, float value) {
   return t * t * (3.0f - 2.0f * t);
 }
 
-static float smx_icon_max(float a, float b) { return a > b ? a : b; }
+static float smx_icon_max(float a, float b) {
+  return a > b ? a : b;
+}
 
-static float smx_icon_min(float a, float b) { return a < b ? a : b; }
+static float smx_icon_min(float a, float b) {
+  return a < b ? a : b;
+}
 
 static SmxIconColor smx_icon_mix(SmxIconColor a, SmxIconColor b, float t) {
   SmxIconColor color = {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t};
@@ -40,7 +44,8 @@ static float smx_icon_tile(float x, float y, float half, float radius) {
   return SDL_sqrtf(ox * ox + oy * oy) + smx_icon_min(smx_icon_max(qx, qy), 0.0f) - radius;
 }
 
-/* The distance from (x, y) to the segment a-b, and in `along` how far along it the nearest point is. */
+/* The distance from (x, y) to the segment a-b, and in `along` how far along it the nearest point
+ * is. */
 static float smx_icon_segment(float x, float y, float ax, float ay, float bx, float by,
                               float *along) {
   float px = x - ax;

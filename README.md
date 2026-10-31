@@ -2,7 +2,7 @@
 
 ![SuperMetroidX trailer: the title screen, Brinstar, Norfair, Kraid, Phantoon, Mother Brain, Ridley, the five cheats, scanlines, and sound](media/trailer.gif)
 
-A static recompilation of Super Metroid for Windows, macOS, and Linux, and for iPhone and iPad. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
+A static recompilation of Super Metroid for Windows, macOS, and Linux, and for iPhone, iPad, and Android. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
 
 On top of the console's behaviour, which it leaves unchanged, the game adds:
 
@@ -11,7 +11,7 @@ On top of the console's behaviour, which it leaves unchanged, the game adds:
 - an in-game settings menu (`~`, or R3 on a gamepad) that saves your choices
 - five optional cheats, and turbo at up to four times the speed for elevators and the end credits
 - an intro you can skip by holding any button
-- an iPhone and iPad version with touch controls in the Super Famicom's colors
+- iPhone, iPad, and Android versions with touch controls in the Super Famicom's colors
 - an Xcode project that builds, debugs, signs, and notarizes the Mac app
 - quick-save states
 
@@ -145,6 +145,14 @@ On iPhone and iPad:
 - **Saves:** the game saves at save stations, and the save is written out whenever the app goes to the background.
 
 The same rules apply as on the Mac: a build is for your own devices, and the App Store and TestFlight aren't supported.
+
+### Android
+
+`make android` builds the translator for your computer, then builds the game with the Android NDK and packs it into `build/android/SuperMetroidX.apk`. It needs the Android SDK with an NDK, a build-tools, and Android 15's SDK Platform (API 35), as Android Studio's SDK Manager installs them, and a JDK; Gradle and Android Studio itself aren't used. The SDK is found in its usual place (`~/Library/Android/sdk` on macOS, `~/Android/Sdk` on Linux), or set `ANDROID_SDK`. With build-tools older than 35 the build needs a JDK 17, which it uses when one is installed. The APK holds one ABI, `arm64-v8a`, which current phones and the emulator on Apple silicon or ARM Linux run; for an x86-64 emulator, use `make android ANDROID_ABI=x86_64`. It runs on Android 5.0 and later.
+
+`make android-run` installs the APK on the phone connected over USB, with **USB debugging** on in **Developer options**, or on the running emulator. With neither, it starts your first virtual device from Android Studio's **Device Manager** (or the one named by `AVD=`), then opens the game. The APK is signed with the SDK's debug key, so it installs on your own devices but isn't for Google Play.
+
+On Android, the game plays as on iPhone: in landscape, with the same touch controls, controller support, and cheats menu. The **Back** button also opens and closes the cheats menu, and **Home** leaves the game, which waits where it was. The picture goes through OpenGL ES, so it has no scanlines.
 
 ## Display
 

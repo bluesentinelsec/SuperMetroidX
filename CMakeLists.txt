@@ -93,8 +93,9 @@ target_include_directories(
 target_link_libraries(smx PUBLIC SDL3::SDL3)
 
 if(CMAKE_CROSSCOMPILING)
-  # A build for another system, such as iOS, runs the tools of a build for
-  # this machine: `make ios` builds them in build/release first.
+  # A build for another system, such as iOS or Android, runs the tools of a
+  # build for this machine: `make ios` and `make android` build them in
+  # build/release first.
   set(SMX_HOST_TOOLS "" CACHE PATH "Folder with smxrecomp, smxembed, and smxicon for this machine")
   foreach(tool smxrecomp smxembed smxicon)
     if(NOT EXISTS "${SMX_HOST_TOOLS}/${tool}")
@@ -190,7 +191,15 @@ else()
 endif()
 target_link_libraries(smx_game PUBLIC smx)
 
-add_executable(SuperMetroidX src/main.c)
+# Android starts the game from Java, which loads it as libmain.so.
+if(ANDROID)
+  add_library(SuperMetroidX SHARED src/main.c)
+  set_target_properties(SuperMetroidX PROPERTIES OUTPUT_NAME main)
+  # SDL's Android HIDAPI is C++, so its runtime goes in with SDL.
+  target_link_libraries(SuperMetroidX PRIVATE c++_static c++abi)
+else()
+  add_executable(SuperMetroidX src/main.c)
+endif()
 target_link_libraries(SuperMetroidX PRIVATE smx_game smx)
 target_compile_definitions(
   SuperMetroidX PRIVATE SMX_VERSION="${PROJECT_VERSION}" SMX_APP_ID="${SMX_APP_ID}"
@@ -232,6 +241,9 @@ if(IOS)
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
       MACOSX_BUNDLE_COPYRIGHT "${SMX_COPYRIGHT}"
   )
+elseif(ANDROID)
+  include(cmake/AndroidApk.cmake)
+  smx_android_apk(SuperMetroidX)
 elseif(APPLE)
   set(SMX_ICNS "${SMX_PACKAGING_DIR}/SuperMetroidX.icns")
   add_custom_command(
@@ -510,8 +522,9 @@ if(NOT CMAKE_CROSSCOMPILING)
   add_test(NAME icon COMMAND smx_test_icon)
 endif()
 
-# An iOS app goes to a device through Xcode, so it has no package.
-if(IOS)
+# An iOS app goes to a device through Xcode and an Android app is its APK, so
+# neither has a package.
+if(IOS OR ANDROID)
   return()
 endif()
 

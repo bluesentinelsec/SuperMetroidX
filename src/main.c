@@ -587,6 +587,12 @@ int main(int argc, char **argv) {
   }
 
   smx_shell_metadata();
+#ifdef SDL_PLATFORM_ANDROID
+  /* Back opens and closes the cheats menu, rather than ending the game. */
+  SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+  /* SDL would let a resizable window turn upright; the game plays sideways, as on iOS. */
+  SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     SDL_Log("SDL_Init failed: %s", SDL_GetError());
     return 1;
@@ -753,6 +759,11 @@ int main(int argc, char **argv) {
 #endif
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
+#ifdef SDL_PLATFORM_ANDROID
+      } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
+                 event.key.scancode == SDL_SCANCODE_AC_BACK) {
+        smx_shell_menu_toggle(&shell);
+#endif
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && playing &&
                  event.key.scancode == SDL_SCANCODE_GRAVE) {
         /* ~ opens and closes the settings menu. */
@@ -820,7 +831,7 @@ int main(int argc, char **argv) {
         smx_shell_turbo_shown(&overlay, &cheats);
       } else if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
                  event.type == SDL_EVENT_TERMINATING) {
-        /* iOS can end a suspended app without warning, so the save goes out first. */
+        /* iOS and Android can end a suspended app without warning, so the save goes out first. */
         if (machine) {
           smx_sram_flush(&sram, &bus);
         }
