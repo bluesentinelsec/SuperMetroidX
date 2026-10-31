@@ -3,10 +3,10 @@
 #include "present_shaders.h"
 
 /*
- * The scanline shader is written for desktop OpenGL 3.2. iOS has only
- * OpenGL ES, so there the picture goes through the SDL renderer.
+ * The scanline shader is written for desktop OpenGL 3.2. iOS and Android have
+ * only OpenGL ES, so there the picture goes through the SDL renderer.
  */
-#ifndef SDL_PLATFORM_IOS
+#if !defined(SDL_PLATFORM_IOS) && !defined(SDL_PLATFORM_ANDROID)
 #define SMX_PRESENT_GL 1
 #include <SDL3/SDL_opengl.h>
 
@@ -390,6 +390,7 @@ typedef struct SmxPresentMetalPicture {
   float padding;
 } SmxPresentMetalPicture;
 
+#ifndef SDL_PLATFORM_ANDROID
 /* SDL's GPU renderer, with the Metal scanline shader compiled from its source. */
 static bool smx_present_open_gpu(SmxPresenter *presenter) {
   SDL_PropertiesID props = SDL_CreateProperties();
@@ -437,11 +438,17 @@ static bool smx_present_open_gpu(SmxPresenter *presenter) {
   presenter->shader_code = compiled;
   return true;
 }
+#endif
 
 static bool smx_present_open_renderer(SmxPresenter *presenter) {
+#ifdef SDL_PLATFORM_ANDROID
+  /* The scanline shader is Metal's alone, so Android takes SDL's OpenGL ES renderer. */
+  presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
+#else
   if (!smx_present_open_gpu(presenter)) {
     presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
   }
+#endif
   if (presenter->renderer == NULL) {
     SDL_Log("SDL_CreateRenderer failed: %s", SDL_GetError());
     return false;

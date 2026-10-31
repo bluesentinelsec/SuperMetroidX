@@ -5,6 +5,7 @@ DEBUG_DIR := $(BUILD_DIR)/debug
 RELEASE_DIR := $(BUILD_DIR)/release
 XCODE_DIR := $(BUILD_DIR)/xcode
 IOS_DIR := $(BUILD_DIR)/ios
+ANDROID_DIR := $(BUILD_DIR)/android
 
 CMAKE ?= cmake
 NINJA ?= ninja
@@ -17,6 +18,19 @@ CMAKE_ARGS ?=
 CTEST_ARGS ?=
 # The Apple developer team that signs the Xcode project's app, when not the keychain's; kept once given.
 TEAM ?=
+# The Android SDK, its newest NDK, the ABI the APK holds, and the emulator that android-run starts.
+ifeq ($(shell uname -s),Darwin)
+  ANDROID_SDK ?= $(or $(ANDROID_HOME),$(HOME)/Library/Android/sdk)
+else
+  ANDROID_SDK ?= $(or $(ANDROID_HOME),$(HOME)/Android/Sdk)
+endif
+ANDROID_NDK ?= $(lastword $(sort $(wildcard $(ANDROID_SDK)/ndk/*)))
+ANDROID_ABI ?= arm64-v8a
+ADB ?= $(ANDROID_SDK)/platform-tools/adb
+EMULATOR ?= $(ANDROID_SDK)/emulator/emulator
+AVD ?= $(firstword $(shell $(EMULATOR) -list-avds 2>/dev/null))
+# A JDK 17 when there is one: older build-tools cannot read classes from javac 21 or later.
+ANDROID_JAVA_HOME ?= $(or $(shell /usr/libexec/java_home -F -v 17 2>/dev/null),$(firstword $(wildcard /opt/homebrew/opt/openjdk@17 /usr/local/opt/openjdk@17 /usr/lib/jvm/java-17-openjdk*)),$(JAVA_HOME))
 
 ifeq ($(OS),Windows_NT)
   BIN := SuperMetroidX.exe
@@ -34,7 +48,7 @@ CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA) $(CMAKE_ARGS)
 
 .DEFAULT_GOAL := build
 
-.PHONY: build release play run debug fmt test test-release docs clean package dist xcode ios configure-debug configure-release
+.PHONY: build release play run debug fmt test test-release docs clean package dist xcode ios android android-run configure-debug configure-release
 
 build: configure-debug
 	$(CMAKE) --build $(DEBUG_DIR)
@@ -111,3 +125,32 @@ ifneq ($(OPEN),0)
 	open $(IOS_DIR)/SuperMetroidX.xcodeproj
 endif
 endif
+
+# An Android APK in build/android, built Release with the NDK. The translator and the
+# icon tool run on this machine, so the Release build makes them first.
+android:
+ifeq ($(ANDROID_NDK),)
+	@echo "make android needs the Android NDK in $(ANDROID_SDK)/ndk; set ANDROID_SDK or ANDROID_NDK" >&2; exit 1
+else
+	$(MAKE) configure-release
+	$(CMAKE) --build $(RELEASE_DIR) --target smxrecomp smxembed smxicon
+	$(if $(ANDROID_JAVA_HOME),JAVA_HOME=$(ANDROID_JAVA_HOME)) \
+	  $(CMAKE) -S . -B $(ANDROID_DIR) $(CMAKE_FLAGS) -DCMAKE_BUILD_TYPE=Release \
+	  -DCMAKE_TOOLCHAIN_FILE=$(ANDROID_NDK)/build/cmake/android.toolchain.cmake \
+	  -DANDROID_ABI=$(ANDROID_ABI) -DANDROID_PLATFORM=21 -DSMX_ANDROID_SDK=$(ANDROID_SDK) \
+	  -DSMX_HOST_TOOLS=$(abspath $(RELEASE_DIR))
+	$(CMAKE) --build $(ANDROID_DIR)
+endif
+
+# Install the APK on the connected phone or running emulator, starting AVD when there is
+# neither, and open the game.
+android-run: android
+	@if ! $(ADB) get-state >/dev/null 2>&1; then \
+	  if [ -z "$(AVD)" ]; then echo "no Android device or emulator; make one in Android Studio's Device Manager" >&2; exit 1; fi; \
+	  echo "Starting the $(AVD) emulator"; \
+	  nohup $(EMULATOR) -avd $(AVD) >/dev/null 2>&1 & \
+	  $(ADB) wait-for-device; \
+	fi
+	@until [ "$$($(ADB) shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 1; done
+	$(ADB) install -r $(ANDROID_DIR)/SuperMetroidX.apk
+	$(ADB) shell am start -n io.github.bluesentinelsec.SuperMetroidX/.SuperMetroidXActivity
