@@ -33,6 +33,8 @@ Keep your builds and packages for your own machines, and **do not share them**. 
    make play
    ```
 
+   On Windows, run `build.bat play` from Command Prompt or PowerShell instead.
+
 The first build translates the ROM, which takes a few minutes. Release builds start fullscreen. Press `~` (R3 on a gamepad) for the settings menu, F11 for a window, and Escape to quit.
 
 ## The ROM
@@ -53,7 +55,7 @@ The ROM is built into the game by default (`SMX_EMBED_ROM`), so the program need
 
 ## Tools
 
-You need Git, CMake 3.25 or newer, Ninja, GNU make, and a C11 compiler. CMake downloads and builds SDL3 itself, so the first configure needs an internet connection.
+You need Git, CMake 3.25 or newer, Ninja, and a C11 compiler. macOS and Linux also use GNU make. CMake downloads and builds SDL3 itself, so the first configure needs an internet connection.
 
 **macOS** (Apple Silicon or Intel), with [Homebrew](https://brew.sh):
 
@@ -74,13 +76,15 @@ sudo apt-get install build-essential git cmake ninja-build pkg-config \
 
 SDL only uses the audio and display systems whose headers it finds when it is configured, so install them before the first build. If you add some later, run `make clean` and build again.
 
-**Windows**, with [MSYS2](https://www.msys2.org): open the *MSYS2 UCRT64* shell and run
+**Windows:** install Visual Studio with the **Desktop development with C++** workload and its CMake and Ninja components. From Command Prompt or PowerShell, use `build.bat`; it finds and activates the latest installed Visual Studio compiler automatically.
+
+Alternatively, with [MSYS2](https://www.msys2.org), open the *MSYS2 UCRT64* shell and run
 
 ```sh
 pacman -S git make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
 ```
 
-Run every `make` command from that shell. CI builds Windows with MinGW-w64 GCC.
+Run every `make` command from that shell. The Makefile and `build.bat` create the same build folders and packages.
 
 ## Build and play
 
@@ -89,6 +93,14 @@ make play      # Release build, then play SuperMetroid.sfc (fullscreen)
 make release   # Release build only
 make run       # Debug build, then play in a window
 make test      # Debug build plus unit tests
+```
+
+On Windows, replace `make` with `build.bat`: `build.bat play`, `build.bat release`, `build.bat run`, or `build.bat test`. Set optional arguments as environment variables, for example:
+
+```bat
+set "CMAKE_ARGS=-DSMX_ROM=C:/Games/SuperMetroid.sfc"
+set "ARGS=--scanlines off"
+build.bat play
 ```
 
 `make play` and `make run` take `ROM=path/to/rom.sfc` to play a different file, and `ARGS="..."` to pass options, such as `make play ARGS="--scanlines off"`.
@@ -112,12 +124,12 @@ With the ROM built in, the game also starts from Finder or Explorer as it is. Wi
 
 ## Packages
 
-`make package` (or `make dist`) builds Release, runs the tests, and puts one package for your system in `build/release/dist/`:
+`make package` (or `make dist`) builds Release, runs the tests, and puts one package for your system in `build/release/dist/`. On Windows, use `build.bat package` (or `build.bat dist`) instead:
 
 | System | Package | Contents |
 | --- | --- | --- |
 | macOS | `SuperMetroidX-<version>-macOS-arm64.dmg` | A disk image to drag `SuperMetroidX.app` into Applications. The app bundle has its icon, version, game category, controller support, and macOS 11 as its minimum. |
-| Windows | `SuperMetroidX-<version>-Windows-x86_64.zip` | `SuperMetroidX.exe`, a windowed program with its icon, version details, and a manifest (per-monitor DPI, UTF-8). The MinGW runtime is linked in, so it needs no DLLs beside it. |
+| Windows | `SuperMetroidX-<version>-Windows-x86_64.zip` | `SuperMetroidX.exe`, a windowed program with its icon, version details, and a manifest (per-monitor DPI, UTF-8). The compiler runtime is linked in, so it needs no DLLs beside it. |
 | Linux | `SuperMetroidX-<version>-Linux-x86_64.tar.gz` | `bin/SuperMetroidX` and `share/` in the usual layout: a desktop entry, icons from 16 to 512 pixels, and AppStream metadata. Copy `bin` and `share` into `~/.local` to add the game to the applications menu. |
 
 Each package has a short `README.txt` for players and the GNU GPL as `LICENSE.txt`. The icon is drawn in code (`src/icon.c`), and `smxicon` writes it as `.icns`, `.ico`, and PNG files at build time. The metadata templates are in `packaging/`, filled in from the version in `CMakeLists.txt`. A Linux package runs on distributions with the same or a newer glibc than the one it was built on.
