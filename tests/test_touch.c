@@ -79,7 +79,8 @@ static void test_buttons(void) {
   finger(&touch, SDL_EVENT_FINGER_MOTION, 1, b->x, b->y);
   expect("sliding onto B lets go of A", smx_touch_joy(&touch) == 0x8000);
   finger(&touch, SDL_EVENT_FINGER_DOWN, 2, pad->x + pad->w * 0.4f, pad->y);
-  expect("a second finger on the D-pad holds right too", smx_touch_joy(&touch) == (0x8000 | 0x0100));
+  expect("a second finger on the D-pad holds right too",
+         smx_touch_joy(&touch) == (0x8000 | 0x0100));
   finger(&touch, SDL_EVENT_FINGER_MOTION, 2, pad->x - pad->w * 0.3f, pad->y - pad->w * 0.3f);
   expect("the D-pad finger rolls to up-left", smx_touch_joy(&touch) == (0x8000 | 0x0800 | 0x0200));
   finger(&touch, SDL_EVENT_FINGER_MOTION, 2, pad->x, pad->y + pad->w * 2.0f);
@@ -99,8 +100,8 @@ static void test_buttons(void) {
          finger(&touch, SDL_EVENT_FINGER_DOWN, 5, at(&touch, SMX_TOUCH_MENU)->x,
                 at(&touch, SMX_TOUCH_MENU)->y) &&
              smx_touch_joy(&touch) == 0);
-  expect("the open game is no button", !finger(&touch, SDL_EVENT_FINGER_DOWN, 6, 1311.0f, 500.0f) &&
-                                           smx_touch_joy(&touch) == 0);
+  expect("the open game is no button",
+         !finger(&touch, SDL_EVENT_FINGER_DOWN, 6, 1311.0f, 500.0f) && smx_touch_joy(&touch) == 0);
 }
 
 static void test_draw(void) {
@@ -141,8 +142,8 @@ static void test_menu(void) {
 
   smx_cheat_init(&cheats, NULL, 0);
   smx_touchmenu_init(&menu);
-  expect("a closed menu ignores taps", smx_touchmenu_tap(&menu, &cheats, 128, 100) ==
-                                           SMX_MENU_NOTHING);
+  expect("a closed menu ignores taps",
+         smx_touchmenu_tap(&menu, &cheats, 128, 100) == SMX_MENU_NOTHING);
   smx_touchmenu_open(&menu, &cheats);
   /* Rows are 26 pixels tall from 42; switches are at x 210. */
   expect("a tap on a row switches its cheat",
@@ -165,7 +166,8 @@ static void test_menu(void) {
              cheats.on[SMX_CHEAT_ITEMS] &&
              smx_touchmenu_tap(&menu, &cheats, 200, 42 + 26 * 5 + 13) == SMX_MENU_NOTHING &&
              cheats.on[SMX_CHEAT_ITEMS]);
-  expect("Done closes", smx_touchmenu_tap(&menu, &cheats, 206, 25) == SMX_MENU_CLOSED && !menu.open);
+  expect("Done closes",
+         smx_touchmenu_tap(&menu, &cheats, 206, 25) == SMX_MENU_CLOSED && !menu.open);
   smx_touchmenu_open(&menu, &cheats);
   expect("a tap outside the panel closes",
          smx_touchmenu_tap(&menu, &cheats, 5, 100) == SMX_MENU_CLOSED && !menu.open);

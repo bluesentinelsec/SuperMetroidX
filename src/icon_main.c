@@ -27,8 +27,8 @@ static const struct {
   Uint32 size;
   bool argb;
 } smx_icon_icns_types[] = {
-    {"ic04", 16, true},   {"ic05", 32, true},   {"ic11", 32, false},   {"ic12", 64, false},
-    {"ic07", 128, false}, {"ic13", 256, false}, {"ic08", 256, false},  {"ic14", 512, false},
+    {"ic04", 16, true},   {"ic05", 32, true},    {"ic11", 32, false},  {"ic12", 64, false},
+    {"ic07", 128, false}, {"ic13", 256, false},  {"ic08", 256, false}, {"ic14", 512, false},
     {"ic09", 512, false}, {"ic10", 1024, false},
 };
 
@@ -197,7 +197,8 @@ static bool smx_icon_ico(const char *path) {
   return ok && file != NULL;
 }
 
-/* "icns" and the file's length, then per image its type, its length with this header, and its data. */
+/* "icns" and the file's length, then per image its type, its length with this header, and its data.
+ */
 static bool smx_icon_icns(const char *path) {
   const Uint32 count = SDL_arraysize(smx_icon_icns_types);
   SmxIconImage images[SDL_arraysize(smx_icon_icns_types)];
@@ -209,9 +210,10 @@ static bool smx_icon_icns(const char *path) {
 
   for (; index < count; index += 1) {
     Uint32 size = smx_icon_icns_types[index].size;
-    ok = (smx_icon_icns_types[index].argb ? smx_icon_argb(size, &images[index])
-                                          : smx_icon_encode(size, SMX_ICON_MACOS, &images[index])) &&
-         ok;
+    ok =
+        (smx_icon_icns_types[index].argb ? smx_icon_argb(size, &images[index])
+                                         : smx_icon_encode(size, SMX_ICON_MACOS, &images[index])) &&
+        ok;
     length += 8u + images[index].length;
   }
   file = ok ? (Uint8 *)SDL_malloc(length) : NULL;

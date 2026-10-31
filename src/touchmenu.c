@@ -166,10 +166,9 @@ static void smx_touchmenu_text(SDL_Renderer *renderer, float x, float y, const c
 static void smx_touchmenu_switch(SDL_Renderer *renderer, float y, bool on) {
   float knob = SMX_TOUCHMENU_SWITCH_W * 0.5f - SMX_TOUCHMENU_BUTTON_H * 0.5f;
 
-  smx_touch_fill_capsule(renderer, SMX_TOUCHMENU_SWITCH_X, y, SMX_TOUCHMENU_SWITCH_W,
-                         SMX_TOUCHMENU_BUTTON_H,
-                         on ? smx_touchmenu_rgba(52, 199, 89, 255)
-                            : smx_touchmenu_rgba(84, 84, 96, 255));
+  smx_touch_fill_capsule(
+      renderer, SMX_TOUCHMENU_SWITCH_X, y, SMX_TOUCHMENU_SWITCH_W, SMX_TOUCHMENU_BUTTON_H,
+      on ? smx_touchmenu_rgba(52, 199, 89, 255) : smx_touchmenu_rgba(84, 84, 96, 255));
   smx_touch_fill_circle(renderer, SMX_TOUCHMENU_SWITCH_X + (on ? knob : -knob), y,
                         SMX_TOUCHMENU_BUTTON_H * 0.5f - 2.0f,
                         smx_touchmenu_rgba(255, 255, 255, 255));
