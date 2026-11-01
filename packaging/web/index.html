@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SuperMetroidX</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    html, body { margin: 0; height: 100%; background: #0c1220; overflow: hidden; }
+    canvas { display: block; outline: none; }
+    #status {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #c8d0e0; font: 16px system-ui, sans-serif; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Loading SuperMetroidX…</div>
+  <!-- The canvas has a parent of its own, so SDL can always put it back after filling the page. -->
+  <div><canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas></div>
+  <script>
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      setStatus: function (text) {
+        var status = document.getElementById('status');
+        if (status) {
+          status.textContent = text || '';
+        }
+      },
+      onRuntimeInitialized: function () {
+        document.getElementById('status').style.display = 'none';
+        Module.canvas.focus();
+      },
+      onAbort: function (reason) {
+        document.getElementById('status').style.display = '';
+        Module.setStatus('SuperMetroidX stopped: ' + reason);
+      }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

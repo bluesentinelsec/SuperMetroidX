@@ -30,7 +30,12 @@ set(SMX_LICENSE "GPL-3.0-only")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+# Emscripten's EM_ASM, in SDL and the shell, needs GNU C, so the browser build is gnu11.
+if(EMSCRIPTEN)
+  set(CMAKE_C_EXTENSIONS ON)
+else()
+  set(CMAKE_C_EXTENSIONS OFF)
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -95,9 +100,9 @@ target_include_directories(
 target_link_libraries(smx PUBLIC SDL3::SDL3)
 
 if(CMAKE_CROSSCOMPILING)
-  # A build for another system, such as iOS or Android, runs the tools of a
-  # build for this machine: `make ios` and `make android` build them in
-  # build/release first.
+  # A build for another system, such as iOS, Android, or the browser, runs the
+  # tools of a build for this machine: `make ios`, `make android`, and
+  # `make web` build them in build/release first.
   set(SMX_HOST_TOOLS "" CACHE PATH "Folder with smxrecomp, smxembed, and smxicon for this machine")
   foreach(tool smxrecomp smxembed smxicon)
     if(NOT EXISTS "${SMX_HOST_TOOLS}/${tool}")
@@ -246,6 +251,34 @@ if(IOS)
 elseif(ANDROID)
   include(cmake/AndroidApk.cmake)
   smx_android_apk(SuperMetroidX)
+elseif(EMSCRIPTEN)
+  # SuperMetroidX.html, .js, and .wasm, with the icon beside them. Asyncify
+  # lets the shell's loop wait for the browser; only calls that reach a wait
+  # directly are rewritten, since the translated code never waits.
+  set(SMX_WEB_SHELL "${CMAKE_SOURCE_DIR}/packaging/web/index.html")
+  set(SMX_WEB_SAVES "${CMAKE_SOURCE_DIR}/packaging/web/saves.js")
+  set_target_properties(SuperMetroidX PROPERTIES SUFFIX ".html")
+  target_link_options(
+    SuperMetroidX
+    PRIVATE
+    "SHELL:-s ALLOW_MEMORY_GROWTH=1"
+    "SHELL:-s STACK_SIZE=8MB"
+    "SHELL:-s ASYNCIFY=1"
+    "SHELL:-s ASYNCIFY_IGNORE_INDIRECT=1"
+    "SHELL:-s ASYNCIFY_STACK_SIZE=65536"
+    -lidbfs.js
+    "SHELL:--shell-file ${SMX_WEB_SHELL}"
+    "SHELL:--pre-js ${SMX_WEB_SAVES}"
+  )
+  set_property(TARGET SuperMetroidX APPEND PROPERTY LINK_DEPENDS "${SMX_WEB_SHELL};${SMX_WEB_SAVES}")
+  set(SMX_FAVICON "${CMAKE_BINARY_DIR}/favicon.png")
+  add_custom_command(
+    OUTPUT "${SMX_FAVICON}"
+    COMMAND smxicon png 64 "${SMX_FAVICON}"
+    DEPENDS smxicon
+    VERBATIM
+  )
+  add_custom_target(smx_favicon ALL DEPENDS "${SMX_FAVICON}")
 elseif(APPLE)
   set(SMX_ICNS "${SMX_PACKAGING_DIR}/SuperMetroidX.icns")
   add_custom_command(
@@ -528,9 +561,9 @@ if(NOT CMAKE_CROSSCOMPILING)
   add_test(NAME icon COMMAND smx_test_icon)
 endif()
 
-# An iOS app goes to a device through Xcode and an Android app is its APK, so
-# neither has a package.
-if(IOS OR ANDROID)
+# An iOS app goes to a device through Xcode, an Android app is its APK, and a
+# browser build is its page, so none has a package.
+if(IOS OR ANDROID OR EMSCRIPTEN)
   return()
 endif()
 

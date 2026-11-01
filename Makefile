@@ -6,6 +6,7 @@ RELEASE_DIR := $(BUILD_DIR)/release
 XCODE_DIR := $(BUILD_DIR)/xcode
 IOS_DIR := $(BUILD_DIR)/ios
 ANDROID_DIR := $(BUILD_DIR)/android
+WEB_DIR := $(BUILD_DIR)/web
 
 CMAKE ?= cmake
 NINJA ?= ninja
@@ -29,6 +30,9 @@ ANDROID_ABI ?= arm64-v8a
 ADB ?= $(ANDROID_SDK)/platform-tools/adb
 EMULATOR ?= $(ANDROID_SDK)/emulator/emulator
 AVD ?= $(firstword $(shell $(EMULATOR) -list-avds 2>/dev/null))
+# The Emscripten SDK that make web builds with, and the local port make web-run serves on.
+EMSDK ?= $(HOME)/emsdk
+WEB_PORT ?= 8080
 # A JDK 17 when there is one: older build-tools cannot read classes from javac 21 or later.
 ANDROID_JAVA_HOME ?= $(or $(shell /usr/libexec/java_home -F -v 17 2>/dev/null),$(firstword $(wildcard /opt/homebrew/opt/openjdk@17 /usr/local/opt/openjdk@17 /usr/lib/jvm/java-17-openjdk*)),$(JAVA_HOME))
 
@@ -48,7 +52,7 @@ CMAKE_FLAGS := -G Ninja -DCMAKE_MAKE_PROGRAM=$(NINJA) $(CMAKE_ARGS)
 
 .DEFAULT_GOAL := build
 
-.PHONY: build release play run debug fmt test test-release docs clean package dist xcode ios android android-run configure-debug configure-release
+.PHONY: build release play run debug fmt test test-release docs clean package dist xcode ios android android-run web web-run configure-debug configure-release
 
 build: configure-debug
 	$(CMAKE) --build $(DEBUG_DIR)
@@ -154,3 +158,23 @@ android-run: android
 	@until [ "$$($(ADB) shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 1; done
 	$(ADB) install -r $(ANDROID_DIR)/SuperMetroidX.apk
 	$(ADB) shell am start -n io.github.bluesentinelsec.SuperMetroidX/.SuperMetroidXActivity
+
+# The game for the browser in build/web, built Release with Emscripten. Like the
+# desktop build, it holds the ROM, so it is served only to this machine.
+EMSDK_ENV = EM_CONFIG=$(EMSDK)/.emscripten EMSDK=$(EMSDK)
+web:
+ifeq ($(wildcard $(EMSDK)/upstream/emscripten/emcc),)
+	@echo "make web needs the Emscripten SDK in $(EMSDK); set EMSDK to it" >&2; exit 1
+else
+	$(MAKE) configure-release
+	$(CMAKE) --build $(RELEASE_DIR) --target smxrecomp smxembed smxicon
+	$(EMSDK_ENV) $(CMAKE) -S . -B $(WEB_DIR) $(CMAKE_FLAGS) -DCMAKE_BUILD_TYPE=Release \
+	  -DCMAKE_TOOLCHAIN_FILE=$(EMSDK)/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+	  -DSMX_HOST_TOOLS=$(abspath $(RELEASE_DIR))
+	$(EMSDK_ENV) $(CMAKE) --build $(WEB_DIR)
+endif
+
+# Serve the web build on localhost and open it in the default browser.
+web-run: web
+	$(EMSDK_ENV) $(EMSDK)/upstream/emscripten/emrun --hostname 127.0.0.1 --port $(WEB_PORT) \
+	  --no_emrun_detect $(WEB_DIR)/SuperMetroidX.html
