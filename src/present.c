@@ -3,10 +3,12 @@
 #include "present_shaders.h"
 
 /*
- * The scanline shader is written for desktop OpenGL 3.2. iOS and Android have
- * only OpenGL ES, so there the picture goes through the SDL renderer.
+ * The scanline shader is written for desktop OpenGL 3.2. iOS, Android, and
+ * the browser have only OpenGL ES, so there the picture goes through the SDL
+ * renderer.
  */
-#if !defined(SDL_PLATFORM_IOS) && !defined(SDL_PLATFORM_ANDROID)
+#if !defined(SDL_PLATFORM_IOS) && !defined(SDL_PLATFORM_ANDROID) &&                                \
+    !defined(SDL_PLATFORM_EMSCRIPTEN)
 #define SMX_PRESENT_GL 1
 #include <SDL3/SDL_opengl.h>
 
@@ -82,7 +84,8 @@ void smx_backdrop(Uint8 *red, Uint8 *green, Uint8 *blue) {
 }
 
 void smx_present_defaults(SmxPresentOptions *options) {
-#ifdef NDEBUG
+  /* A page can go fullscreen only when the player asks, so the browser starts in the page. */
+#if defined(NDEBUG) && !defined(SDL_PLATFORM_EMSCRIPTEN)
   options->window_mode = SMX_WINDOW_BORDERLESS;
 #else
   options->window_mode = SMX_WINDOW_WINDOWED;
@@ -398,7 +401,7 @@ typedef struct SmxPresentMetalPicture {
   float padding;
 } SmxPresentMetalPicture;
 
-#ifndef SDL_PLATFORM_ANDROID
+#if !defined(SDL_PLATFORM_ANDROID) && !defined(SDL_PLATFORM_EMSCRIPTEN)
 /* SDL's GPU renderer, with the Metal scanline shader compiled from its source. */
 static bool smx_present_open_gpu(SmxPresenter *presenter) {
   SDL_PropertiesID props = SDL_CreateProperties();
@@ -452,8 +455,9 @@ static bool smx_present_open_renderer(SmxPresenter *presenter) {
   if (presenter->options.software_renderer) {
     presenter->renderer = SDL_CreateRenderer(presenter->window, "software");
   } else {
-#ifdef SDL_PLATFORM_ANDROID
-    /* The scanline shader is Metal's alone, so Android takes SDL's OpenGL ES renderer. */
+#if defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_EMSCRIPTEN)
+    /* The scanline shader is Metal's alone, so Android and the browser take SDL's OpenGL ES
+     * renderer. */
     presenter->renderer = SDL_CreateRenderer(presenter->window, NULL);
 #else
     if (!smx_present_open_gpu(presenter)) {
@@ -506,6 +510,14 @@ static void smx_present_window_mode(SmxPresenter *presenter, SmxWindowMode mode)
 bool smx_present_open(SmxPresenter *presenter, const char *title, Sint32 width, Sint32 height,
                       const SmxPresentOptions *options) {
   SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
+#ifdef SDL_PLATFORM_EMSCRIPTEN
+  /*
+   * In the browser the window is the page's canvas, and it follows the page's
+   * size. It is made for OpenGL ES from the start: SDL would otherwise make it
+   * again for its renderer, which takes the canvas out of the page.
+   */
+  flags |= SDL_WINDOW_FILL_DOCUMENT | SDL_WINDOW_OPENGL;
+#endif
   SDL_Rect usable = {0, 0, 1280, 720};
   Sint32 window_w = 0;
   Sint32 window_h = 0;

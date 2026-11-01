@@ -29,6 +29,19 @@
 #define SMX_SHELL_TOUCH 1
 #endif
 
+#ifdef SDL_PLATFORM_EMSCRIPTEN
+#include <emscripten.h>
+
+/*
+ * The browser draws the canvas only when the game hands it control, so each
+ * presented frame waits for the display's next refresh. Asyncify suspends the
+ * shell's loop here and resumes it from requestAnimationFrame.
+ */
+EM_ASYNC_JS(void, smx_shell_display_wait, (), {
+  await new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
+});
+#endif
+
 /** Process entry. `int` is required by the C standard. */
 /** Audio queued ahead, in NTSC frames, before the shell waits. */
 #define SMX_SHELL_QUEUE_FRAMES 4u
@@ -223,6 +236,45 @@ typedef struct SmxShellMenu {
 #endif
 } SmxShellMenu;
 
+/*
+ * Wait `ns`. In the browser the wait hands the page control, so it can draw
+ * and play; SDL's own waits are off there, because they come through calls
+ * that Asyncify does not rewrite.
+ */
+static void smx_shell_wait(Uint64 ns) {
+#ifdef SDL_PLATFORM_EMSCRIPTEN
+  emscripten_sleep((unsigned int)(ns / SDL_NS_PER_MS));
+#else
+  SDL_DelayNS(ns);
+#endif
+}
+
+/*
+ * The browser keeps the save folder in memory; copy what changed to the
+ * page's IndexedDB storage, where the next visit finds it.
+ */
+static void smx_shell_persist(void) {
+#ifdef SDL_PLATFORM_EMSCRIPTEN
+  EM_ASM({
+    FS.syncfs(
+        false, function(error) {
+          if (error) {
+            console.warn('SuperMetroidX: saving to IndexedDB failed', error);
+          }
+        });
+  });
+#endif
+}
+
+/* Write SRAM out if the game changed it, and keep it in the browser too. */
+static void smx_shell_flush_sram(SmxSram *sram, const SmxBus *bus) {
+  bool changed = sram->saved != NULL && bus->sram != NULL &&
+                 SDL_memcmp(sram->saved, bus->sram, sram->size) != 0;
+  if (smx_sram_flush(sram, bus) && changed) {
+    smx_shell_persist();
+  }
+}
+
 /* Put the settings in effect: display, what is heard, and the resampler. */
 static void smx_shell_apply(SmxShellMenu *shell) {
   smx_present_set_options(shell->presenter, &shell->settings->display);
@@ -260,6 +312,7 @@ static void smx_shell_menu_event(SmxShellMenu *shell, SmxMenuEvent event) {
     smx_shell_apply(shell);
     if (shell->path != NULL) {
       smx_settings_save(shell->saved, shell->path);
+      smx_shell_persist();
     }
   } else if (event == SMX_MENU_RESET) {
     smx_settings_defaults(shell->saved);
@@ -267,6 +320,7 @@ static void smx_shell_menu_event(SmxShellMenu *shell, SmxMenuEvent event) {
     smx_shell_apply(shell);
     if (shell->path != NULL) {
       smx_settings_remove(shell->path);
+      smx_shell_persist();
     }
     for (; kind < SMX_CHEAT_COUNT; kind += 1) {
       shell->cheats->on[kind] = false;
@@ -593,6 +647,10 @@ int main(int argc, char **argv) {
   /* SDL would let a resizable window turn upright; the game plays sideways, as on iOS. */
   SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 #endif
+#ifdef SDL_PLATFORM_EMSCRIPTEN
+  /* The shell gives the browser control itself; see smx_shell_wait. */
+  SDL_SetHint(SDL_HINT_EMSCRIPTEN_ASYNCIFY, "0");
+#endif
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     SDL_Log("SDL_Init failed: %s", SDL_GetError());
     return 1;
@@ -791,9 +849,12 @@ int main(int argc, char **argv) {
                   event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED)) {
         smx_shell_touch_event(&shell, &event);
 #endif
+#ifndef SDL_PLATFORM_EMSCRIPTEN
+        /* A page has nothing to quit to, so Escape only leaves fullscreen there. */
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                  event.key.scancode == SDL_SCANCODE_ESCAPE) {
         running = !smx_shell_confirm_quit(presenter.window);
+#endif
       } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                  (event.key.scancode == SDL_SCANCODE_F11 ||
                   (event.key.scancode == SDL_SCANCODE_RETURN &&
@@ -807,6 +868,7 @@ int main(int argc, char **argv) {
         if (smx_shell_state_path(path, sizeof(path), rom_path)) {
           if (event.key.scancode == SDL_SCANCODE_F5) {
             if (smx_state_save(&console, rom_hash, path)) {
+              smx_shell_persist();
               SDL_Log("saved state to %s", path);
             }
           } else if (smx_state_load(&console, rom_hash, path)) {
@@ -833,7 +895,7 @@ int main(int argc, char **argv) {
                  event.type == SDL_EVENT_TERMINATING) {
         /* iOS and Android can end a suspended app without warning, so the save goes out first. */
         if (machine) {
-          smx_sram_flush(&sram, &bus);
+          smx_shell_flush_sram(&sram, &bus);
         }
         smx_sound_pause(&sound, true);
         background = true;
@@ -855,7 +917,7 @@ int main(int argc, char **argv) {
     }
 
     if (background) {
-      SDL_Delay(16);
+      smx_shell_wait(16 * SDL_NS_PER_MS);
       continue;
     }
 
@@ -871,7 +933,7 @@ int main(int argc, char **argv) {
 #endif
       smx_present_frame(&presenter,
                         renderer != NULL ? smx_overlay_finish(&overlay, now) : ppu.picture);
-      SDL_Delay(8);
+      smx_shell_wait(8 * SDL_NS_PER_MS);
       next_frame = SDL_GetTicksNS();
       continue;
     }
@@ -894,13 +956,18 @@ int main(int argc, char **argv) {
     if (playing && !smoke) {
       if (audio) {
         if (smx_sound_queued(&sound) > queue_most) {
-          SDL_DelayNS(1000000);
+#ifdef SDL_PLATFORM_EMSCRIPTEN
+          /* The browser's waits are coarse, so it waits for the next refresh instead. */
+          smx_shell_display_wait();
+#else
+          smx_shell_wait(SDL_NS_PER_MS);
+#endif
           continue;
         }
       } else {
         Uint64 now = SDL_GetTicksNS();
         if (now < next_frame) {
-          SDL_DelayNS(next_frame - now);
+          smx_shell_wait(next_frame - now);
         }
         next_frame += SMX_SHELL_FRAME_NS;
         if (SDL_GetTicksNS() > next_frame + 4u * SMX_SHELL_FRAME_NS) {
@@ -955,7 +1022,7 @@ int main(int argc, char **argv) {
       sram_clock += 1;
       if (sram_clock == SMX_SHELL_SRAM_FRAMES) {
         sram_clock = 0;
-        smx_sram_flush(&sram, &bus);
+        smx_shell_flush_sram(&sram, &bus);
       }
       if (audio) {
         /* About 533 frames of 32040 Hz stereo per NTSC frame. */
@@ -977,6 +1044,9 @@ int main(int argc, char **argv) {
 
     smx_present_frame(&presenter,
                       playing ? smx_overlay_draw(&overlay, ppu.picture, SDL_GetTicks()) : NULL);
+#ifdef SDL_PLATFORM_EMSCRIPTEN
+    smx_shell_display_wait();
+#endif
 
     if (smoke && (SDL_GetTicks() - started) >= 200) {
       running = false;
@@ -988,7 +1058,7 @@ int main(int argc, char **argv) {
     SDL_CloseGamepad(pad);
   }
   if (machine) {
-    smx_sram_flush(&sram, &bus);
+    smx_shell_flush_sram(&sram, &bus);
     smx_sram_close(&sram);
     if (!smoke) {
       smx_shell_save_coverage(&misses, rom_path, &cart);

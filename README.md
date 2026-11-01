@@ -2,7 +2,7 @@
 
 ![SuperMetroidX trailer: the title screen, Brinstar, Norfair, Kraid, Phantoon, Mother Brain, Ridley, the five cheats, scanlines, and sound](media/trailer.gif)
 
-A static recompilation of Super Metroid for Windows, macOS, and Linux, and for iPhone, iPad, and Android. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
+A static recompilation of Super Metroid for Windows, macOS, and Linux, for iPhone, iPad, and Android, and for the web browser. At build time, the 65816 program in your ROM is translated to C and compiled into the game. It runs on a cycle-timed SNES runtime (CPU, PPU, S-SMP, S-DSP, DMA, HDMA) that matches the Mesen 2 emulator frame for frame. The whole game plays from the intro to the end credits.
 
 On top of the console's behaviour, which it leaves unchanged, the game adds:
 
@@ -12,6 +12,7 @@ On top of the console's behaviour, which it leaves unchanged, the game adds:
 - five optional cheats, and turbo at up to four times the speed for elevators and the end credits
 - an intro you can skip by holding any button
 - iPhone, iPad, and Android versions with touch controls in the Super Famicom's colors
+- a version that plays in a web browser on your own computer
 - an Xcode project that builds, debugs, signs, and notarizes the Mac app
 - quick-save states
 
@@ -165,6 +166,14 @@ The same rules apply as on the Mac: a build is for your own devices, and the App
 `make android-run` installs the APK on the phone connected over USB, with **USB debugging** on in **Developer options**, or on the running emulator. With neither, it starts your first virtual device from Android Studio's **Device Manager** (or the one named by `AVD=`), then opens the game. The APK is signed with the SDK's debug key, so it installs on your own devices but isn't for Google Play.
 
 On Android, the game plays as on iPhone: in landscape, with the same touch controls, controller support, and cheats menu. The **Back** button also opens and closes the cheats menu, and **Home** leaves the game, which waits where it was. The picture goes through OpenGL ES, so it has no scanlines.
+
+### Web browser
+
+`make web` builds the translator for your computer, then builds the game with [Emscripten](https://emscripten.org) into `build/web`. It uses the Emscripten SDK in `~/emsdk`, or set `EMSDK`. `make web-run` serves the page at `http://127.0.0.1:8080` and opens it in your default browser; `WEB_PORT=` chooses another port.
+
+The page is a build of the game, so it contains your ROM like any other build. `make web-run` serves it to your computer only. Don't put it on a web server or share the link.
+
+In the browser, the game plays as on the desktop, with the keyboard or a gamepad and the settings menu (`~`). The picture fills the page through WebGL, without scanlines, and Escape doesn't quit, since a page has nothing to quit to. Sound starts with the first key press or click, as browsers require. Saves, settings, and save states are kept in the browser's storage for the page, so they survive a reload; clearing the site's data deletes them.
 
 ## Display
 
